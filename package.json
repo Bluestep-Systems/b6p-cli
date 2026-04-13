@@ -1,0 +1,29 @@
+{
+  "name": "@bluestep-systems/b6p-cli",
+  "version": "0.1.0",
+  "description": "Command-line interface for BlueStep B6P script management",
+  "license": "MIT",
+  "bin": {
+    "b6p": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "compile": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "check-types": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@bluestep-systems/b6p-core": "^0.1.0",
+    "commander": "^14.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15",
+    "esbuild": "^0.27.4",
+    "typescript": "^5.9.2"
+  }
+}
