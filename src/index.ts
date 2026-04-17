@@ -107,17 +107,20 @@ program
   .option('--file <path>', 'Derive target from local file metadata')
   .option('--root <path>', 'Script root folder')
   .option('--snapshot', 'Push as snapshot')
-  .action(async (targetUrl: string | undefined, opts: { file?: string; root?: string; snapshot?: boolean }) => {
+  .option('--message <text>', 'Commit message for snapshot history (implies --snapshot)')
+  .action(async (targetUrl: string | undefined, opts: { file?: string; root?: string; snapshot?: boolean; message?: string }) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
+    const isSnapshot = opts.snapshot || opts.message !== undefined;
     try {
       if (opts.file) {
-        await core.pushCurrent({ filePath: resolve(opts.file), snapshot: opts.snapshot });
+        await core.pushCurrent({ filePath: resolve(opts.file), snapshot: isSnapshot, message: opts.message });
       } else {
         await core.push({
           targetUrl,
           rootPath: resolve(opts.root || '.'),
-          snapshot: opts.snapshot,
+          snapshot: isSnapshot,
+          message: opts.message,
         });
       }
     } finally {
