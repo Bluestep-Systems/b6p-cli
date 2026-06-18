@@ -3,26 +3,42 @@
   "version": "0.1.0",
   "description": "Command-line interface for BlueStep B6P script management",
   "license": "MIT",
+  "homepage": "https://github.com/bluestep-systems/vscode-extension/tree/master/packages/b6p-cli",
+  "bugs": {
+    "url": "https://github.com/bluestep-systems/vscode-extension/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bluestep-systems/vscode-extension.git",
+    "directory": "packages/b6p-cli"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "bin": {
     "b6p": "./dist/cli.js"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
   "scripts": {
     "compile": "node esbuild.js --production",
     "watch": "node esbuild.js --watch",
     "check-types": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist",
-    "lint": "eslint src"
-  },
-  "dependencies": {
-    "@bluestep-systems/b6p-core": "^0.1.0",
-    "commander": "^14.0.3"
+    "lint": "eslint src",
+    "prepublishOnly": "npm run clean && npm run lint && npm run check-types && npm run compile"
   },
   "devDependencies": {
+    "@bluestep-systems/b6p-core": "^0.1.0",
     "@types/node": "^22.19.15",
+    "commander": "^14.0.3",
     "esbuild": "^0.27.4",
     "typescript": "^5.9.2"
   }
