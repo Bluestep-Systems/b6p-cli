@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a **single-package CLI**: `@bluestep-systems/b6p-cli`, published to the public npm registry and
 installed globally as the `b6p` binary (`npm i -g @bluestep-systems/b6p-cli`). It is a thin front-end
 over [`@bluestep-systems/b6p-core`](https://github.com/Bluestep-Systems/b6p-core) — the vscode-free core
-shared with the VS Code extension ([`b6p-vscode`](https://github.com/Bluestep-Systems/b6p-vscode)).
+shared with the VS Code extension ([`vscode-extension`](https://github.com/Bluestep-Systems/vscode-extension)).
 
 `b6p-core` is a **`devDependency`**, not a runtime dependency: esbuild bundles it (and `commander`,
 `fast-xml-parser`, …) into a single self-contained `dist/cli.js`. Only Node builtins stay external. This

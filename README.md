@@ -6,7 +6,7 @@ server, snapshot history, and deploy across targets.
 
 The CLI shares its core implementation
 ([`@bluestep-systems/b6p-core`](https://github.com/Bluestep-Systems/b6p-core)) with the
-[VS Code extension](https://github.com/Bluestep-Systems/b6p-vscode) and can be used standalone in
+[VS Code extension](https://github.com/Bluestep-Systems/vscode-extension) and can be used standalone in
 terminals, CI pipelines, and scripts.
 
 ## Installation

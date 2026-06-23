@@ -4,7 +4,7 @@
 
 This repository is the **single-package CLI** `@bluestep-systems/b6p-cli` — the `b6p` command-line tool,
 a thin front-end over [`@bluestep-systems/b6p-core`](https://github.com/Bluestep-Systems/b6p-core) (the
-vscode-free core, shared with the [`b6p-vscode`](https://github.com/Bluestep-Systems/b6p-vscode)
+vscode-free core, shared with the [`vscode-extension`](https://github.com/Bluestep-Systems/vscode-extension)
 extension). The entry point is [src/index.ts](src/index.ts); terminal adapters for the core's provider
 interfaces live in [src/providers/](src/providers/).
 
