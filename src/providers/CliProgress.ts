@@ -1,5 +1,5 @@
-import type { IProgress, ProgressTask } from '@bluestep-systems/b6p-core';
-import type { ActivityPauser } from './CliPrompt';
+import type { IProgress, ProgressTask } from "@bluestep-systems/b6p-core";
+import type { ActivityPauser } from "./CliPrompt";
 
 export class CliProgress implements IProgress {
   private readonly quiet: boolean;
@@ -35,13 +35,13 @@ export class CliProgress implements IProgress {
 
       if (!this.quiet) {
         const pct = Math.round((completed / total) * 100);
-        const desc = task.description ? ` - ${task.description}` : '';
+        const desc = task.description ? ` - ${task.description}` : "";
         process.stderr.write(`\r  [${completed}/${total}] ${pct}%${desc}`);
       }
     }
 
     if (!this.quiet) {
-      process.stderr.write('\n');
+      process.stderr.write("\n");
       if (options.cleanupMessage) {
         process.stderr.write(`  ${options.cleanupMessage}\n`);
       }

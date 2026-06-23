@@ -1,10 +1,9 @@
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { B6PUri } from '@bluestep-systems/b6p-core';
-import type { FileStat, IFileSystem } from '@bluestep-systems/b6p-core';
+import * as fs from "fs/promises";
+import * as path from "path";
+import { B6PUri } from "@bluestep-systems/b6p-core";
+import type { FileStat, IFileSystem } from "@bluestep-systems/b6p-core";
 
 export class NodeFileSystem implements IFileSystem {
-
   async readFile(uri: B6PUri): Promise<Uint8Array> {
     return fs.readFile(uri.fsPath);
   }
@@ -18,18 +17,15 @@ export class NodeFileSystem implements IFileSystem {
   async stat(uri: B6PUri): Promise<FileStat> {
     const s = await fs.stat(uri.fsPath);
     return {
-      type: s.isDirectory() ? 'directory' : 'file',
+      type: s.isDirectory() ? "directory" : "file",
       mtime: s.mtimeMs,
       size: s.size,
     };
   }
 
-  async readDirectory(uri: B6PUri): Promise<[string, 'file' | 'directory'][]> {
+  async readDirectory(uri: B6PUri): Promise<[string, "file" | "directory"][]> {
     const entries = await fs.readdir(uri.fsPath, { withFileTypes: true });
-    return entries.map(e => [
-      e.name,
-      e.isDirectory() ? 'directory' : 'file',
-    ]);
+    return entries.map((e) => [e.name, e.isDirectory() ? "directory" : "file"]);
   }
 
   async delete(uri: B6PUri, options?: { recursive?: boolean }): Promise<void> {
@@ -78,11 +74,11 @@ export class NodeFileSystem implements IFileSystem {
   }
 
   private matchesGlob(name: string, pattern: string): boolean {
-    if (pattern === '*' || pattern === '**/*') {
+    if (pattern === "*" || pattern === "**/*") {
       return true;
     }
     // Simple extension match for patterns like "*.ts"
-    if (pattern.startsWith('*.')) {
+    if (pattern.startsWith("*.")) {
       return name.endsWith(pattern.slice(1));
     }
     return name === pattern;
@@ -114,7 +110,7 @@ export class NodeFileSystem implements IFileSystem {
   }
 
   isWritableFileSystem(scheme: string): boolean | undefined {
-    if (scheme === 'file') {
+    if (scheme === "file") {
       return true;
     }
     return undefined;

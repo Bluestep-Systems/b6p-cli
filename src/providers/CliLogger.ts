@@ -1,5 +1,5 @@
-import type { ILogger } from '@bluestep-systems/b6p-core';
-import type { ActivityPauser } from './CliPrompt';
+import type { ILogger } from "@bluestep-systems/b6p-core";
+import type { ActivityPauser } from "./CliPrompt";
 
 export class CliLogger implements ILogger {
   private readonly verbose: boolean;
@@ -21,21 +21,21 @@ export class CliLogger implements ILogger {
 
   info(...args: unknown[]): void {
     if (this.verbose) {
-      this.write(`[INFO] ${args.map(String).join(' ')}\n`);
+      this.write(`[INFO] ${args.map(String).join(" ")}\n`);
     }
   }
 
   warn(...args: unknown[]): void {
-    this.write(`[WARN] ${args.map(String).join(' ')}\n`);
+    this.write(`[WARN] ${args.map(String).join(" ")}\n`);
   }
 
   error(...args: unknown[]): void {
-    this.write(`[ERROR] ${args.map(String).join(' ')}\n`);
+    this.write(`[ERROR] ${args.map(String).join(" ")}\n`);
   }
 
   debug(...args: unknown[]): void {
     if (this.verbose) {
-      this.write(`[DEBUG] ${args.map(String).join(' ')}\n`);
+      this.write(`[DEBUG] ${args.map(String).join(" ")}\n`);
     }
   }
 }

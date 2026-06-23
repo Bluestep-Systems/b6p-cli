@@ -1,14 +1,14 @@
-import { Command } from 'commander';
-import * as path from 'path';
-import * as fs from 'fs/promises';
-import * as os from 'os';
-import { B6PCore } from '@bluestep-systems/b6p-core';
-import { SharedFilePersistence } from '@bluestep-systems/b6p-core';
-import { NodeFileSystem } from './providers/NodeFileSystem';
-import { CliPrompt } from './providers/CliPrompt';
-import { CliLogger } from './providers/CliLogger';
-import { CliProgress } from './providers/CliProgress';
-import { Spinner } from './providers/Spinner';
+import { Command } from "commander";
+import * as path from "path";
+import * as fs from "fs/promises";
+import * as os from "os";
+import { B6PCore } from "@bluestep-systems/b6p-core";
+import { SharedFilePersistence } from "@bluestep-systems/b6p-core";
+import { NodeFileSystem } from "./providers/NodeFileSystem";
+import { CliPrompt } from "./providers/CliPrompt";
+import { CliLogger } from "./providers/CliLogger";
+import { CliProgress } from "./providers/CliProgress";
+import { Spinner } from "./providers/Spinner";
 
 function resolve(p: string): string {
   return path.resolve(process.cwd(), p);
@@ -16,7 +16,7 @@ function resolve(p: string): string {
 
 async function createCore(
   globalOpts: { yes?: boolean; json?: boolean; verbose?: boolean; quiet?: boolean },
-  initialSpinnerLabel = 'Working…',
+  initialSpinnerLabel = "Working…"
 ): Promise<{
   core: B6PCore;
   prompt: CliPrompt;
@@ -55,9 +55,9 @@ async function createCore(
  * target file doesn't yet exist.
  */
 async function migrateLegacyDotfiles(persistence: SharedFilePersistence): Promise<void> {
-  const configDir = path.join(os.homedir(), '.b6p');
-  const legacySecretsPath = path.join(configDir, 'secrets.json');
-  const legacyStateDir = path.join(configDir, 'state');
+  const configDir = path.join(os.homedir(), ".b6p");
+  const legacySecretsPath = path.join(configDir, "secrets.json");
+  const legacyStateDir = path.join(configDir, "state");
 
   await persistence.seedIfMissing({
     publicEntries: async () => {
@@ -65,24 +65,32 @@ async function migrateLegacyDotfiles(persistence: SharedFilePersistence): Promis
       try {
         const names = await fs.readdir(legacyStateDir);
         for (const name of names) {
-          if (!name.endsWith('.json')) {continue;}
+          if (!name.endsWith(".json")) {
+            continue;
+          }
           const full = path.join(legacyStateDir, name);
           try {
-            const raw = await fs.readFile(full, 'utf-8');
+            const raw = await fs.readFile(full, "utf-8");
             const data = JSON.parse(raw) as Record<string, unknown>;
             entries.push({ size: raw.length, data });
-          } catch { /* skip unreadable */ }
+          } catch {
+            /* skip unreadable */
+          }
         }
-      } catch { /* no legacy dir */ }
+      } catch {
+        /* no legacy dir */
+      }
       // Merge small → large so larger files win on collision.
       entries.sort((a, b) => a.size - b.size);
       const merged: Record<string, unknown> = {};
-      for (const e of entries) {Object.assign(merged, e.data);}
+      for (const e of entries) {
+        Object.assign(merged, e.data);
+      }
       return merged;
     },
     secretEntries: async () => {
       try {
-        const raw = await fs.readFile(legacySecretsPath, 'utf-8');
+        const raw = await fs.readFile(legacySecretsPath, "utf-8");
         return JSON.parse(raw) as Record<string, string>;
       } catch {
         return {};
@@ -91,51 +99,56 @@ async function migrateLegacyDotfiles(persistence: SharedFilePersistence): Promis
   });
 }
 
-const program = new Command('b6p')
-  .description('BlueStep B6P script management CLI')
-  .version('0.0.1')
-  .option('--yes', 'Skip confirmation prompts')
-  .option('--json', 'Machine-readable JSON output')
-  .option('--verbose', 'Verbose logging')
-  .option('--quiet', 'Suppress progress output');
+const program = new Command("b6p")
+  .description("BlueStep B6P script management CLI")
+  .version("0.0.1")
+  .option("--yes", "Skip confirmation prompts")
+  .option("--json", "Machine-readable JSON output")
+  .option("--verbose", "Verbose logging")
+  .option("--quiet", "Suppress progress output");
 
 // ── Push ──────────────────────────────────────────────────────────
 
 program
-  .command('push [target-url]')
-  .description('Push a script to a WebDAV target')
-  .option('--file <path>', 'Derive target from local file metadata')
-  .option('--root <path>', 'Script root folder')
-  .option('--snapshot', 'Push as snapshot')
-  .option('--message <text>', 'Commit message for snapshot history (implies --snapshot)')
-  .action(async (targetUrl: string | undefined, opts: { file?: string; root?: string; snapshot?: boolean; message?: string }) => {
-    const globalOpts = program.opts();
-    const { core, prompt, spinner } = await createCore(globalOpts);
-    const isSnapshot = opts.snapshot || opts.message !== undefined;
-    try {
-      if (opts.file) {
-        await core.pushCurrent({ filePath: resolve(opts.file), snapshot: isSnapshot, message: opts.message });
-      } else {
-        await core.push({
-          targetUrl,
-          rootPath: resolve(opts.root || '.'),
-          snapshot: isSnapshot,
-          message: opts.message,
-        });
+  .command("push [target-url]")
+  .description("Push a script to a WebDAV target")
+  .option("--file <path>", "Derive target from local file metadata")
+  .option("--root <path>", "Script root folder")
+  .option("--snapshot", "Push as snapshot")
+  .option("--message <text>", "Commit message for snapshot history (implies --snapshot)")
+  .action(
+    async (
+      targetUrl: string | undefined,
+      opts: { file?: string; root?: string; snapshot?: boolean; message?: string }
+    ) => {
+      const globalOpts = program.opts();
+      const { core, prompt, spinner } = await createCore(globalOpts);
+      const isSnapshot = opts.snapshot || opts.message !== undefined;
+      try {
+        if (opts.file) {
+          await core.pushCurrent({ filePath: resolve(opts.file), snapshot: isSnapshot, message: opts.message });
+        } else {
+          await core.push({
+            targetUrl,
+            rootPath: resolve(opts.root || "."),
+            snapshot: isSnapshot,
+            message: opts.message,
+          });
+        }
+      } finally {
+        spinner.stop();
+        prompt.close();
       }
-    } finally {
-      spinner.stop();
-      prompt.close();
     }
-  });
+  );
 
 // ── Pull ──────────────────────────────────────────────────────────
 
 program
-  .command('pull [formula-url]')
-  .description('Pull a script from a WebDAV location')
-  .option('--file <path>', 'Derive source from local file metadata')
-  .option('--workspace <path>', 'Target workspace folder (default: cwd)')
+  .command("pull [formula-url]")
+  .description("Pull a script from a WebDAV location")
+  .option("--file <path>", "Derive source from local file metadata")
+  .option("--workspace <path>", "Target workspace folder (default: cwd)")
   .action(async (formulaUrl: string | undefined, opts: { file?: string; workspace?: string }) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
@@ -144,15 +157,15 @@ program
       // use --file if provided, otherwise treat cwd as the file path so the
       // script root can be derived by walking up.
       if (!formulaUrl) {
-        const filePath = resolve(opts.file ?? '.');
+        const filePath = resolve(opts.file ?? ".");
         const workspacePath = opts.workspace
           ? resolve(opts.workspace)
-          : core.deriveWorkspacePath(filePath) ?? process.cwd();
+          : (core.deriveWorkspacePath(filePath) ?? process.cwd());
         await core.pullCurrent({ filePath, workspacePath });
       } else {
         await core.pull({
           formulaUrl,
-          workspacePath: resolve(opts.workspace || '.'),
+          workspacePath: resolve(opts.workspace || "."),
         });
       }
     } finally {
@@ -164,25 +177,25 @@ program
 // ── Audit ─────────────────────────────────────────────────────────
 
 program
-  .command('audit')
-  .description('Compare local script against server state')
-  .option('--file <path>', 'File within the script to audit (default: cwd)')
-  .option('--pull', 'Pull if differences are detected')
-  .option('--workspace <path>', 'Workspace folder (default: cwd)')
+  .command("audit")
+  .description("Compare local script against server state")
+  .option("--file <path>", "File within the script to audit (default: cwd)")
+  .option("--pull", "Pull if differences are detected")
+  .option("--workspace <path>", "Workspace folder (default: cwd)")
   .action(async (opts: { file?: string; pull?: boolean; workspace?: string }) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
     try {
-      const filePath = resolve(opts.file ?? '.');
+      const filePath = resolve(opts.file ?? ".");
       const workspacePath = opts.workspace
         ? resolve(opts.workspace)
-        : core.deriveWorkspacePath(filePath) ?? process.cwd();
+        : (core.deriveWorkspacePath(filePath) ?? process.cwd());
       if (opts.pull) {
         await core.auditPull({ filePath, workspacePath });
       } else {
         const result = await core.audit({ filePath, workspacePath });
         if (globalOpts.json) {
-          process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+          process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         }
       }
     } finally {
@@ -194,8 +207,8 @@ program
 // ── Deploy ────────────────────────────────────────────────────────
 
 program
-  .command('deploy <config-file>')
-  .description('Quick deploy from a config file to multiple targets')
+  .command("deploy <config-file>")
+  .description("Quick deploy from a config file to multiple targets")
   .action(async (configFile: string) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
@@ -209,13 +222,11 @@ program
 
 // ── Auth ──────────────────────────────────────────────────────────
 
-const auth = program
-  .command('auth')
-  .description('Manage credentials');
+const auth = program.command("auth").description("Manage credentials");
 
 auth
-  .command('set')
-  .description('Set or update credentials')
+  .command("set")
+  .description("Set or update credentials")
   .action(async () => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
@@ -228,8 +239,8 @@ auth
   });
 
 auth
-  .command('clear')
-  .description('Clear stored credentials')
+  .command("clear")
+  .description("Clear stored credentials")
   .action(async () => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
@@ -244,10 +255,10 @@ auth
 // ── Sessions ──────────────────────────────────────────────────────
 
 program
-  .command('sessions')
-  .description('Manage sessions')
-  .command('clear')
-  .description('Clear all active sessions')
+  .command("sessions")
+  .description("Manage sessions")
+  .command("clear")
+  .description("Clear all active sessions")
   .action(async () => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
@@ -261,13 +272,11 @@ program
 
 // ── Config ────────────────────────────────────────────────────────
 
-const config = program
-  .command('config')
-  .description('Manage configuration');
+const config = program.command("config").description("Manage configuration");
 
 config
-  .command('set <key> <value>')
-  .description('Set a configuration value')
+  .command("set <key> <value>")
+  .description("Set a configuration value")
   .action(async (key: string, value: string) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
@@ -286,8 +295,8 @@ config
   });
 
 config
-  .command('reset')
-  .description('Reset all settings to defaults')
+  .command("reset")
+  .description("Reset all settings to defaults")
   .action(async () => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
@@ -302,15 +311,15 @@ config
 // ── Report ────────────────────────────────────────────────────────
 
 program
-  .command('report')
-  .description('Report current state')
+  .command("report")
+  .description("Report current state")
   .action(async () => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
     try {
       const result = await core.report();
       if (globalOpts.json) {
-        process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+        process.stdout.write(JSON.stringify(result, null, 2) + "\n");
       }
     } finally {
       spinner.stop();
@@ -321,8 +330,8 @@ program
 // ── Check Updates ─────────────────────────────────────────────────
 
 program
-  .command('check-updates')
-  .description('Check for extension updates')
+  .command("check-updates")
+  .description("Check for extension updates")
   .action(async () => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
@@ -337,9 +346,9 @@ program
 // ── Setup ─────────────────────────────────────────────────────────
 
 program
-  .command('setup')
-  .description('Print the setup URL for a script')
-  .requiredOption('--file <path>', 'File within the script')
+  .command("setup")
+  .description("Print the setup URL for a script")
+  .requiredOption("--file <path>", "File within the script")
   .action(async (opts: { file: string }) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
@@ -347,7 +356,7 @@ program
       const url = await core.getSetupUrl({ filePath: resolve(opts.file) });
       if (url) {
         if (globalOpts.json) {
-          process.stdout.write(JSON.stringify({ setupUrl: url }, null, 2) + '\n');
+          process.stdout.write(JSON.stringify({ setupUrl: url }, null, 2) + "\n");
         } else {
           prompt.info(`Setup URL: ${url}`);
         }

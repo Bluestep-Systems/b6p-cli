@@ -1,8 +1,8 @@
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
-import * as crypto from 'crypto';
-import type { IPersistence } from '@bluestep-systems/b6p-core';
+import * as fs from "fs/promises";
+import * as path from "path";
+import * as os from "os";
+import * as crypto from "crypto";
+import type { IPersistence } from "@bluestep-systems/b6p-core";
 
 /**
  * File-based persistence for CLI use.
@@ -22,10 +22,10 @@ export class DotfilePersistence implements IPersistence {
   private secretsCache: Record<string, string> | null = null;
 
   constructor(workspacePath: string) {
-    this.configDir = path.join(os.homedir(), '.b6p');
-    const hash = crypto.createHash('sha256').update(workspacePath).digest('hex').slice(0, 12);
-    this.statePath = path.join(this.configDir, 'state', `${hash}.json`);
-    this.secretsPath = path.join(this.configDir, 'secrets.json');
+    this.configDir = path.join(os.homedir(), ".b6p");
+    const hash = crypto.createHash("sha256").update(workspacePath).digest("hex").slice(0, 12);
+    this.statePath = path.join(this.configDir, "state", `${hash}.json`);
+    this.secretsPath = path.join(this.configDir, "secrets.json");
   }
 
   // ── Public state ──────────────────────────────────────────────────
@@ -82,7 +82,7 @@ export class DotfilePersistence implements IPersistence {
     if (this.stateCache) {
       return this.stateCache;
     }
-    this.stateCache = await this.readJsonFile<Record<string, unknown>>(this.statePath) ?? {};
+    this.stateCache = (await this.readJsonFile<Record<string, unknown>>(this.statePath)) ?? {};
     return this.stateCache;
   }
 
@@ -95,7 +95,7 @@ export class DotfilePersistence implements IPersistence {
     if (this.secretsCache) {
       return this.secretsCache;
     }
-    this.secretsCache = await this.readJsonFile<Record<string, string>>(this.secretsPath) ?? {};
+    this.secretsCache = (await this.readJsonFile<Record<string, string>>(this.secretsPath)) ?? {};
     return this.secretsCache;
   }
 
@@ -106,7 +106,7 @@ export class DotfilePersistence implements IPersistence {
 
   private async readJsonFile<T>(filePath: string): Promise<T | null> {
     try {
-      const raw = await fs.readFile(filePath, 'utf-8');
+      const raw = await fs.readFile(filePath, "utf-8");
       return JSON.parse(raw) as T;
     } catch {
       return null;
@@ -115,7 +115,7 @@ export class DotfilePersistence implements IPersistence {
 
   private async writeJsonFile(filePath: string, data: unknown, mode?: number): Promise<void> {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf-8");
     if (mode !== undefined) {
       await fs.chmod(filePath, mode);
     }

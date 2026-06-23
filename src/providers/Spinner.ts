@@ -9,7 +9,7 @@
  *   clean lines without fighting the spinner.
  */
 export class Spinner {
-  private static readonly FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  private static readonly FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   private static readonly INTERVAL_MS = 100;
 
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -24,7 +24,9 @@ export class Spinner {
   }
 
   start(): void {
-    if (!this.enabled || this.timer) {return;}
+    if (!this.enabled || this.timer) {
+      return;
+    }
     this.render();
     this.timer = setInterval(() => {
       this.frame = (this.frame + 1) % Spinner.FRAMES.length;
@@ -41,13 +43,17 @@ export class Spinner {
   }
 
   pause(): void {
-    if (!this.enabled || this.paused) {return;}
+    if (!this.enabled || this.paused) {
+      return;
+    }
     this.paused = true;
     this.clearLine();
   }
 
   resume(): void {
-    if (!this.enabled || !this.paused) {return;}
+    if (!this.enabled || !this.paused) {
+      return;
+    }
     this.paused = false;
     this.render();
   }
@@ -63,11 +69,13 @@ export class Spinner {
   }
 
   private render(): void {
-    if (this.paused) {return;}
+    if (this.paused) {
+      return;
+    }
     process.stderr.write(`\r${Spinner.FRAMES[this.frame]} ${this.label}`);
   }
 
   private clearLine(): void {
-    process.stderr.write('\r\x1b[K');
+    process.stderr.write("\r\x1b[K");
   }
 }

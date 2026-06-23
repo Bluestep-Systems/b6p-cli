@@ -1,5 +1,5 @@
-import * as readline from 'readline/promises';
-import type { IPrompt } from '@bluestep-systems/b6p-core';
+import * as readline from "readline/promises";
+import type { IPrompt } from "@bluestep-systems/b6p-core";
 
 /**
  * CLI implementation of the prompt provider.
@@ -64,12 +64,12 @@ export class CliPrompt implements IPrompt {
       return options[0];
     }
     return this.aroundIO(async () => {
-      const optStr = options.map((o, i) => i === 0 ? `[${o}]` : o).join(' / ');
+      const optStr = options.map((o, i) => (i === 0 ? `[${o}]` : o)).join(" / ");
       const answer = await this.getRL().question(`${message}\n${optStr}: `);
       if (!answer) {
         return options[0];
       }
-      return options.find(o => o.toLowerCase() === answer.toLowerCase());
+      return options.find((o) => o.toLowerCase() === answer.toLowerCase());
     });
   }
 
