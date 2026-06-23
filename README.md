@@ -4,30 +4,23 @@ Command-line interface for managing [BlueStep](https://www.bluestep.net/) B6P
 scripts: pull components from the platform, push changes back, audit local vs.
 server, snapshot history, and deploy across targets.
 
-The CLI shares its core implementation with the
-[`bsjs-push-pull` VS Code extension](https://github.com/bluestep-systems/vscode-extension)
-and can be used standalone in terminals, CI pipelines, and scripts.
+The CLI shares its core implementation
+([`@bluestep-systems/b6p-core`](https://github.com/Bluestep-Systems/b6p-core)) with the
+[VS Code extension](https://github.com/Bluestep-Systems/b6p-vscode) and can be used standalone in
+terminals, CI pipelines, and scripts.
 
 ## Installation
 
-This package is published to [GitHub Packages](https://docs.github.com/en/packages),
-not the public npm registry. You need a GitHub personal access token (PAT) with
-`read:packages` scope to install it, and `write:packages` to publish.
+This package is published to the public [npm registry](https://www.npmjs.com/), so no authentication is
+required to install it.
 
-1. Create a `.npmrc` in your home directory or project (do **not** commit it):
-
-   ```ini
-   @bluestep-systems:registry=https://npm.pkg.github.com
-   //npm.pkg.github.com/:_authToken=YOUR_GITHUB_PAT
-   ```
-
-2. Install globally:
+1. Install globally:
 
    ```bash
    npm install -g @bluestep-systems/b6p-cli
    ```
 
-3. Verify:
+2. Verify:
 
    ```bash
    b6p --help
@@ -59,6 +52,21 @@ https://<org>.bluestep.net/files/<id>/draft/
 When a file has been pulled previously, the WebDAV URL is stored in its
 metadata — pass `--file <path>` instead of re-typing the URL.
 
+## Development
+
+```bash
+npm install
+npm run check-types   # tsc --noEmit
+npm run lint          # eslint
+npm run compile       # esbuild → dist/cli.js (self-contained bundle)
+npm run watch         # esbuild --watch
+npm run format        # prettier --write
+npm run clean         # rm -rf dist
+```
+
+`npm run compile` bundles the CLI and `@bluestep-systems/b6p-core` into a single self-contained
+`dist/cli.js` (only Node builtins stay external), which is what the `b6p` binary runs.
+
 ## License
 
-MIT — see [LICENSE](https://github.com/bluestep-systems/vscode-extension/blob/master/LICENSE).
+MIT
