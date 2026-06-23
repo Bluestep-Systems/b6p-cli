@@ -3,20 +3,19 @@
   "version": "0.1.0",
   "description": "Command-line interface for BlueStep B6P script management",
   "license": "MIT",
-  "homepage": "https://github.com/bluestep-systems/vscode-extension/tree/master/packages/b6p-cli",
+  "homepage": "https://github.com/Bluestep-Systems/b6p-cli#readme",
   "bugs": {
-    "url": "https://github.com/bluestep-systems/vscode-extension/issues"
+    "url": "https://github.com/Bluestep-Systems/b6p-cli/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bluestep-systems/vscode-extension.git",
-    "directory": "packages/b6p-cli"
+    "url": "git+https://github.com/Bluestep-Systems/b6p-cli.git"
   },
   "engines": {
     "node": ">=18"
   },
   "bin": {
-    "b6p": "./dist/cli.js"
+    "b6p": "dist/cli.js"
   },
   "files": [
     "dist",
