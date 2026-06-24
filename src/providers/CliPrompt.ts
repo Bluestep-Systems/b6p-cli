@@ -94,15 +94,17 @@ export class CliPrompt implements IPrompt {
 
       // A readline interface created earlier (e.g. by the username prompt)
       // stays attached to stdin and echoes every keystroke via its own
-      // keypress handler. Merely pausing it is not enough: resuming stdin for
+      // `keypress` handler. Merely pausing it is not enough: resuming stdin for
       // the raw read re-enables that echo, printing the real character next to
-      // each masking `*`. Close it and detach its stdin listeners so our
-      // masking is the only writer; getRL() recreates it lazily for any later
-      // non-masked prompt.
+      // each masking `*`. Close it and strip the `keypress` listeners so our
+      // masking is the only writer. We deliberately leave `data` listeners
+      // alone: Node's `emitKeypressEvents` installs a shared, idempotent
+      // `data`→`keypress` decoder there, and removing it would prevent any
+      // later readline prompt (recreated lazily by getRL()) from receiving
+      // input at all.
       this.rl?.close();
       this.rl = null;
       input.removeAllListeners("keypress");
-      input.removeAllListeners("data");
 
       const wasRaw = input.isRaw;
       input.setRawMode(true);
