@@ -92,10 +92,17 @@ export class CliPrompt implements IPrompt {
       let value = "";
       let done = false;
 
-      // Pause the shared readline interface (if created) so it does not also
-      // consume the raw `data` events we are about to listen for.
-      const hadRL = this.rl !== null;
-      this.rl?.pause();
+      // A readline interface created earlier (e.g. by the username prompt)
+      // stays attached to stdin and echoes every keystroke via its own
+      // keypress handler. Merely pausing it is not enough: resuming stdin for
+      // the raw read re-enables that echo, printing the real character next to
+      // each masking `*`. Close it and detach its stdin listeners so our
+      // masking is the only writer; getRL() recreates it lazily for any later
+      // non-masked prompt.
+      this.rl?.close();
+      this.rl = null;
+      input.removeAllListeners("keypress");
+      input.removeAllListeners("data");
 
       const wasRaw = input.isRaw;
       input.setRawMode(true);
@@ -110,9 +117,6 @@ export class CliPrompt implements IPrompt {
         input.removeListener("data", onData);
         input.setRawMode(wasRaw);
         input.pause();
-        if (hadRL) {
-          this.rl?.resume();
-        }
       };
 
       const onData = (chunk: string): void => {
