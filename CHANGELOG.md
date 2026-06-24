@@ -5,6 +5,16 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-06-24
+
+### Fixed
+
+- Password prompts now mask typed input (echoed as `*`) instead of displaying it in
+  plaintext. `CliPrompt.inputBox()` previously ignored its `password` flag, leaking
+  credentials entered during `b6p auth` to the terminal and scrollback. Masking uses
+  raw-mode stdin on a TTY and falls back to the standard read for piped/non-TTY input.
+  ([#1](https://github.com/Bluestep-Systems/b6p-cli/issues/1))
+
 ## [0.1.0] — 2026-06-23
 
 Initial standalone release of the `b6p` CLI, extracted (with history) from the former
