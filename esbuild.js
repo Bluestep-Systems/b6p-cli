@@ -1,5 +1,6 @@
 const esbuild = require("esbuild");
 const fs = require("fs");
+const { version } = require("./package.json");
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -39,6 +40,10 @@ async function main() {
     sourcesContent: false,
     platform: 'node',
     outfile: 'dist/cli.js',
+    // Inject the package version at build time. The CLI ships as a single bundle
+    // (and as a SEA binary) with no package.json available at runtime, so the
+    // version can't be require()'d — esbuild replaces __B6P_VERSION__ inline.
+    define: { __B6P_VERSION__: JSON.stringify(version) },
     // Bundle @bluestep-systems/b6p-core in (don't externalize) so the CLI is self-contained.
     // Only Node builtins are external; npm-installed deps (commander, fast-xml-parser) get bundled.
     // NOTE: this `external` list is coupled to package.json. Because everything non-builtin is

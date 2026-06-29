@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`npm i -g @bluestep-systems/b6p-cli`) is **unchanged** and remains the primary distribution. See
   [the toolchain ADR](docs/adr/0001-standalone-binary-toolchain.md).
 
+### Fixed
+
+- `b6p --version` now reports the actual package version instead of a hardcoded `0.0.1`. The version
+  is injected at build time via an esbuild `define` (`__B6P_VERSION__`), so it stays correct in both
+  the npm bundle and the standalone binary — neither of which can read `package.json` at runtime.
+
 ## [0.1.1] — 2026-06-24
 
 ### Fixed
