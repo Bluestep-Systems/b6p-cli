@@ -15,6 +15,11 @@ Hard constraints for this repo:
   is a bundled `devDependency` (esbuild inlines it into `dist/cli.js`); see [esbuild.js](esbuild.js).
 - **Never use `any`.** If it appears unavoidable, leave a `//HUMAN-REVIEW-NEEDED` comment explaining the
   situation. If a human reviewer later accepts `any`, they add a `//REASON-FOR-ANY` comment.
+- **The npm artifact must stay unchanged by binary work.** A standalone-binary pipeline
+  ([scripts/build-sea.mjs](scripts/build-sea.mjs) → [.github/workflows/release.yml](.github/workflows/release.yml))
+  ships Node-bundling `b6p` executables on GitHub Releases, built from the same `dist/cli.js`. Never alter
+  `publish.yml`, the `bin` mapping, or `package.json` `files`/`dependencies` to accommodate it. Rationale:
+  [docs/adr/0001-standalone-binary-toolchain.md](docs/adr/0001-standalone-binary-toolchain.md).
 
 ## Required Documentation Updates
 

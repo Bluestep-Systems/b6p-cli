@@ -1,6 +1,6 @@
 {
   "name": "@bluestep-systems/b6p-cli",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Command-line interface for BlueStep B6P script management",
   "license": "MIT",
   "homepage": "https://github.com/Bluestep-Systems/b6p-cli#readme",
@@ -27,6 +27,7 @@
   },
   "scripts": {
     "compile": "node esbuild.js --production",
+    "build:sea": "node scripts/build-sea.mjs",
     "watch": "node esbuild.js --watch",
     "check-types": "tsc -p tsconfig.json --noEmit",
     "clean": "rm -rf dist",
