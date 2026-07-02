@@ -69,10 +69,12 @@ jobs:
       - name: Install dependencies
         run: |
           for i in 1 2 3; do
-            npm ci --prefer-offline --no-audit && break
-            echo "Attempt $i failed, retrying..."
-            sleep 5
+            npm ci --prefer-offline --no-audit && exit 0
+            echo "Attempt $i failed."
+            [ "$i" -lt 3 ] && sleep 5
           done
+          echo "::error::npm ci failed after 3 attempts"
+          exit 1
 
       # Guard against attaching a binary to a tag whose version doesn't match
       # package.json (mirrors publish.yml's check).

@@ -54,7 +54,8 @@ ensuring that directory is on your `PATH`:
 
 Then `b6p <command>` works from any shell, with no Node or npm present. On macOS the binary is ad-hoc
 signed (so it runs) but not notarized; a copy downloaded via a browser may be quarantined by Gatekeeper —
-clear it with `xattr -d com.apple.quarantine ~/.bluestep/bin/b6p` and make it executable with `chmod +x`.
+clear it with `xattr -d com.apple.quarantine ~/.bluestep/bin/b6p` and make it executable with
+`chmod +x ~/.bluestep/bin/b6p`.
 
 The npm install above is unchanged and remains the recommended path wherever Node is available.
 

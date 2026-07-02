@@ -28,6 +28,10 @@ const SENTINEL_FUSE = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
 const BLOB = "sea-prep.blob";
 const SEA_CONFIG = "sea-config.json";
 
+// Pin postject so release builds are reproducible and immune to a breaking
+// change shipping under the floating `latest` tag. Bump deliberately.
+const POSTJECT_VERSION = "1.0.0-alpha.6";
+
 // Smoke-test guard: a binary that takes longer than this to print --help is
 // treated as broken rather than hung.
 const SMOKE_TIMEOUT_MS = 60_000;
@@ -77,7 +81,9 @@ function main() {
   // 5. Inject the blob into the copied runtime. On Mach-O the blob lives in a
   //    dedicated segment; ELF/PE use a resource section, so the flag is mac-only.
   const machoFlag = isMac ? " --macho-segment-name NODE_SEA" : "";
-  run(`npx --yes postject ${out} NODE_SEA_BLOB ${BLOB} --sentinel-fuse ${SENTINEL_FUSE}${machoFlag}`);
+  run(
+    `npx --yes postject@${POSTJECT_VERSION} ${out} NODE_SEA_BLOB ${BLOB} --sentinel-fuse ${SENTINEL_FUSE}${machoFlag}`
+  );
 
   // 6. macOS: re-sign ad-hoc. On Apple Silicon an unsigned arm64 binary is
   //    killed by the kernel on exec, so this is mandatory (not notarization).
