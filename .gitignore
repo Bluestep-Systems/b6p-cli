@@ -1,3 +1,10 @@
 node_modules/
 dist/
 *.tgz
+
+# Standalone-binary build artifacts (scripts/build-sea.mjs)
+sea-prep.blob
+b6p-windows-*
+b6p-macos-*
+b6p-linux-*
+*.sha256

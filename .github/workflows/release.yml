@@ -1,0 +1,105 @@
+# ============================================================================
+# b6p-cli Release Binaries
+# ============================================================================
+# Purpose: When a GitHub Release is published for a version tag, build the
+#          standalone, Node-bundling `b6p` binary for each target platform and
+#          attach it (plus a .sha256 sidecar) to that Release.
+#
+#          Publishing a Release is the admin act that APPROVES a version;
+#          deleting/yanking the Release pulls the binaries. npm publishing is
+#          independent and lives in publish.yml (tag-triggered) — this workflow
+#          does NOT touch it.
+#
+# Toolchain: Node SEA + postject. SEA cannot cross-compile, so each OS/arch is
+#            built on its own runner. See docs/adr/0001-standalone-binary-toolchain.md
+#            and scripts/build-sea.mjs.
+# ============================================================================
+
+name: Release Binaries
+
+on:
+  release:
+    types: [published]
+
+# Least privilege: uploading Release assets needs write access to repo contents.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false # Never cancel an in-flight asset upload.
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false # One platform failing must not abort the others.
+      matrix:
+        include:
+          - os: windows-latest # x64
+            asset: b6p-windows-x64.exe
+          - os: macos-13 # Intel
+            asset: b6p-macos-x64
+          - os: macos-14 # Apple Silicon
+            asset: b6p-macos-arm64
+
+    defaults:
+      run:
+        shell: bash # Uniform shell across Windows/macOS runners.
+
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: |
+          for i in 1 2 3; do
+            npm ci --prefer-offline --no-audit && exit 0
+            echo "Attempt $i failed."
+            [ "$i" -lt 3 ] && sleep 5
+          done
+          echo "::error::npm ci failed after 3 attempts"
+          exit 1
+
+      # Guard against attaching a binary to a tag whose version doesn't match
+      # package.json (mirrors publish.yml's check).
+      - name: Verify tag matches package.json version
+        run: |
+          set -euo pipefail
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${TAG#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag $TAG does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+          echo "::notice::Building $asset for version $PKG_VERSION"
+        env:
+          asset: ${{ matrix.asset }}
+
+      # Builds dist/cli.js, injects it into a copy of the host Node runtime via
+      # SEA + postject, writes <asset>.sha256, and smoke-tests the binary. A
+      # smoke-test failure fails the job here, so a broken binary is never
+      # uploaded.
+      - name: Build standalone binary
+        run: npm run build:sea
+
+      - name: Upload binary to release
+        run: gh release upload "$TAG" "$asset" "$asset.sha256" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+          asset: ${{ matrix.asset }}

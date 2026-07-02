@@ -18,6 +18,7 @@ coupling is documented in [esbuild.js](esbuild.js) — if you externalize a pack
 
 ```bash
 npm run compile       # Bundle → dist/cli.js (esbuild, production)
+npm run build:sea     # Standalone binary for the current OS (Node SEA; see docs/adr/0001)
 npm run watch         # Rebuild on change (esbuild --watch)
 npm run check-types   # Type-check only (tsc --noEmit)
 npm run lint          # ESLint
@@ -52,6 +53,22 @@ the CLI. The CLI only adapts I/O, prompting, logging, and progress to a terminal
   overrides in `tsconfig.json` (`noEmit: true` — esbuild produces the artifact, not `tsc`).
 - **Output**: `dist/cli.js`, a single CJS bundle with a `#!/usr/bin/env node` banner and `0755` mode, so
   it runs directly as the `b6p` bin.
+
+## Distribution
+
+Two artifacts are built from the **same** `dist/cli.js` bundle:
+
+- **npm package** (`@bluestep-systems/b6p-cli`) — the primary distribution; published by
+  [.github/workflows/publish.yml](.github/workflows/publish.yml) on a version tag. Binary work must
+  **not** change it — leave `publish.yml`, the `bin` mapping, and the `files`/`dependencies` lists alone.
+- **Standalone binaries** — self-contained, Node-bundling `b6p` executables for Windows/macOS, for
+  machines with no Node/npm. Built by [scripts/build-sea.mjs](scripts/build-sea.mjs) (Node SEA +
+  `postject`, run via `npm run build:sea`) and attached to each GitHub Release by
+  [.github/workflows/release.yml](.github/workflows/release.yml) when a Release is published. SEA embeds
+  the **real Node runtime**, so runtime-sensitive provider code — notably the raw-mode TTY masking in
+  `CliPrompt` — behaves exactly as on the npm path. SEA can't cross-compile, so CI builds one binary per
+  OS/arch runner (`b6p-windows-x64.exe`, `b6p-macos-x64`, `b6p-macos-arm64`). Rationale and rejected
+  alternatives: [docs/adr/0001-standalone-binary-toolchain.md](docs/adr/0001-standalone-binary-toolchain.md).
 
 ## Important Development Guidelines
 

@@ -10,6 +10,9 @@ import { CliLogger } from "./providers/CliLogger";
 import { CliProgress } from "./providers/CliProgress";
 import { Spinner } from "./providers/Spinner";
 
+// Replaced at build time by esbuild's `define` with the package.json version.
+declare const __B6P_VERSION__: string;
+
 function resolve(p: string): string {
   return path.resolve(process.cwd(), p);
 }
@@ -101,7 +104,7 @@ async function migrateLegacyDotfiles(persistence: SharedFilePersistence): Promis
 
 const program = new Command("b6p")
   .description("BlueStep B6P script management CLI")
-  .version("0.0.1")
+  .version(__B6P_VERSION__)
   .option("--yes", "Skip confirmation prompts")
   .option("--json", "Machine-readable JSON output")
   .option("--verbose", "Verbose logging")

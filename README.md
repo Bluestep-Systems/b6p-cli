@@ -26,6 +26,39 @@ required to install it.
    b6p --help
    ```
 
+## Standalone binary (no Node required)
+
+For machines without Node.js or npm, each
+[GitHub Release](https://github.com/Bluestep-Systems/b6p-cli/releases) also ships a self-contained
+`b6p` binary with Node bundled in — download one file and run it.
+
+| Platform | Asset |
+|---|---|
+| Windows (x64) | `b6p-windows-x64.exe` |
+| macOS (Intel / x64) | `b6p-macos-x64` |
+| macOS (Apple Silicon / arm64) | `b6p-macos-arm64` |
+
+Each asset has a matching `<asset>.sha256` checksum sidecar. Download the latest with:
+
+```
+https://github.com/Bluestep-Systems/b6p-cli/releases/latest/download/<asset>
+```
+
+Install by saving the file into the shared BlueStep tools directory under the bare command name, then
+ensuring that directory is on your `PATH`:
+
+| | Directory | Save as |
+|---|---|---|
+| Windows | `%LOCALAPPDATA%\BlueStep\bin\` | `b6p.exe` |
+| macOS | `~/.bluestep/bin/` | `b6p` |
+
+Then `b6p <command>` works from any shell, with no Node or npm present. On macOS the binary is ad-hoc
+signed (so it runs) but not notarized; a copy downloaded via a browser may be quarantined by Gatekeeper —
+clear it with `xattr -d com.apple.quarantine ~/.bluestep/bin/b6p` and make it executable with
+`chmod +x ~/.bluestep/bin/b6p`.
+
+The npm install above is unchanged and remains the recommended path wherever Node is available.
+
 ## Commands
 
 | Command | Purpose |
