@@ -32,6 +32,7 @@ const LIB_SENTINEL = "lib.d.ts";
  * Returns `[]` when neither is available (an old-Node npm run without `node:sea`,
  * or a lib-less build); the core then falls back to the target project's own
  * `node_modules/typescript/lib`.
+ * @lastreviewed null
  */
 export function resolveTsLibDirs(): string[] {
   const sea = loadSea();
@@ -46,7 +47,10 @@ export function resolveTsLibDirs(): string[] {
   return [];
 }
 
-/** Load `node:sea` if the runtime provides it; `undefined` on older Node. */
+/**
+ * Load `node:sea` if the runtime provides it; `undefined` on older Node.
+ * @lastreviewed null
+ */
 function loadSea(): SeaApi | undefined {
   try {
     return require("node:sea") as SeaApi;
@@ -59,6 +63,7 @@ function loadSea(): SeaApi | undefined {
  * Write the SEA-embedded lib set to a version-stamped temp dir and return it, or
  * `undefined` if the asset is missing or extraction fails. Idempotent: files that
  * already exist are left untouched, so repeat runs are cheap.
+ * @lastreviewed null
  */
 function extractSeaLibs(sea: SeaApi): string | undefined {
   try {
@@ -66,6 +71,12 @@ function extractSeaLibs(sea: SeaApi): string | undefined {
     const dir = path.join(os.tmpdir(), "b6p-ts-libs", __B6P_VERSION__);
     fs.mkdirSync(dir, { recursive: true });
     for (const [name, contents] of Object.entries(files)) {
+      // Defense-in-depth: the asset is internal, but a corrupt blob must never
+      // let a name escape `dir` via path separators / traversal. Only write
+      // plain lib.*.d.ts basenames.
+      if (path.basename(name) !== name || !name.startsWith("lib.") || !name.endsWith(".d.ts")) {
+        continue;
+      }
       const dest = path.join(dir, name);
       if (!fs.existsSync(dest)) {
         fs.writeFileSync(dest, contents);

@@ -43,11 +43,19 @@ const copyTsLibs = {
       // is the lib dir. Robust to hoisting; no hard-coded node_modules path.
       const tsLibDir = path.dirname(require.resolve('typescript'));
       const destDir = path.join('dist', 'lib');
+      // Rebuild from scratch so a TypeScript upgrade can't leave stale (removed
+      // or renamed) lib.*.d.ts behind to be shipped.
+      fs.rmSync(destDir, { recursive: true, force: true });
       fs.mkdirSync(destDir, { recursive: true });
+      let copied = 0;
       for (const file of fs.readdirSync(tsLibDir)) {
         if (file.startsWith('lib.') && file.endsWith('.d.ts')) {
           fs.copyFileSync(path.join(tsLibDir, file), path.join(destDir, file));
+          copied++;
         }
+      }
+      if (copied === 0) {
+        throw new Error(`copy-ts-libs: no lib.*.d.ts found in ${tsLibDir}`);
       }
     });
   },
