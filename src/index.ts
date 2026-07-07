@@ -9,6 +9,7 @@ import { CliPrompt } from "./providers/CliPrompt";
 import { CliLogger } from "./providers/CliLogger";
 import { CliProgress } from "./providers/CliProgress";
 import { Spinner } from "./providers/Spinner";
+import { resolveTsLibDirs } from "./tsLibs";
 
 // Replaced at build time by esbuild's `define` with the package.json version.
 declare const __B6P_VERSION__: string;
@@ -44,6 +45,8 @@ async function createCore(
     prompt,
     logger,
     progress,
+    // Resolve lib.*.d.ts for the core's bundled TypeScript compile (see tsLibs.ts).
+    typescriptLibDirs: resolveTsLibDirs(),
   });
   spinner.start();
   return { core, prompt, spinner };

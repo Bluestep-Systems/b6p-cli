@@ -5,6 +5,23 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-07-07
+
+### Fixed
+
+- `b6p push` no longer fails its pre-flight TypeScript compile with `File 'lib.esnext.d.ts' not found`
+  (cascading into `Cannot find global type 'Array'`) in the bundled npm CLI and the standalone
+  binaries. TypeScript's default host resolves its standard library relative to `__filename`, which
+  once bundled points inside the bundle where no `lib.*.d.ts` exist. The CLI now ships the full
+  TypeScript lib set — copied next to the npm bundle and embedded in (then extracted from) the SEA
+  binary — and hands it to the core via `providers.typescriptLibDirs`.
+  ([#4](https://github.com/Bluestep-Systems/b6p-cli/issues/4))
+
+### Changed
+
+- Bumped `@bluestep-systems/b6p-core` to `^0.2.0`, which adds the `typescriptLibDirs` provider and the
+  `TsLibResolver` that consumes it.
+
 ## [0.2.0] — 2026-06-29
 
 ### Added
