@@ -1,5 +1,6 @@
 const esbuild = require("esbuild");
 const fs = require("fs");
+const path = require("path");
 const { version } = require("./package.json");
 
 const production = process.argv.includes('--production');
@@ -30,6 +31,36 @@ const chmodCli = {
   },
 };
 
+// Ship TypeScript's standard library declarations next to the bundle so the
+// core's bundled compile can resolve them — once bundled, TS can't find them
+// relative to __filename. Copy the whole set so any lib/target combination
+// resolves; the SEA binary embeds these instead (scripts/build-sea.mjs).
+const copyTsLibs = {
+  name: 'copy-ts-libs',
+  setup(build) {
+    build.onEnd(() => {
+      // require.resolve('typescript') → <pkg>/lib/typescript.js, so its dirname
+      // is the lib dir. Robust to hoisting; no hard-coded node_modules path.
+      const tsLibDir = path.dirname(require.resolve('typescript'));
+      const destDir = path.join('dist', 'lib');
+      // Rebuild from scratch so a TypeScript upgrade can't leave stale (removed
+      // or renamed) lib.*.d.ts behind to be shipped.
+      fs.rmSync(destDir, { recursive: true, force: true });
+      fs.mkdirSync(destDir, { recursive: true });
+      let copied = 0;
+      for (const file of fs.readdirSync(tsLibDir)) {
+        if (file.startsWith('lib.') && file.endsWith('.d.ts')) {
+          fs.copyFileSync(path.join(tsLibDir, file), path.join(destDir, file));
+          copied++;
+        }
+      }
+      if (copied === 0) {
+        throw new Error(`copy-ts-libs: no lib.*.d.ts found in ${tsLibDir}`);
+      }
+    });
+  },
+};
+
 async function main() {
   const ctx = await esbuild.context({
     entryPoints: ['src/index.ts'],
@@ -52,7 +83,7 @@ async function main() {
     external: ['path', 'fs', 'fs/promises', 'crypto', 'readline/promises', 'url'],
     logLevel: 'silent',
     banner: { js: '#!/usr/bin/env node' },
-    plugins: [problemMatcher, chmodCli],
+    plugins: [problemMatcher, chmodCli, copyTsLibs],
   });
 
   if (watch) {

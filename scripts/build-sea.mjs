@@ -18,9 +18,9 @@
 // ============================================================================
 
 import { execFileSync, execSync } from "node:child_process";
-import { chmodSync, copyFileSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 // postject locates the injected blob via this fuse sentinel — the fixed value
 // Node documents for SEA. It must match what the runtime looks for.
@@ -37,6 +37,10 @@ const POSTJECT_VERSION = "1.0.0-alpha.6";
 const SMOKE_TIMEOUT_MS = 60_000;
 
 const PLATFORM_LABEL = { win32: "windows", darwin: "macos", linux: "linux" };
+
+// The lib.*.d.ts esbuild copies here; we pack them into a single SEA asset.
+const LIB_DIR = "dist/lib";
+const LIB_ASSET = "dist/ts-libs.json";
 
 /** Asset filename for the current platform/arch (e.g. `b6p-macos-arm64`). */
 function assetName() {
@@ -61,48 +65,73 @@ function main() {
   const out = assetName();
   console.error(`Building standalone binary: ${out}`);
 
-  // 1. Build the same bundle npm ships.
+  // 1. Build the same bundle npm ships (also copies lib.*.d.ts into dist/lib).
   run("npm run compile");
 
-  // 2. Generate the SEA blob from dist/cli.js.
+  // 2. Pack the TypeScript lib set into a single JSON asset for the SEA blob.
+  //    The npm distribution reads dist/lib directly; the SEA binary has no such
+  //    directory, so it embeds this and extracts at runtime (see src/tsLibs.ts).
+  packTsLibs();
+
+  // 3. Generate the SEA blob from dist/cli.js (+ the ts-libs.json asset).
   run(`node --experimental-sea-config ${SEA_CONFIG}`);
 
-  // 3. Copy the host Node runtime to the asset name; this copy becomes the binary.
+  // 4. Copy the host Node runtime to the asset name; this copy becomes the binary.
   copyFileSync(process.execPath, out);
   if (process.platform !== "win32") {
     chmodSync(out, 0o755);
   }
 
-  // 4. macOS: strip the inherited Node signature before injecting the blob.
+  // 5. macOS: strip the inherited Node signature before injecting the blob.
   if (isMac) {
     run(`codesign --remove-signature ${out}`);
   }
 
-  // 5. Inject the blob into the copied runtime. On Mach-O the blob lives in a
+  // 6. Inject the blob into the copied runtime. On Mach-O the blob lives in a
   //    dedicated segment; ELF/PE use a resource section, so the flag is mac-only.
   const machoFlag = isMac ? " --macho-segment-name NODE_SEA" : "";
   run(
     `npx --yes postject@${POSTJECT_VERSION} ${out} NODE_SEA_BLOB ${BLOB} --sentinel-fuse ${SENTINEL_FUSE}${machoFlag}`
   );
 
-  // 6. macOS: re-sign ad-hoc. On Apple Silicon an unsigned arm64 binary is
+  // 7. macOS: re-sign ad-hoc. On Apple Silicon an unsigned arm64 binary is
   //    killed by the kernel on exec, so this is mandatory (not notarization).
   if (isMac) {
     run(`codesign --sign - ${out}`);
   }
 
-  // 7. Checksum sidecar (sha256sum format: "<hash>  <file>").
+  // 8. Checksum sidecar (sha256sum format: "<hash>  <file>").
   const digest = createHash("sha256").update(readFileSync(out)).digest("hex");
   writeFileSync(`${out}.sha256`, `${digest}  ${out}\n`);
   console.error(`sha256: ${digest}`);
 
-  // 8. Smoke-test the produced binary — it must run standalone. We assert exit 0
+  // 9. Smoke-test the produced binary — it must run standalone. We assert exit 0
   //    and non-empty output rather than a specific version string: the CLI's
   //    --version is independent of package.json, so pinning it here would be
   //    brittle. --help listing a known subcommand proves commander booted.
   smokeTest(out);
 
   console.error(`OK: ${out} built and verified.`);
+}
+
+/**
+ * Bundle every lib.*.d.ts esbuild copied into dist/lib into a single JSON asset
+ * ({ filename: contents }) that the SEA blob embeds. Ship the WHOLE set so any
+ * project's lib/target combination resolves; a subset breaks uncommon configs.
+ */
+function packTsLibs() {
+  const libs = {};
+  for (const file of readdirSync(LIB_DIR)) {
+    if (file.startsWith("lib.") && file.endsWith(".d.ts")) {
+      libs[file] = readFileSync(join(LIB_DIR, file), "utf8");
+    }
+  }
+  const count = Object.keys(libs).length;
+  if (count === 0) {
+    throw new Error(`No lib.*.d.ts found in ${LIB_DIR}; did "npm run compile" run?`);
+  }
+  writeFileSync(LIB_ASSET, JSON.stringify(libs));
+  console.error(`Packed ${count} TypeScript lib files → ${LIB_ASSET}`);
 }
 
 /** Run the freshly built binary and fail loudly if it does not behave. */
