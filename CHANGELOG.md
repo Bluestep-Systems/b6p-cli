@@ -5,6 +5,16 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-07-10
+
+### Changed
+
+- Bumped `@bluestep-systems/b6p-core` to `^0.3.0`. Because core is esbuild-bundled into `dist/cli.js`,
+  this dependency bump is what ships the release's changes — there are no CLI source changes. Core
+  0.3.0 adds internal `whenReady()` async-load race guards in the persistence store/map (awaited inside
+  `B6PCore`/`ScriptRoot`) and the new `ScriptFile.currentIntegrityStatus()` helper. All changes are
+  additive and backward-compatible; commands, flags, and runtime behavior are unchanged.
+
 ## [0.2.1] — 2026-07-07
 
 ### Fixed
