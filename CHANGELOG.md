@@ -5,6 +5,20 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-07-21
+
+### Changed
+
+- Bumped `@bluestep-systems/b6p-core` to `^0.3.1`. Because core is esbuild-bundled into `dist/cli.js`,
+  this dependency bump is what ships the release's changes — there are no CLI source changes. Core
+  0.3.1 fixes two `b6p push` bugs for freshly-pulled MergeReport components that ship a `static/`
+  bundle ([#9](https://github.com/Bluestep-Systems/b6p-cli/issues/9)): `push` no longer aborts when a
+  `static/` sub-project's `tsconfig.json` has an empty/missing `outDir` (normalized to `.build`), and
+  `push` now emits a loud warning when a client bundle's source `.ts`/`.tsx` is newer than its compiled
+  `.js` (the platform serves `static/.build/script.js` verbatim, so editing only the source would
+  otherwise silently ship stale client JS). All changes are additive and backward-compatible; commands,
+  flags, and runtime behavior are unchanged.
+
 ## [0.3.0] — 2026-07-10
 
 ### Changed
