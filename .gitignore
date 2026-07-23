@@ -13,3 +13,5 @@ b6p-linux-*
 # Local work tracking only — not versioned
 /TODO.md
 /DONE.md
+.claude/quick-tasks/
+.claude/specs/
