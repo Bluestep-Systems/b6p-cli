@@ -5,6 +5,33 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-07-23
+
+### Added
+
+- Windows lock diagnostics on shared-state writes. When a write to `~/.b6p/state.json` or
+  `secrets.enc` fails a `rename` on Windows after core's bounded retries, the thrown error now names
+  the user-mode processes holding the file — e.g. `… — locked by Code.exe (1234), OneDrive.exe (5678)`
+  — so you can close the offending program and retry. Implemented by a new
+  `WindowsRestartManagerLockDiagnoser` (`src/lockDiagnoser/`) that queries the Windows Restart
+  Manager via a bundled PowerShell script and is injected into the core's `SharedFilePersistence`.
+  Best-effort and a no-op off Windows: it never throws and returns no holders when it can't determine
+  them. A kernel filesystem minifilter (real-time AV / ransomware protection such as Sophos
+  CryptoGuard) holds no user-mode handle, so it is invisible to this probe by design — in that case
+  the empty result degrades to core's minifilter hint rather than a process list.
+
+### Changed
+
+- Bumped `@bluestep-systems/b6p-core` `^0.3.1` → `^0.4.0`, which adds the injectable `ILockDiagnoser`
+  the diagnoser above plugs into, plus Windows `rename` lock-error retries and pull write coalescing
+  ([core #8](https://github.com/Bluestep-Systems/b6p-core/issues/8)).
+
+### Internal
+
+- Added a unit-test setup: `npm test` bundles `test/**/*.test.ts` to `dist-test/` via `esbuild.test.js`
+  and runs them with `node --test` (runnable on the whole CI Node 18/20/22 matrix). CI now runs the
+  tests between compile and the smoke run.
+
 ## [0.3.1] — 2026-07-21
 
 ### Changed

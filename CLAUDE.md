@@ -24,10 +24,15 @@ npm run check-types   # Type-check only (tsc --noEmit)
 npm run lint          # ESLint
 npm run format        # Prettier --write (config in .prettierrc)
 npm run format-check  # Prettier --check
-npm run clean         # rm -rf dist
+npm run test          # Bundle test/**/*.test.ts → dist-test/ (esbuild.test.js) and run node --test
+npm run clean         # rm -rf dist dist-test
 ```
 
 Smoke-test the built binary with `node dist/cli.js --help` (CI runs this after every compile).
+
+Tests are authored in TS under [test/](test/) and compiled to `dist-test/` by [esbuild.test.js](esbuild.test.js)
+rather than run through a `.ts` loader, so they execute on the whole CI Node matrix (18/20/22) with no
+type-stripping. `dist-test/` is gitignored. CI runs `npm test` between compile and the smoke run.
 
 ## Architecture Overview
 
@@ -46,6 +51,14 @@ interfaces, under [src/providers/](src/providers/):
 
 Durable state (credentials, sessions, settings) is handled by the core's `SharedFilePersistence`, not by
 the CLI. The CLI only adapts I/O, prompting, logging, and progress to a terminal.
+
+One further platform-specific dependency is injected into `SharedFilePersistence` at construction
+([src/index.ts](src/index.ts)): a **`WindowsRestartManagerLockDiagnoser`** ([src/lockDiagnoser/](src/lockDiagnoser/)),
+implementing the core's `ILockDiagnoser`. When a shared-state `rename` fails on Windows, core calls it to
+name the user-mode processes holding the file (via the Windows Restart Manager, queried from a bundled
+PowerShell script) so the thrown error is actionable. It is best-effort — never throws, and returns no
+holders off Windows or when only a kernel filesystem minifilter (AV/ransomware protection) is involved,
+which core turns into its minifilter hint.
 
 ## TypeScript & Build Configuration
 

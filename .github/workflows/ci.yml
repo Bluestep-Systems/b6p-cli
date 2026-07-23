@@ -64,6 +64,11 @@ jobs:
       - name: Compile
         run: npm run compile
 
+      # Unit tests run on compiled .cjs (esbuild.test.js → dist-test/), so they
+      # pass on every Node in the matrix without type-stripping.
+      - name: Unit tests
+        run: npm test
+
       # Smoke test: the bundled binary must start and print usage.
       - name: Smoke-run CLI
         run: node dist/cli.js --help
