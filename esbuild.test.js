@@ -1,13 +1,19 @@
-// Test build: bundle each test/**/*.test.ts (and the CLI source it imports) into
-// dist-test/*.test.cjs, so `node --test dist-test/` runs on plain compiled JS.
+// Test build + run: bundle each test/**/*.test.ts (and the CLI source it imports)
+// into dist-test/*.test.cjs, then run them with `node --test`.
 //
 // Why a separate build from esbuild.js: the main build has a single entry
 // (src/index.ts) and produces the shipped bundle; tests need their own entries
 // and must NOT touch dist/. Emitting compiled .cjs (rather than running .ts via
 // a loader) keeps the tests runnable across the whole CI Node matrix (18/20/22)
-// with no type-stripping and no extra dependency. See .claude/quick-tasks/
-// windows-lock-diagnoser.md for the rationale.
+// with no type-stripping and no extra dependency.
+//
+// We spawn `node --test` with the EXPLICIT list of built files rather than a
+// directory or glob: a bare directory positional is interpreted inconsistently
+// across Node versions (18/20 search it; 22 tries to load it as a module), and
+// glob expansion in `--test` isn't supported on 18/20. Explicit file paths work
+// everywhere. See .claude/quick-tasks/windows-lock-diagnoser.md for the history.
 const esbuild = require("esbuild");
+const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -28,6 +34,12 @@ function findTests(dir) {
   return files;
 }
 
+// Mirror esbuild's outdir mapping: test/<rel>.test.ts → dist-test/<rel>.test.cjs.
+function outputFor(entry) {
+  const rel = path.relative(TEST_DIR, entry).replace(/\.ts$/, ".cjs");
+  return path.join(OUT_DIR, rel);
+}
+
 async function main() {
   const entryPoints = findTests(TEST_DIR);
   if (entryPoints.length === 0) {
@@ -46,6 +58,10 @@ async function main() {
     sourcemap: "inline",
     logLevel: "info",
   });
+
+  const compiled = entryPoints.map(outputFor);
+  const child = spawn(process.execPath, ["--test", ...compiled], { stdio: "inherit" });
+  child.on("exit", (code) => process.exit(code ?? 1));
 }
 
 main().catch((e) => {
