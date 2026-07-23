@@ -11,7 +11,7 @@
 // directory or glob: a bare directory positional is interpreted inconsistently
 // across Node versions (18/20 search it; 22 tries to load it as a module), and
 // glob expansion in `--test` isn't supported on 18/20. Explicit file paths work
-// everywhere. See .claude/quick-tasks/windows-lock-diagnoser.md for the history.
+// everywhere.
 const esbuild = require("esbuild");
 const { spawn } = require("child_process");
 const fs = require("fs");
@@ -61,6 +61,12 @@ async function main() {
 
   const compiled = entryPoints.map(outputFor);
   const child = spawn(process.execPath, ["--test", ...compiled], { stdio: "inherit" });
+  // If the runner can't even be spawned (e.g. a bad execPath), report cleanly
+  // and fail rather than crashing with an unhandled 'error' event.
+  child.on("error", (err) => {
+    console.error(`Failed to start 'node --test': ${err.message}`);
+    process.exit(1);
+  });
   child.on("exit", (code) => process.exit(code ?? 1));
 }
 

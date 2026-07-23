@@ -13,52 +13,39 @@ import assert from "node:assert/strict";
 import type { LockHolder } from "@bluestep-systems/b6p-core";
 import { WindowsRestartManagerLockDiagnoser, parseHolders } from "../src/lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 
-/** Temporarily forces process.platform for the duration of a test. */
-function withPlatform(value: NodeJS.Platform, run: () => Promise<void>): Promise<void> {
-  const original = process.platform;
-  Object.defineProperty(process, "platform", { value, configurable: true });
-  return run().finally(() => Object.defineProperty(process, "platform", { value: original, configurable: true }));
-}
-
 test("diagnose returns [] on non-Windows without invoking the probe", async () => {
-  await withPlatform("linux", async () => {
-    let probeCalled = false;
-    const diagnoser = new WindowsRestartManagerLockDiagnoser(async () => {
-      probeCalled = true;
-      return [{ name: "Code.exe", pid: 1234 }];
-    });
+  let probeCalled = false;
+  const diagnoser = new WindowsRestartManagerLockDiagnoser(async () => {
+    probeCalled = true;
+    return [{ name: "Code.exe", pid: 1234 }];
+  }, "linux");
 
-    const result = await diagnoser.diagnose("C:\\Users\\someone\\.b6p\\state.json");
+  const result = await diagnoser.diagnose("C:\\Users\\someone\\.b6p\\state.json");
 
-    assert.deepEqual(result, []);
-    assert.equal(probeCalled, false, "probe must not run off Windows");
-  });
+  assert.deepEqual(result, []);
+  assert.equal(probeCalled, false, "probe must not run off Windows");
 });
 
 test("diagnose swallows a probe error and returns []", async () => {
-  await withPlatform("win32", async () => {
-    const diagnoser = new WindowsRestartManagerLockDiagnoser(async () => {
-      throw new Error("boom");
-    });
+  const diagnoser = new WindowsRestartManagerLockDiagnoser(async () => {
+    throw new Error("boom");
+  }, "win32");
 
-    const result = await diagnoser.diagnose("C:\\fake\\path\\state.json");
+  const result = await diagnoser.diagnose("C:\\fake\\path\\state.json");
 
-    assert.deepEqual(result, []);
-  });
+  assert.deepEqual(result, []);
 });
 
 test("diagnose passes the probe's holders through on success", async () => {
-  await withPlatform("win32", async () => {
-    const holders: LockHolder[] = [
-      { name: "Code.exe", pid: 1234 },
-      { name: "OneDrive.exe", pid: 5678 },
-    ];
-    const diagnoser = new WindowsRestartManagerLockDiagnoser(async () => holders);
+  const holders: LockHolder[] = [
+    { name: "Code.exe", pid: 1234 },
+    { name: "OneDrive.exe", pid: 5678 },
+  ];
+  const diagnoser = new WindowsRestartManagerLockDiagnoser(async () => holders, "win32");
 
-    const result = await diagnoser.diagnose("C:\\fake\\path\\state.json");
+  const result = await diagnoser.diagnose("C:\\fake\\path\\state.json");
 
-    assert.deepEqual(result, holders);
-  });
+  assert.deepEqual(result, holders);
 });
 
 test("parseHolders returns [] for empty, blank, or non-array output", () => {

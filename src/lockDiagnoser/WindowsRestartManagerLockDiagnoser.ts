@@ -39,13 +39,22 @@ export type LockProbe = (fsPath: string, signal: AbortSignal) => Promise<LockHol
  */
 export class WindowsRestartManagerLockDiagnoser implements ILockDiagnoser {
   private readonly probe: LockProbe;
+  private readonly platform: NodeJS.Platform;
 
-  constructor(probe: LockProbe = runRestartManagerProbe) {
+  /**
+   * @param probe The lock-probe implementation (defaults to the real Restart
+   *   Manager probe). Injectable so tests can supply a fake.
+   * @param platform The current platform (defaults to `process.platform`).
+   *   Injectable so the Windows and non-Windows branches are testable on any
+   *   runner without mutating the `process.platform` global.
+   */
+  constructor(probe: LockProbe = runRestartManagerProbe, platform: NodeJS.Platform = process.platform) {
     this.probe = probe;
+    this.platform = platform;
   }
 
   async diagnose(fsPath: string): Promise<LockHolder[]> {
-    if (process.platform !== "win32") {
+    if (this.platform !== "win32") {
       return [];
     }
     const controller = new AbortController();
