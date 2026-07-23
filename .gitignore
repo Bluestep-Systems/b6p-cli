@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-test/
 *.tgz
 
 # Standalone-binary build artifacts (scripts/build-sea.mjs)
@@ -8,3 +9,7 @@ b6p-windows-*
 b6p-macos-*
 b6p-linux-*
 *.sha256
+
+# Local work tracking only — not versioned
+/TODO.md
+/DONE.md

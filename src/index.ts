@@ -9,6 +9,7 @@ import { CliPrompt } from "./providers/CliPrompt";
 import { CliLogger } from "./providers/CliLogger";
 import { CliProgress } from "./providers/CliProgress";
 import { Spinner } from "./providers/Spinner";
+import { WindowsRestartManagerLockDiagnoser } from "./lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 import { resolveTsLibDirs } from "./tsLibs";
 
 // Replaced at build time by esbuild's `define` with the package.json version.
@@ -37,7 +38,10 @@ async function createCore(
   logger.setActivityPauser(spinner);
   progress.setActivityPauser(spinner);
 
-  const persistence = new SharedFilePersistence();
+  // Keep the default `~/.b6p` config dir (undefined), but inject a Windows lock
+  // diagnoser so a failed shared-state rename names the processes holding the
+  // file. Best-effort and a no-op off Windows; see WindowsRestartManagerLockDiagnoser.
+  const persistence = new SharedFilePersistence(undefined, new WindowsRestartManagerLockDiagnoser());
   await migrateLegacyDotfiles(persistence);
   const core = new B6PCore({
     fs: new NodeFileSystem(),
