@@ -14,6 +14,11 @@
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    // TypeScript 7 does not pull every `node_modules/@types` package into the
+    // global scope the way 5.x did, so `process`, `__dirname` and the `node:`
+    // builtins have to be requested explicitly.
+    "types": ["node"],
+    "noImplicitOverride": true
   }
 }

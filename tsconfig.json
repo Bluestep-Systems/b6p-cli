@@ -3,11 +3,7 @@
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist",
-    "noEmit": true,
-    // TypeScript 7 does not pull every `node_modules/@types` package into the
-    // global scope the way 5.x did, so `process`, `__dirname` and the `node:`
-    // builtins have to be requested explicitly.
-    "types": ["node"]
+    "noEmit": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
