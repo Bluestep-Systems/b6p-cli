@@ -43,6 +43,16 @@ point [src/index.ts](src/index.ts); terminal adapters for core's provider interf
   happened and why; the "how to go on" lines (the `--overwrite` and delete commands) are the CLI's,
   quoted per `ShellDialect` (POSIX, or PowerShell on Windows without `MSYSTEM`/`SHELL`).
 
+- **The command tree is noun-first: `b6p <subsystem> <verb>`.** The top level is a namespace of
+  platform subsystems (`script`, `auth`, `sessions`, `config`), each owning its verbs. **Never add a
+  top-level verb** — that slot is reserved for subsystems. Add a command by writing
+  `src/commands/<noun>.ts` exporting `register<Noun>Commands(program)` and adding one line to
+  `registerCommands` in [src/commands/index.ts](src/commands/index.ts).
+- **Command actions run inside `withCore`** ([src/context.ts](src/context.ts)). It owns SDK
+  construction and the `finally` that stops the spinner and closes readline; an action that builds
+  its own providers or skips that teardown leaks an stdin handle and hangs the process. Emit
+  machine-readable output with `ctx.emitJson(...)`, not a hand-rolled `--json` check.
+
 ## Commands
 
 ```bash
