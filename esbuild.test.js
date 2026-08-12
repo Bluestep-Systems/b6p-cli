@@ -13,6 +13,7 @@
 // glob expansion in `--test` isn't supported on 18/20. Explicit file paths work
 // everywhere.
 const esbuild = require("esbuild");
+const { NODE_EXTERNALS } = require("./esbuild.js");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -52,15 +53,19 @@ async function main() {
     entryPoints,
     bundle: true,
     format: "cjs",
-    platform: "node", // node:-prefixed builtins (node:test, node:stream) stay external automatically.
-    // BARE builtin subpaths are NOT: platform:node alone leaves readline/promises
-    // unresolved, which broke this build the first time a test imported CliPrompt.
-    // Mirrors the external list in esbuild.js - keep the two in step.
-    external: ["path", "fs", "fs/promises", "crypto", "readline/promises", "url"],
+    platform: "node", // Node builtins (node:test, child_process, …) stay external automatically.
+    // …except the bare subpath spellings, which esbuild does not recognise. Shared
+    // with the real build so a test can import any src/ module the CLI can.
+    external: NODE_EXTERNALS,
     outdir: OUT_DIR,
     outExtension: { ".js": ".cjs" },
     sourcemap: "inline",
     logLevel: "info",
+    // src/ reaches __B6P_VERSION__ (esbuild.js injects it in the real build), so
+    // any test that pulls in a module touching it needs the same substitution or
+    // the bundle carries an undefined free variable. The value is never asserted
+    // on — tests that care about the version pass their own into buildProgram().
+    define: { __B6P_VERSION__: JSON.stringify("0.0.0-test") },
   });
 
   const compiled = entryPoints.map(outputFor);

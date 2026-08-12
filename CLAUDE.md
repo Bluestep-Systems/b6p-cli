@@ -35,15 +35,68 @@ type-stripping. `dist-test/` is gitignored. CI runs `npm test` between compile a
 
 ## Architecture Overview
 
-The entry point is [src/index.ts](src/index.ts): it defines the [commander](https://github.com/tj/commander.js)
-command tree (`pull`, `push`, `audit`, `deploy`, `setup`, `report`, `auth`, `sessions`, `config`,
-`check-updates`), parses argv, constructs a `B6PCore` from `@bluestep-systems/b6p-core`, and dispatches.
+### The command tree is noun-first
 
-Script-tree operations do **not** hang off `B6PCore` itself. Core groups them on a `ScriptService`
-reached as `core.script` — `core.script.push(...)`, `core.script.pull(...)`, `core.script.audit(...)`,
-`core.script.deploy(...)`, `core.script.getSetupUrl(...)`. Account-level operations (`updateCredentials`,
-`report`, `setConfig`, `checkForUpdates`) stay directly on `core`. New platform subsystems are expected
-to sit beside `script` rather than flatten onto the root object.
+`b6p` is `b6p <subsystem> <verb>`. The **top level is a namespace of nouns**, one per platform
+subsystem, and each noun owns its verbs: `b6p script push`, `b6p auth set`. This is the whole point of
+the 0.5.0 restructure — the CLI is growing from a script-only tool into a general platform CLI, and a
+top level occupied by verbs (`b6p push`) has nowhere to put `b6p forms pull`. **Do not add a top-level
+verb.** If an operation doesn't belong to an existing noun, add a noun.
+
+This mirrors core exactly. Script-tree operations do **not** hang off `B6PCore` itself; core groups them
+on a `ScriptService` reached as `core.script` — `core.script.push(...)`, `core.script.pull(...)`, and so
+on. Account-level operations (`updateCredentials`, `report`, `setConfig`, `checkForUpdates`) stay directly
+on `core`. New core subsystems sit beside `script` rather than flattening onto the root object, and each
+one earns a matching top-level noun here.
+
+### Layout
+
+| File | Owns |
+|---|---|
+| [src/index.ts](src/index.ts) | Version injection and `parseAsync` — nothing else |
+| [src/program.ts](src/program.ts) | The root command and global flags; `buildProgram(version)` |
+| [src/commands/index.ts](src/commands/index.ts) | `registerCommands(program)` — the list of subsystems |
+| `src/commands/<noun>.ts` | One module per noun, exporting `register<Noun>Commands(program)` |
+| [src/context.ts](src/context.ts) | `GlobalOpts`, SDK construction, and the `withCore` wrapper |
+| [src/migrate.ts](src/migrate.ts) | One-shot legacy dotfile migration and dead-credential purge |
+
+**Adding a subsystem** is: write `src/commands/<noun>.ts` with a `register<Noun>Commands`, add one line
+to `registerCommands`. No existing command changes shape.
+
+`buildProgram` is separate from `index.ts` so the tree can be constructed without running it —
+[test/commandTree.test.ts](test/commandTree.test.ts) asserts the noun/verb shape that way.
+
+### `withCore`
+
+Every command action runs inside `withCore(globalOpts, async (ctx) => …)`. It builds the `B6PCore` over
+the terminal providers, hands the action a `CliContext` (`core`, `prompt`, `spinner`, `globalOpts`,
+`emitJson`), and — in a `finally` — stops the spinner and closes readline. That teardown is not optional:
+skip it and the process hangs on an open stdin handle. Actions therefore contain no `try`/`finally` and
+no provider construction. Use `ctx.emitJson(payload)` rather than testing `--json` by hand; it is a no-op
+outside JSON mode.
+
+### Deprecated top-level aliases
+
+`b6p push|pull|audit|deploy|setup` remain as hidden aliases that warn on stderr, **scheduled for removal
+in 0.6.0**. They are registered from the same registrar function as the `script` subcommands
+([src/commands/script.ts](src/commands/script.ts)), so their flags cannot drift; a test asserts the two
+stay definitionally identical. When they are removed, delete the alias loop — not the registrars.
+
+### Authentication
+
+The CLI supplies **no** `auth` provider, so core defaults to its `BearerAuthProvider`: a single opaque
+token in secret storage under the key `bearerAuth`. All prompting and storage happen in core — the CLI
+neither reads nor writes the token. Two consequences worth knowing:
+
+- The removed basic-auth scheme stored under a *different* key (`basicAuth`), so an upgraded install is
+  re-prompted automatically. Core only purges that dead key during `b6p auth clear`, so
+  `purgeLegacyBasicAuth` in [src/migrate.ts](src/migrate.ts) does it on every run. It must stay ordered
+  **after** `migrateLegacyDotfiles`, which seeds secrets from the legacy plaintext `~/.b6p/secrets.json`
+  and would otherwise re-import the pair being retired.
+- Core treats the token as opaque and has no `b6pt_` constant. Naming that format is therefore the
+  terminal's job, and `b6p auth set` does it. Do not teach core the prefix just to phrase a prompt.
+
+### Providers
 
 All platform behaviour the core needs is supplied through Node implementations of the core's provider
 interfaces, under [src/providers/](src/providers/):
@@ -58,7 +111,7 @@ Durable state (credentials, sessions, settings) is handled by the core's `Shared
 the CLI. The CLI only adapts I/O, prompting, logging, and progress to a terminal.
 
 One further platform-specific dependency is injected into `SharedFilePersistence` at construction
-([src/index.ts](src/index.ts)): a **`WindowsRestartManagerLockDiagnoser`** ([src/lockDiagnoser/](src/lockDiagnoser/)),
+([src/context.ts](src/context.ts)): a **`WindowsRestartManagerLockDiagnoser`** ([src/lockDiagnoser/](src/lockDiagnoser/)),
 implementing the core's `LockDiagnoser`. When a shared-state `rename` fails on Windows, core calls it to
 name the user-mode processes holding the file (via the Windows Restart Manager, queried from a bundled
 PowerShell script) so the thrown error is actionable. It is best-effort — never throws, and returns no

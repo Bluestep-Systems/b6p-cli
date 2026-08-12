@@ -201,8 +201,8 @@ export class CliPrompt implements Prompt {
       let value = "";
       let done = false;
 
-      // A readline interface created earlier (e.g. by the username prompt)
-      // stays attached to stdin and echoes every keystroke via its own
+      // A readline interface created earlier (e.g. by a preceding unmasked
+      // prompt) stays attached to stdin and echoes every keystroke via its own
       // `keypress` handler. Merely pausing it is not enough: resuming stdin for
       // the raw read re-enables that echo, printing the real character next to
       // each masking `*`. Close it and strip the `keypress` listeners so our

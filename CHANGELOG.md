@@ -60,11 +60,39 @@ behaviour changes; the CLI's role is to surface them.
 
 ## [0.5.0] — 2026-08-12
 
+### Added
+
+- **`b6p script <verb>`** — script-tree operations now live under a `script` namespace:
+  `b6p script push`, `pull`, `audit`, `deploy`, `setup`. This is the first step in growing `b6p` from a
+  script-only tool into a general platform CLI: the top level is now a namespace of **nouns** (one per
+  platform subsystem), so a future `b6p forms pull` can be added without colliding with an existing
+  verb. It mirrors `B6PCore`, where each subsystem hangs off the composition root as its own service.
+- **`b6p auth status`** — reports whether an access token is stored, as `{"authenticated": bool}` under
+  `--json`. It never prompts, so unattended scripts can check for credentials without risking a hang.
+
 ### Changed
 
-- **Breaking (internal API only — no user-visible CLI change).** Bumped `@bluestep-systems/b6p-core`
-  `^0.4.0` → `^0.5.0` and migrated to its reshaped surface. Every command, flag, argument, and output
-  format is unchanged; this release is a re-addressing of the same operations.
+- **Breaking.** The top-level verbs `push`, `pull`, `audit`, `deploy` and `setup` moved to
+  `b6p script <verb>`. The old spellings still work — they are registered from the same definition, so
+  their flags and behaviour cannot drift — but they are hidden from `--help`, print a deprecation
+  warning to stderr, and **will be removed in 0.6.0**. Update scripts and CI pipelines now:
+
+  ```diff
+  - b6p push --file ./src/app.ts --snapshot
+  + b6p script push --file ./src/app.ts --snapshot
+  ```
+
+- **Authentication is now a bearer token, not a username/password.** Core 0.5.0 replaced basic auth with
+  `BearerAuthProvider`, which stores under a different secret key — so the first command run after
+  upgrading finds no token and prompts for one. Paste the whole platform access token, including its
+  `b6pt_` prefix. `b6p auth set` now states that format up front, since core treats the token as opaque
+  and its own prompt does not name it.
+- Reorganised `src/` around the command tree: `src/commands/` holds one module per noun,
+  `src/context.ts` owns SDK construction plus the `withCore` wrapper that every action runs inside, and
+  `src/program.ts` builds the root command. [src/index.ts](src/index.ts) is now only version injection
+  and `parseAsync`. Adding a subsystem means adding one `register*Commands` module; no existing command
+  changes shape.
+- Bumped `@bluestep-systems/b6p-core` `^0.4.0` → `^0.5.0` and migrated to its reshaped surface.
   - Script-tree operations moved off `B6PCore` onto a `ScriptService` reached as `core.script`:
     `push`, `pushCurrent`, `pull`, `pullCurrent`, `audit`, `auditPull`, `deploy`, `deriveWorkspacePath`
     and `getSetupUrl` are now `core.script.*`. Signatures are byte-identical. Account-level operations
@@ -88,6 +116,12 @@ behaviour changes; the CLI's role is to surface them.
   have broken the build outright: TS 7 ships **no** `lib.*.d.ts` files at all (the Go port embeds them),
   so the old root-resolved lookup would have found zero libs and thrown `copy-ts-libs: no lib.*.d.ts
   found`. `scripts/build-sea.mjs` reads `dist/lib/` and inherits the fix.
+- The test build ([esbuild.test.js](esbuild.test.js)) now shares the real build's `external` list, exported
+  from [esbuild.js](esbuild.js) as `NODE_EXTERNALS`. `platform: "node"` does not externalise the bare
+  subpath spelling `readline/promises`, so any test importing `CliPrompt` — directly or transitively —
+  previously failed to bundle.
+- `b6p check-updates` described itself as checking for "extension" updates, a leftover from the shared
+  VS Code core. It checks for CLI updates.
 
 ### Removed
 
@@ -97,6 +131,11 @@ behaviour changes; the CLI's role is to surface them.
   against TypeScript 7. `npm run check-types`, `npm run format-check` and `npm test` are now the static
   gates. Note that the project's no-`any` rule is consequently no longer machine-enforced — see
   [AGENTS.md](AGENTS.md). Linting should be restored when `typescript-eslint` supports TS 7.
+- **Stored basic-auth credentials.** The username/password pair left behind by the removed auth scheme
+  is now deleted from secret storage on the next run of any command. Core only purges it during
+  `b6p auth clear`, so an upgraded install that simply kept working would have retained a dead
+  credential in `~/.b6p/secrets.enc` indefinitely. The purge is idempotent and runs after the legacy
+  dotfile migration, so that migration cannot re-import the pair it retires.
 
 ## [0.4.0] — 2026-07-23
 

@@ -1,8 +1,10 @@
 # @bluestep-systems/b6p-cli
 
-Command-line interface for managing [BlueStep](https://www.bluestep.net/) B6P
-scripts: pull components from the platform, push changes back, audit local vs.
-server, snapshot history, and deploy across targets.
+Headless command-line interface for the [BlueStep](https://www.bluestep.net/) platform.
+
+Script management is the subsystem it covers today — pull components from the platform,
+push changes back, audit local vs. server, snapshot history, and deploy across targets —
+under `b6p script`. Further subsystems will appear alongside it as top-level names.
 
 The CLI shares its core implementation
 ([`@bluestep-systems/b6p-core`](https://github.com/Bluestep-Systems/b6p-core)) with the
@@ -61,20 +63,70 @@ The npm install above is unchanged and remains the recommended path wherever Nod
 
 ## Commands
 
+`b6p` is organised as `b6p <subsystem> <verb>`. Each top-level name is a part of the
+platform; the verbs beneath it act on that part.
+
+### `b6p script` — script trees
+
 | Command | Purpose |
 |---|---|
-| `b6p pull <webdav-url>` | Pull a script by URL |
-| `b6p pull --file <path>` | Pull using metadata stored with a local file |
-| `b6p push --file <path>` | Push local files to the platform |
-| `b6p push --file <path> --snapshot --message "…"` | Push and record a versioned snapshot |
-| `b6p audit --file <path>` | Diff local vs. server |
-| `b6p audit --file <path> --pull` | Audit and pull if differences found |
-| `b6p deploy <config.json>` | Multi-target deploy from a config file |
-| `b6p setup --file <path>` | Print the web-UI setup URL for a script |
+| `b6p script pull <webdav-url>` | Pull a script by URL |
+| `b6p script pull --file <path>` | Pull using metadata stored with a local file |
+| `b6p script push --file <path>` | Push local files to the platform |
+| `b6p script push --file <path> --snapshot --message "…"` | Push and record a versioned snapshot |
+| `b6p script audit --file <path>` | Diff local vs. server |
+| `b6p script audit --file <path> --pull` | Audit and pull if differences found |
+| `b6p script deploy <config.json>` | Multi-target deploy from a config file |
+| `b6p script setup --file <path>` | Print the web-UI setup URL for a script |
+
+> **Moved in 0.5.0.** These were previously top-level (`b6p push`, `b6p pull`, …). The old
+> spellings still work but are deprecated, warn on use, and **will be removed in 0.6.0** —
+> the top level is being kept free for other platform subsystems.
+
+### `b6p auth` — credentials
+
+| Command | Purpose |
+|---|---|
+| `b6p auth set` | Set or update the access token |
+| `b6p auth status` | Report whether a token is stored (never prompts) |
+| `b6p auth clear` | Clear the stored token |
+
+### Everything else
+
+| Command | Purpose |
+|---|---|
+| `b6p sessions clear` | Clear all active sessions |
+| `b6p config set <key> <value>` | Set a configuration value |
+| `b6p config reset` | Reset all settings to defaults |
 | `b6p report` | Report cached state |
+| `b6p check-updates` | Check for CLI updates |
 
 Most commands accept `--json` for machine-readable output and `--yes` to skip
 interactive prompts. Run `b6p <command> --help` for full options.
+
+## Authentication
+
+`b6p` authenticates with a platform **access token**, which begins with `b6pt_`. Set one with:
+
+```bash
+b6p auth set
+```
+
+The token is stored in encrypted secret storage under `~/.b6p/`. Any command that needs
+credentials prompts for a token if none is stored, so `b6p auth set` is optional — but it is
+the only way to *replace* a token without clearing it first.
+
+For unattended use, check for credentials before running anything that might prompt:
+
+```bash
+if [ "$(b6p --json auth status | jq -r .authenticated)" != "true" ]; then
+  echo "no b6p token configured" >&2; exit 1
+fi
+```
+
+> **Upgrading from 0.4.x?** Authentication changed from a username/password pair to a bearer
+> token. The first command you run after upgrading will prompt for your `b6pt_` token, and the
+> old credentials are deleted from storage automatically.
 
 ## WebDAV URL format
 
@@ -92,8 +144,9 @@ npm install
 npm run check-types   # tsc --noEmit
 npm run compile       # esbuild → dist/cli.js (self-contained bundle)
 npm run watch         # esbuild --watch
+npm run test          # bundle test/ → dist-test/ and run node --test
 npm run format        # prettier --write
-npm run clean         # rm -rf dist
+npm run clean         # rm -rf dist dist-test
 ```
 
 `npm run compile` bundles the CLI and `@bluestep-systems/b6p-core` into a single self-contained
