@@ -69,29 +69,39 @@ behaviour changes; the CLI's role is to surface them.
   verb. It mirrors `B6PCore`, where each subsystem hangs off the composition root as its own service.
 - **`b6p auth status`** — reports whether an access token is stored, as `{"authenticated": bool}` under
   `--json`. It never prompts, so unattended scripts can check for credentials without risking a hang.
+  Note it validates only that a well-formed token is *stored*, not that the server still accepts it.
+- **Machine-readable failures.** Under `--json`, a failed command now writes
+  `{"error": "…", "errors": ["…"]}` to stdout instead of leaving stdout empty and the only explanation
+  in an English sentence on stderr.
+- `130` is now the exit code when a prompt is interrupted with Ctrl-C.
 
 ### Changed
 
 - **Breaking.** The top-level verbs `push`, `pull`, `audit`, `deploy` and `setup` moved to
   `b6p script <verb>`. The old spellings still work — they are registered from the same definition, so
   their flags and behaviour cannot drift — but they are hidden from `--help`, print a deprecation
-  warning to stderr, and **will be removed in 0.6.0**. Update scripts and CI pipelines now:
+  warning to stderr, carry the notice in their own `--help` text, and **will be removed in 0.6.0**:
 
   ```diff
   - b6p push --file ./src/app.ts --snapshot
   + b6p script push --file ./src/app.ts --snapshot
   ```
 
+- **Breaking: `--yes` now fails instead of blocking.** It previously had no effect on prompts that
+  needed a value, because it only substituted a default that core never supplies — so `b6p --yes script
+  push` with no target sat on a prompt until the job timed out. It now raises an error naming the
+  prompt it cannot answer.
 - **Authentication is now a bearer token, not a username/password.** Core 0.5.0 replaced basic auth with
   `BearerAuthProvider`, which stores under a different secret key — so the first command run after
   upgrading finds no token and prompts for one. Paste the whole platform access token, including its
-  `b6pt_` prefix. `b6p auth set` now states that format up front, since core treats the token as opaque
-  and its own prompt does not name it.
+  `b6pt_` prefix. `b6p auth set` states that format up front, since core treats the token as opaque.
+- `b6p auth set` is now scriptable: `echo "$B6P_TOKEN" | b6p auth set`. It previously ran core's
+  `update()` unconditionally, which prompts twice on a fresh install — storing the token and *then*
+  failing when the second prompt hit end-of-input.
 - Reorganised `src/` around the command tree: `src/commands/` holds one module per noun,
   `src/context.ts` owns SDK construction plus the `withCore` wrapper that every action runs inside, and
   `src/program.ts` builds the root command. [src/index.ts](src/index.ts) is now only version injection
-  and `parseAsync`. Adding a subsystem means adding one `register*Commands` module; no existing command
-  changes shape.
+  and `parseAsync`.
 - Bumped `@bluestep-systems/b6p-core` `^0.4.0` → `^0.5.0` and migrated to its reshaped surface.
   - Script-tree operations moved off `B6PCore` onto a `ScriptService` reached as `core.script`:
     `push`, `pushCurrent`, `pull`, `pullCurrent`, `audit`, `auditPull`, `deploy`, `deriveWorkspacePath`
@@ -99,11 +109,10 @@ behaviour changes; the CLI's role is to surface them.
     (`updateCredentials`, `report`, `setConfig`, `checkForUpdates`) stay on `core`.
   - Core's provider interfaces dropped their Hungarian `I` prefix: `IFileSystem` → `FileSystem`,
     `IPersistence` → `Persistence`, `IPrompt` → `Prompt`, `ILogger` → `Logger`, `IProgress` → `Progress`,
-    `ILockDiagnoser` → `LockDiagnoser`. The five providers in [src/providers/](src/providers/) and
-    `WindowsRestartManagerLockDiagnoser` were updated to match.
+    `ILockDiagnoser` → `LockDiagnoser`.
 - Upgraded the type-checker to **TypeScript 7** (`^5.9.2` → `^7.0.2`), and set `types: ["node"]`
-  explicitly in `tsconfig.json` — TS 7 no longer pulls every `node_modules/@types` package into global
-  scope, so `process`, `__dirname` and the `node:` builtins must be requested by name.
+  explicitly in `tsconfig.base.json` — TS 7 no longer pulls every `node_modules/@types` package into
+  global scope, so `process`, `__dirname` and the `node:` builtins must be requested by name.
 - Bumped `prettier` → `^3.9.6` and `@types/node` → `^22.20.1`.
 
 ### Fixed
@@ -118,24 +127,41 @@ behaviour changes; the CLI's role is to surface them.
   exit=1     # ← after
   ```
 
-  The cause is that core almost never throws — it reports a failure through `Prompt.error` /
-  `Logger.error` and then returns normally, so an exit code derived from "did the action resolve?"
-  was always `0`. The terminal adapters now count what crosses their error channels
-  ([src/exit.ts](src/exit.ts)) and `withCore` turns a non-zero count into exit `1`.
+  Core almost never throws — it reports a failure through `Prompt.error` and then returns normally — so
+  an exit code derived from "did the action resolve?" was always `0`. `CliPrompt` now counts what
+  crosses its error channel ([src/exit.ts](src/exit.ts)) and sets `process.exitCode`.
 
-  Both `error` channels count; neither `warn` channel does. Every `Prompt.error` call in core aborts
-  the operation, and `Logger.error` — though usually paired with a `throw` that would surface anyway
-  — is the *only* signal in the per-target `catch` inside `ScriptService.deploy`. **A multi-target
-  deploy in which every target failed logged each failure, printed "Deploy complete!", and exited
-  `0`.** Counting is independent of whether the message was printed, so `--quiet` and `--json` change
-  what is shown, never what the shell is told.
+  `Logger.error` is deliberately **not** counted. It is a diagnostic channel and core writes recoverable
+  conditions to it — `ScriptRoot` reports a missing `.gitignore` that way, then creates the file and
+  continues — so counting it made the *first* pull of any script exit `1` while the second exited `0`.
+  Reporting a value is still success: `b6p auth status` with no token stored exits `0`.
 
-  Reporting a *value* is still success: `b6p auth status` with no token stored exits `0`, because
-  answering "not authenticated" is the command working correctly.
+  **Known gap:** `ScriptService.deploy` catches each target's failure into `logger.error` and prints
+  "Deploy complete!", so a partly-failed deploy still exits `0`. That needs a fix in core.
+- **A closed stdin no longer hangs or silently succeeds.** `readline`'s `question()` never settles when
+  its stream closes, so `b6p script push < /dev/null` left the action promise pending, skipped teardown
+  entirely, and exited `0` from a command that did nothing.
+- **`b6p check-updates` works.** The CLI never passed `updateServiceConfig` to `B6PCore`, so the command
+  could only ever report "Update service is not configured". It is now wired to this repository's own
+  releases — the CLI you installed, not `b6p-core`.
+- **`b6p script audit` outside a script tree fails instead of printing `null`.** Core returns `null`
+  without reporting an error, so `--json` emitted a literal `null` at exit `0` and a caller doing
+  `jq '.changedFiles | length'` read `0` and concluded "in sync" from a command that never reached the
+  server.
+- **The standalone-binary build no longer fails.** [scripts/build-sea.mjs](scripts/build-sea.mjs)
+  smoke-tested the binary by asserting that top-level `--help` lists `push`; hiding that command would
+  have broken every SEA build — and therefore attached **zero** binaries to a published GitHub Release,
+  since `release.yml` runs only after the Release is public. The sentinel is now `script`.
+- The deprecation notice now reaches `b6p push --help`, `b6p help push`, and argument-validation
+  failures. Those paths never run an action, so the `preAction` hook alone left them silent.
 - The CLI never called `B6PCore.dispose()`, leaking core's session-cleanup timer and org cache for the
-  life of the process. `withCore` now disposes in its `finally`.
+  life of the process.
 - Fatal errors set `process.exitCode` instead of calling `process.exit()`, which could truncate an
-  in-flight `--json` write to stdout.
+  in-flight `--json` write to stdout. A closed stdout pipe (`b6p --json report | head -1`) is now a
+  clean exit rather than an unhandled `EPIPE`.
+- `npm run format-check` and `npm test` are now actually enforced — CI ran neither `format-check` nor,
+  on the publish path, any test at all, so unformatted or untested code could ship.
+- `package-lock.json` still declared version `0.4.0`.
 - `esbuild.js`'s `copy-ts-libs` plugin now resolves `typescript` **from b6p-core's directory** instead of
   the repo root, so the `lib.*.d.ts` shipped to `dist/lib/` always match the compiler that reads them.
   Core pins `typescript` at exactly `5.9.2` as a runtime dependency (its `ScriptTranspiler` compiles
@@ -146,10 +172,9 @@ behaviour changes; the CLI's role is to surface them.
   found`. `scripts/build-sea.mjs` reads `dist/lib/` and inherits the fix.
 - The test build ([esbuild.test.js](esbuild.test.js)) now shares the real build's `external` list, exported
   from [esbuild.js](esbuild.js) as `NODE_EXTERNALS`. `platform: "node"` does not externalise the bare
-  subpath spelling `readline/promises`, so any test importing `CliPrompt` — directly or transitively —
-  previously failed to bundle.
+  subpath spelling `readline/promises`, so any test importing `CliPrompt` previously failed to bundle.
 - `b6p check-updates` described itself as checking for "extension" updates, a leftover from the shared
-  VS Code core. It checks for CLI updates.
+  VS Code core.
 
 ### Removed
 
@@ -157,13 +182,8 @@ behaviour changes; the CLI's role is to surface them.
   lint steps in [ci.yml](.github/workflows/ci.yml) / [publish.yml](.github/workflows/publish.yml).
   `typescript-eslint` 8.67 (current stable) declares `typescript: ">=4.8.4 <6.1.0"`, so it cannot run
   against TypeScript 7. `npm run check-types`, `npm run format-check` and `npm test` are now the static
-  gates. Note that the project's no-`any` rule is consequently no longer machine-enforced — see
-  [AGENTS.md](AGENTS.md). Linting should be restored when `typescript-eslint` supports TS 7.
-- **Stored basic-auth credentials.** The username/password pair left behind by the removed auth scheme
-  is now deleted from secret storage on the next run of any command. Core only purges it during
-  `b6p auth clear`, so an upgraded install that simply kept working would have retained a dead
-  credential in `~/.b6p/secrets.enc` indefinitely. The purge is idempotent and runs after the legacy
-  dotfile migration, so that migration cannot re-import the pair it retires.
+  gates, and all three run in CI. Note that the project's no-`any` rule is consequently no longer
+  machine-enforced — see [AGENTS.md](AGENTS.md).
 
 ## [0.4.0] — 2026-07-23
 

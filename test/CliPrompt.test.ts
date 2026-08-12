@@ -14,14 +14,14 @@
 //     cached interface had already closed at EOF), after uploading some files.
 //
 // THE FIX: `ask()` races `question()` against the interface's `close` event and
-// throws NonInteractiveInputError instead, and stdin ending is remembered so a
+// throws NonInteractiveError instead, and stdin ending is remembered so a
 // later prompt fails fast with the same actionable message rather than
 // readline's internal error. The CLI's top-level catch turns that into a
 // message on stderr and exit 1.
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import { PassThrough } from "node:stream";
-import { CliPrompt, NonInteractiveInputError } from "../src/providers/CliPrompt";
+import { CliPrompt, NonInteractiveError } from "../src/providers/CliPrompt";
 
 /** A stdin stand-in: not a TTY, so the masked read falls back to the line read. */
 function makeInput(lines: string[], opts: { keepOpen?: boolean } = {}): PassThrough {
@@ -66,9 +66,9 @@ describe("CliPrompt end-of-input handling", () => {
     await assert.rejects(
       () => withTimeout(prompt.inputBox({ prompt: "Enter your access token" }), "inputBox"),
       (e: unknown) => {
-        assert.ok(e instanceof NonInteractiveInputError, `expected NonInteractiveInputError, got ${String(e)}`);
+        assert.ok(e instanceof NonInteractiveError, `expected NonInteractiveError, got ${String(e)}`);
         assert.match(e.message, /Enter your access token/);
-        assert.match(e.message, /b6p auth set/);
+        assert.match(e.message, /stdin closed/);
         return true;
       }
     );
@@ -82,7 +82,7 @@ describe("CliPrompt end-of-input handling", () => {
       () => withTimeout(prompt.confirm("overwrite file 2?", ["Overwrite", "Cancel"]), "confirm 2"),
       (e: unknown) => {
         // Must be our actionable error, NOT readline's "readline was closed".
-        assert.ok(e instanceof NonInteractiveInputError, `expected NonInteractiveInputError, got ${String(e)}`);
+        assert.ok(e instanceof NonInteractiveError, `expected NonInteractiveError, got ${String(e)}`);
         assert.doesNotMatch(e.message, /readline was closed/);
         return true;
       }
@@ -90,10 +90,12 @@ describe("CliPrompt end-of-input handling", () => {
   });
 
   it("throws rather than hanging on a masked (password) read at EOF", async () => {
+    // Non-TTY, so the masked read falls back to the line read - which must
+    // still diagnose EOF rather than hang.
     const prompt = new CliPrompt({ input: makeInput([]), output: makeOutput() });
     await assert.rejects(
       () => withTimeout(prompt.inputBox({ prompt: "Password", password: true }), "masked inputBox"),
-      NonInteractiveInputError
+      NonInteractiveError
     );
   });
 
@@ -109,6 +111,21 @@ describe("CliPrompt end-of-input handling", () => {
     const prompt = new CliPrompt({ autoYes: true, input: makeInput([], { keepOpen: true }), output: makeOutput() });
     const answer = await withTimeout(prompt.inputBox({ prompt: "Workspace", value: "/tmp/ws" }), "inputBox");
     assert.strictEqual(answer, "/tmp/ws");
+  });
+
+  it("refuses an input box with no default under --yes, without reading stdin", async () => {
+    // Deliberate: blocking here is what let `--yes` runs stall until a CI job
+    // timed out. stdin is left open, so a read would trip the watchdog.
+    const prompt = new CliPrompt({ autoYes: true, input: makeInput([], { keepOpen: true }), output: makeOutput() });
+    await assert.rejects(
+      () => withTimeout(prompt.inputBox({ prompt: "Enter your access token" }), "inputBox"),
+      (e: unknown) => {
+        assert.ok(e instanceof NonInteractiveError, `expected NonInteractiveError, got ${String(e)}`);
+        assert.match(e.message, /Enter your access token/);
+        assert.match(e.message, /--yes/);
+        return true;
+      }
+    );
   });
 
   it("matches a confirm answer case-insensitively, and empty input takes the default", async () => {

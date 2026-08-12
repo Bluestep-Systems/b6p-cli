@@ -25,11 +25,21 @@ export function registerAuthCommands(program: Command): void {
     .command("set")
     .description("Set or update the access token")
     .action(async () => {
-      await withCore(globals(), async ({ core, prompt, globalOpts }) => {
-        if (!globalOpts.json) {
-          prompt.info(TOKEN_HINT);
+      await withCore(globals(), async ({ core, prompt }) => {
+        // `info` is already a no-op under --json, so this is unconditional. It
+        // goes to stderr, which keeps stdout clean for JSON consumers anyway.
+        prompt.info(TOKEN_HINT);
+        // Branch on whether a token exists rather than always calling core's
+        // `update()`. `update()` starts with getOrCreate(), so on a fresh install
+        // it prompts twice — once to create, once to amend — and `echo $TOKEN |
+        // b6p auth set` stored the token and *then* failed on the second prompt
+        // hitting EOF. createNew() is the single-prompt path, so one piped line
+        // is enough.
+        if (await core.auth.hasCredentials()) {
+          await core.updateCredentials();
+        } else {
+          await core.auth.createNew();
         }
-        await core.updateCredentials();
       });
     });
 
@@ -37,15 +47,16 @@ export function registerAuthCommands(program: Command): void {
     .command("status")
     .description("Report whether an access token is stored")
     .action(async () => {
-      await withCore(globals(), async ({ core, prompt, globalOpts, emitJson }) => {
-        // hasCredentials() never prompts, so this stays safe to run unattended;
-        // it also reports false for a stored-but-malformed token, matching what
-        // the next authenticated command would actually do.
+      await withCore(globals(), async ({ core, prompt, emitJson }) => {
+        // hasCredentials() never prompts, so this stays safe to run unattended.
+        // It reports whether a *well-formed* token is stored — core validates the
+        // envelope (JSON, `scheme: "bearer"`, non-empty token) and nothing more.
+        // It cannot tell you the token is still valid on the server, so a `true`
+        // here is "something is configured", not "this will authenticate".
         const authenticated = await core.auth.hasCredentials();
         emitJson({ authenticated });
-        if (!globalOpts.json) {
-          prompt.info(authenticated ? "Access token stored." : "No access token stored — run `b6p auth set`.");
-        }
+        // Reporting "no" is this command working correctly, so it stays exit 0.
+        prompt.info(authenticated ? "Access token stored." : "No access token stored — run `b6p auth set`.");
       });
     });
 

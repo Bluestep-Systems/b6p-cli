@@ -79,7 +79,7 @@ const addAudit: Registrar = (parent, globals, hidden) =>
     .option("--pull", "Pull if differences are detected")
     .option("--workspace <path>", "Workspace folder (default: cwd)")
     .action(async (opts: { file?: string; pull?: boolean; workspace?: string }) => {
-      await withCore(globals(), async ({ core, emitJson }) => {
+      await withCore(globals(), async ({ core, emitJson, fail }) => {
         const filePath = resolve(opts.file ?? ".");
         const workspacePath = opts.workspace
           ? resolve(opts.workspace)
@@ -87,7 +87,17 @@ const addAudit: Registrar = (parent, globals, hidden) =>
         if (opts.pull) {
           await core.script.auditPull({ filePath, workspacePath });
         } else {
-          emitJson(await core.script.audit({ filePath, workspacePath }));
+          const result = await core.script.audit({ filePath, workspacePath });
+          if (result === null) {
+            // Core returns null here WITHOUT reporting an error, unlike push and
+            // pull on the same condition. Emitting it would put a literal `null`
+            // on stdout at exit 0, so `jq '.changedFiles | length'` reads 0 and
+            // the caller concludes "in sync" from a command that never reached
+            // the server.
+            fail(`Could not determine which script to audit from ${filePath}. Pull the script first.`);
+          } else {
+            emitJson(result);
+          }
         }
       });
     });
@@ -108,13 +118,17 @@ const addSetup: Registrar = (parent, globals, hidden) =>
     .description("Print the web-UI setup URL for a script")
     .requiredOption("--file <path>", "File within the script")
     .action(async (opts: { file: string }) => {
-      await withCore(globals(), async ({ core, prompt, globalOpts, emitJson }) => {
+      await withCore(globals(), async ({ core, prompt, emitJson, fail, hasFailed }) => {
         const url = await core.script.getSetupUrl({ filePath: resolve(opts.file) });
         if (url) {
           emitJson({ setupUrl: url });
-          if (!globalOpts.json) {
-            prompt.info(`Setup URL: ${url}`);
-          }
+          // `info` is already a no-op under --json.
+          prompt.info(`Setup URL: ${url}`);
+        } else if (!hasFailed()) {
+          // Core reports most null returns itself, but its catch-all logs to the
+          // logger and returns null — which is diagnostic, not a failure signal.
+          // Cover that gap without double-reporting the cases core did announce.
+          fail(`Could not resolve a setup URL for ${opts.file}.`);
         }
       });
     });
@@ -137,9 +151,14 @@ export function registerScriptCommands(program: Command): void {
   const script = program.command("script").description("Manage script trees on the platform");
 
   for (const register of REGISTRARS) {
-    register(script, globals, false);
+    const namespaced = register(script, globals, false);
 
     const alias = register(program, globals, true);
+    // The preAction hook below only fires when the action runs. `b6p push --help`,
+    // `b6p help push` and any argument-validation failure short-circuit before
+    // that, so the description carries the notice too — it is the one thing shown
+    // on every one of those paths.
+    alias.description(`${namespaced.description()} (deprecated: use \`b6p script ${alias.name()}\`)`);
     // preAction fires before the shared action body, so the warning lands ahead of
     // any output the command itself produces. stderr keeps `--json` stdout clean.
     alias.hook("preAction", () => {

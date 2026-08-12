@@ -12,8 +12,10 @@ Hard constraints for this repo:
 
 - **The command tree is noun-first: `b6p <subsystem> <verb>`.** The top level is a namespace of platform
   subsystems (`script`, `auth`, `sessions`, `config`), each owning its verbs. **Never add a top-level
-  verb** — that slot is reserved for subsystems, and reintroducing `b6p <verb>` re-creates exactly the
-  collision the 0.5.0 restructure removed. Add a command by writing `src/commands/<noun>.ts` exporting
+  verb for platform work** — that slot is reserved for subsystems, and reintroducing `b6p <verb>`
+  re-creates exactly the collision the 0.5.0 restructure removed. `report` and `check-updates` are the
+  two grandfathered exceptions: they act on this installation, not on the platform. A new command that
+  touches the platform belongs under a noun, full stop. Add a command by writing `src/commands/<noun>.ts` exporting
   `register<Noun>Commands(program)` and adding one line to `registerCommands` in
   [src/commands/index.ts](src/commands/index.ts). The hidden `push`/`pull`/`audit`/`deploy`/`setup`
   aliases are a deprecation shim removed in 0.6.0; do not add more, and do not hand-edit one half of a
@@ -22,13 +24,14 @@ Hard constraints for this repo:
   and the `finally` that stops the spinner and closes readline; an action that builds its own providers
   or skips that teardown leaks an stdin handle and hangs the process. Emit machine-readable output with
   `ctx.emitJson(...)`, not a hand-rolled `--json` check.
-- **A command that fails must exit non-zero.** Core reports most failures through `Prompt.error` /
-  `Logger.error` and returns normally instead of throwing, so a `FailureTracker` ([src/exit.ts](src/exit.ts))
-  counts those channels and `withCore` turns the count into exit `1`. When adding a command: report a
-  genuine failure through `prompt.error` (never `warn`, which does not count), and report a *negative
-  answer* through `prompt.info` — `b6p auth status` with no token stored is a success. Never make the
-  exit code depend on `--json` / `--quiet` / `--verbose`, and prefer `process.exitCode` to
-  `process.exit()`, which can truncate an in-flight stdout write.
+- **A command that fails must exit non-zero.** Core reports most failures through `Prompt.error` and
+  returns normally instead of throwing, so a `FailureTracker` ([src/exit.ts](src/exit.ts)) counts that
+  channel and sets `process.exitCode`. When adding a command: report a genuine failure with
+  `ctx.fail(...)`, and report a *negative answer* with `prompt.info` — `b6p auth status` with no token
+  stored is a success, not a failure. **Never count `Logger.error`**: it is diagnostic, core logs
+  recoverable conditions to it, and counting it once made a successful first `script pull` exit `1`.
+  Never make the exit code depend on `--json` / `--quiet` / `--verbose`, and prefer `process.exitCode`
+  to `process.exit()`, which can truncate an in-flight stdout write.
 - **Cross-package code goes through `@bluestep-systems/b6p-core`** — never relative paths into the core
   source. Shared orchestration logic belongs in core; this repo only adapts it to a terminal. `b6p-core`
   is a bundled `devDependency` (esbuild inlines it into `dist/cli.js`); see [esbuild.js](esbuild.js).

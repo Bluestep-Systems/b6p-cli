@@ -4,41 +4,46 @@ import type { Prompt } from "@bluestep-systems/b6p-core";
 import type { FailureTracker } from "../exit";
 
 /**
- * Thrown when the core asks for input that stdin cannot supply - piped input
- * that ran out, or a closed/absent stdin.
- *
- * This exists because the alternative is silent success. readline's question()
- * promise never settles once stdin has ended: the event loop drains, node exits
- * **0**, and a command that did nothing reports success to the shell. Every
- * non-interactive b6p run without stored credentials hit exactly that
- * (Enter your access token: then exit 0, nothing pulled), as does any push that
- * reaches a second overwrite prompt with only one piped answer. Failing loudly
- * is the point; do not soften this into a return value.
- * @lastreviewed null
- */
-export class NonInteractiveInputError extends Error {
-  constructor(query: string) {
-    super(
-      `No input available for prompt: \"${query.trim()}\". stdin reached end of input, so this ` +
-        `value cannot be asked for interactively. Run the command in a terminal, pipe an answer, ` +
-        `or configure the value up front (for credentials: \`b6p auth set\`).`
-    );
-    this.name = "NonInteractiveInputError";
-  }
-}
-
-/**
  * CLI implementation of the prompt provider.
  *
- * When `autoYes` is true, confirmations return the first option automatically
- * and input boxes return their default value when they have one. An input box
- * with no default still needs a real answer: it is read from stdin, and if stdin
- * has nothing to give, {@link NonInteractiveInputError} is thrown rather than
- * hanging on a promise that can never settle.
+ * When `autoYes` is true, confirmations return the first option automatically.
+ * An input box has no such safe default — core never supplies a `value` to fall
+ * back on — so it throws {@link NonInteractiveError} rather than blocking. That
+ * is the whole point of `--yes`: fail fast and loudly instead of stalling an
+ * unattended job on a prompt nobody will answer.
  */
 export interface ActivityPauser {
   pause(): void;
   resume(): void;
+}
+
+/**
+ * Thrown when input is required but cannot be obtained: `--yes` was passed, or
+ * stdin reached end-of-file.
+ *
+ * The EOF case matters more than it looks. `readline`'s `question()` never
+ * settles when the stream closes underneath it — the promise is simply abandoned
+ * — so without this the whole action promise hangs, the command's `finally` never
+ * runs, and Node drains and exits **0** from a command that did nothing.
+ * @lastreviewed null
+ */
+export class NonInteractiveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NonInteractiveError";
+  }
+}
+
+/**
+ * Thrown when the user interrupts a prompt with Ctrl-C, so the top level can
+ * exit `130` (the conventional 128 + SIGINT) rather than a generic failure.
+ * @lastreviewed null
+ */
+export class PromptCancelledError extends Error {
+  constructor() {
+    super("Cancelled");
+    this.name = "PromptCancelledError";
+  }
 }
 
 /** The subset of a stdin-like stream this provider uses. process.stdin satisfies it structurally. */
@@ -53,11 +58,17 @@ export class CliPrompt implements Prompt {
   private readonly autoYes: boolean;
   private readonly jsonMode: boolean;
   private pauser: ActivityPauser | null = null;
+  private failures: FailureTracker | null = null;
   private readonly input: InputStream;
   private readonly output: Writable;
-  /** Set once stdin has ended; every later prompt fails fast instead of re-reading a dead stream. */
+  /**
+   * Set once stdin has ended. Without it the next prompt reuses a dead
+   * interface and surfaces readline's internal 'readline was closed' rather
+   * than the real diagnosis - the reported symptom of CU 86bb8f6v0, where a
+   * push hit a SECOND overwrite prompt with only one piped answer.
+   * @lastreviewed null
+   */
   private stdinExhausted = false;
-  private failures: FailureTracker | null = null;
 
   constructor(opts: { autoYes?: boolean; json?: boolean; input?: InputStream; output?: Writable } = {}) {
     this.autoYes = opts.autoYes ?? false;
@@ -96,9 +107,6 @@ export class CliPrompt implements Prompt {
         input: this.input,
         output: this.output,
       });
-      // stdin ending is terminal for interactive input. Remember it so the next
-      // prompt reports the real problem instead of readline's internal
-      // \"readline was closed\" from a reused dead interface.
       rl.once("close", () => {
         this.stdinExhausted = true;
         if (this.rl === rl) {
@@ -111,9 +119,9 @@ export class CliPrompt implements Prompt {
   }
 
   /**
-   * Close and forget the current interface **without** treating it as stdin
-   * ending - used by the masked read, which deliberately tears the interface
-   * down so it can drive raw mode itself.
+   * Close and forget the current interface WITHOUT recording stdin as ended -
+   * for the masked read, which tears the interface down on purpose so it can
+   * drive raw mode itself.
    * @lastreviewed null
    */
   private discardRL(): void {
@@ -125,62 +133,76 @@ export class CliPrompt implements Prompt {
     }
   }
 
-  /**
-   * Read one line, rejecting rather than hanging when stdin cannot answer.
-   *
-   * question() alone is not enough: at end-of-input its promise simply never
-   * settles. Racing it against the interface's close event turns that silent
-   * hang into a thrown {@link NonInteractiveInputError}.
-   * @param query The fully-formatted prompt to display
-   * @returns The line the user (or piped input) supplied
-   * @throws a {@link NonInteractiveInputError} When stdin has ended
-   * @lastreviewed null
-   */
-  private async ask(query: string): Promise<string> {
-    if (this.stdinExhausted) {
-      throw new NonInteractiveInputError(query);
-    }
-    const rl = this.getRL();
-    return await new Promise<string>((resolve, reject) => {
-      let settled = false;
-      const finish = (act: () => void): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        rl.off("close", onClose);
-        act();
-      };
-      // `close` routinely fires in the SAME turn as the answer being delivered:
-      // piped input ends immediately after its bytes, and readline flushes the
-      // final line before closing. Rejecting straight from the event would
-      // therefore discard an answer that did arrive — it broke
-      // `echo Sync | b6p ...`, the exact workaround this error recommends.
-      // Deferring one macrotask lets any delivered line settle first, because
-      // question()'s `then` runs as a microtask; a genuine EOF still has
-      // nothing pending and rejects.
-      const onClose = (): void => {
-        setImmediate(() => finish(() => reject(new NonInteractiveInputError(query))));
-      };
-      rl.once("close", onClose);
-      rl.question(query).then(
-        (answer) => finish(() => resolve(answer)),
-        (error: unknown) => finish(() => reject(error instanceof Error ? error : new Error(String(error))))
-      );
-    });
-  }
-
   async inputBox(options: { prompt: string; password?: boolean; value?: string }): Promise<string | undefined> {
-    if (this.autoYes && options.value !== undefined) {
-      return options.value;
+    if (this.autoYes) {
+      if (options.value !== undefined) {
+        return options.value;
+      }
+      // No default to fall back on. Blocking here is what made `b6p --yes script
+      // push` sit on a prompt until the CI job timed out, so refuse instead.
+      throw new NonInteractiveError(
+        `Cannot prompt for "${options.prompt}" with --yes and no default. ` +
+          `Supply the value on the command line, or drop --yes to answer interactively.`
+      );
     }
     const query = `${options.prompt}: `;
     if (options.password) {
       return this.aroundIO(() => this.readMasked(query));
     }
-    return this.aroundIO(async () => {
-      const answer = await this.ask(query);
-      return answer || undefined;
+    return this.aroundIO(() => this.ask(query));
+  }
+
+  /**
+   * `readline.question`, but rejecting instead of hanging when stdin closes.
+   *
+   * `question()` returns a promise that is never settled if the interface closes
+   * before an answer arrives — which is exactly what happens with stdin at EOF
+   * (`b6p … < /dev/null`, or any pipe that has ended). Racing it against the
+   * interface's `close` event converts that silent hang into an error the command
+   * can report.
+   * @lastreviewed null
+   */
+  /** The one wording for 'stdin cannot answer this', used by both paths below. */
+  private noInputMessage(query: string): string {
+    return `No input available for "${query.trim()}" (stdin closed).`;
+  }
+
+  private ask(query: string): Promise<string | undefined> {
+    if (this.stdinExhausted) {
+      return Promise.reject(new NonInteractiveError(this.noInputMessage(query)));
+    }
+    const rl = this.getRL();
+    return new Promise<string | undefined>((resolve, reject) => {
+      let settled = false;
+      // `close` routinely fires in the SAME turn the answer is delivered:
+      // piped input ends right after its bytes, and readline flushes the final
+      // line before closing. Rejecting straight from the event therefore threw
+      // away answers that HAD arrived, which broke piping an answer at all
+      // (echo Overwrite | b6p ...) - the very workaround the error suggests.
+      // Deferring one macrotask lets question()'s microtask settle first; a
+      // genuine EOF has nothing pending and still rejects.
+      const onClose = (): void => {
+        setImmediate(() => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          reject(new NonInteractiveError(this.noInputMessage(query)));
+        });
+      };
+      rl.once("close", onClose);
+      const done = (fn: () => void): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        rl.off("close", onClose);
+        fn();
+      };
+      rl.question(query).then(
+        (answer) => done(() => resolve(answer || undefined)),
+        (err: unknown) => done(() => reject(err))
+      );
     });
   }
 
@@ -190,8 +212,8 @@ export class CliPrompt implements Prompt {
    *
    * Requires a TTY with raw-mode support; when stdin is not a TTY (e.g. piped
    * input) masking is impossible, so it falls back to the standard readline
-   * question, which echoes. Handles Enter/Ctrl-D (submit), Ctrl-C (re-raise
-   * SIGINT) and Backspace.
+   * question, which echoes. Handles Enter/Ctrl-D (submit), Ctrl-C (rejects with
+   * {@link PromptCancelledError}) and Backspace.
    *
    * @param query The fully-formatted prompt to display (e.g. `"Password: "`).
    * @returns The entered string, or `undefined` if the input was empty.
@@ -203,7 +225,8 @@ export class CliPrompt implements Prompt {
 
     if (!input.isTTY || typeof input.setRawMode !== "function") {
       // Cannot mask non-TTY input — fall back to the standard (echoing) read.
-      return this.ask(query).then((answer) => answer || undefined);
+      // Routed through ask() so a closed stdin rejects rather than hanging.
+      return this.ask(query);
     }
     const setRawMode = input.setRawMode.bind(input);
 
@@ -222,8 +245,9 @@ export class CliPrompt implements Prompt {
       // `data`→`keypress` decoder there, and removing it would prevent any
       // later readline prompt (recreated lazily by getRL()) from receiving
       // input at all.
-      // discardRL() rather than close(): this teardown is deliberate and must
-      // NOT be recorded as stdin ending.
+      // discardRL(), not close(): this teardown is deliberate and must NOT be
+      // recorded as stdin ending, or every prompt after a password read would
+      // wrongly report end-of-input.
       this.discardRL();
       input.removeAllListeners("keypress");
 
@@ -260,8 +284,11 @@ export class CliPrompt implements Prompt {
             case "\u0003": // Ctrl-C (ETX)
               output.write("\n");
               cleanup();
-              process.kill(process.pid, "SIGINT");
-              reject(new Error("Cancelled"));
+              // Reject rather than re-raising SIGINT at ourselves: the default
+              // signal disposition terminates the process immediately, racing
+              // teardown and any pending stdout flush. The top level maps this
+              // to EXIT_SIGINT.
+              reject(new PromptCancelledError());
               return;
             case "\u007f": // Backspace (DEL)
             case "\b":
@@ -317,10 +344,15 @@ export class CliPrompt implements Prompt {
     this.pauser?.resume();
   }
 
+  /**
+   * Report a failed operation. This is the channel that decides the exit code —
+   * see {@link FailureTracker} for why this one counts and `Logger.error` does not.
+   * @lastreviewed null
+   */
   error(message: string): void {
     // Record before writing: the count must not depend on output mode or on the
     // write succeeding, since it is what the shell sees as the exit code.
-    this.failures?.record();
+    this.failures?.record(message);
     this.pauser?.pause();
     this.output.write(`ERROR: ${message}\n`);
     this.pauser?.resume();

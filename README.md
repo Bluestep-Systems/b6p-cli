@@ -110,14 +110,24 @@ interactive prompts. Run `b6p <command> --help` for full options.
 |---|---|
 | `0` | The command completed without reporting an error |
 | `1` | The command failed, or its arguments were rejected |
+| `130` | A prompt was interrupted with Ctrl-C |
 
-Every failure is exit `1`, whether it was thrown, reported as an `ERROR:` line, or a usage
-mistake. `--quiet` and `--json` change what is printed, never the exit code, so it is safe to
-gate a pipeline on:
+`--quiet` and `--json` change what is printed, never the exit code, so it is safe to gate a
+pipeline on:
 
 ```bash
 set -e
 b6p script push --file ./src/app.ts --snapshot --message "release $VERSION"
+```
+
+Under `--json`, a failure also writes a machine-readable payload to stdout:
+
+```console
+$ b6p --json script deploy missing.json
+{
+  "error": "Config file not found: missing.json",
+  "errors": ["Config file not found: missing.json"]
+}
 ```
 
 Note that a command reporting a *value* has still succeeded — `b6p auth status` exits `0` whether
@@ -127,9 +137,22 @@ or not a token is stored. Branch on its output, not its exit code:
 b6p --json auth status | jq -e .authenticated >/dev/null
 ```
 
-> **Changed in 0.5.0.** Failing commands previously exited `0` — including a multi-target
-> `deploy` in which every target failed. If a pipeline was relying on `b6p` never failing, it
-> will now correctly go red.
+> **Changed in 0.5.0.** Failing commands previously exited `0`. If a pipeline was relying on
+> `b6p` never failing, it will now correctly go red.
+
+**Known gap:** a multi-target `b6p script deploy` in which some targets fail still exits `0` and
+prints "Deploy complete!". Check the log output until this is fixed upstream.
+
+## Unattended use
+
+Every command is usable from a script, but two flags matter:
+
+- `--yes` skips confirmation prompts. If a command needs a value it cannot guess, it now **fails
+  immediately** rather than blocking on a prompt no one will answer.
+- `--json` writes machine-readable output to stdout and keeps all human text on stderr.
+
+A closed stdin is also an error rather than a hang, so `b6p … < /dev/null` in CI fails fast
+instead of stalling until the job times out.
 
 ## Authentication
 
@@ -151,9 +174,17 @@ if [ "$(b6p --json auth status | jq -r .authenticated)" != "true" ]; then
 fi
 ```
 
+Set a token non-interactively by piping it in:
+
+```bash
+echo "$B6P_TOKEN" | b6p auth set
+```
+
 > **Upgrading from 0.4.x?** Authentication changed from a username/password pair to a bearer
-> token. The first command you run after upgrading will prompt for your `b6pt_` token, and the
-> old credentials are deleted from storage automatically.
+> token, stored under a different key — so the first command you run after upgrading will prompt
+> for your `b6pt_` token. Your old credentials are left in place (`~/.b6p` is shared with the VS
+> Code extension, which may still be using them); clear them with `b6p auth clear` once every
+> tool on this machine has moved to a token.
 
 ## WebDAV URL format
 

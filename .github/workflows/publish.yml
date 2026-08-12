@@ -70,8 +70,16 @@ jobs:
       - name: Type check
         run: npm run check-types
 
+      - name: Format check
+        run: npm run format-check
+
       - name: Compile
         run: npm run compile
+
+      # A tag can be pushed without ever going through a PR, so the test suite
+      # has to gate the publish too — ci.yml is not on this path.
+      - name: Unit tests
+        run: npm test
 
       # Smoke test: the bundled binary must start and print usage.
       - name: Smoke-run CLI

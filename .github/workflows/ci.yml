@@ -58,6 +58,11 @@ jobs:
       - name: Type check
         run: npm run check-types
 
+      # Prettier is a documented static gate (AGENTS.md) and was previously only
+      # ever run by hand, so unformatted code could merge green.
+      - name: Format check
+        run: npm run format-check
+
       - name: Compile
         run: npm run compile
 

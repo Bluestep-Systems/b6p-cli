@@ -24,6 +24,8 @@ npm run check-types   # Type-check only (tsc --noEmit)
 npm run format        # Prettier --write (config in .prettierrc)
 npm run format-check  # Prettier --check
 npm run test          # Bundle test/**/*.test.ts → dist-test/ (esbuild.test.js) and run node --test
+                      # NOTE: `pretest` runs `npm run compile` first — the end-to-end specs
+                      # spawn dist/cli.js, so this overwrites dist/ with a production build.
 npm run clean         # rm -rf dist dist-test
 ```
 
@@ -41,7 +43,8 @@ type-stripping. `dist-test/` is gitignored. CI runs `npm test` between compile a
 subsystem, and each noun owns its verbs: `b6p script push`, `b6p auth set`. This is the whole point of
 the 0.5.0 restructure — the CLI is growing from a script-only tool into a general platform CLI, and a
 top level occupied by verbs (`b6p push`) has nowhere to put `b6p forms pull`. **Do not add a top-level
-verb.** If an operation doesn't belong to an existing noun, add a noun.
+verb for platform work.** If an operation doesn't belong to an existing noun, add a noun. `report` and
+`check-updates` are the two grandfathered exceptions — they act on this installation, not the platform.
 
 This mirrors core exactly. Script-tree operations do **not** hang off `B6PCore` itself; core groups them
 on a `ScriptService` reached as `core.script` — `core.script.push(...)`, `core.script.pull(...)`, and so
@@ -58,7 +61,7 @@ one earns a matching top-level noun here.
 | [src/commands/index.ts](src/commands/index.ts) | `registerCommands(program)` — the list of subsystems |
 | `src/commands/<noun>.ts` | One module per noun, exporting `register<Noun>Commands(program)` |
 | [src/context.ts](src/context.ts) | `GlobalOpts`, SDK construction, and the `withCore` wrapper |
-| [src/migrate.ts](src/migrate.ts) | One-shot legacy dotfile migration and dead-credential purge |
+| [src/migrate.ts](src/migrate.ts) | One-shot legacy dotfile migration |
 
 **Adding a subsystem** is: write `src/commands/<noun>.ts` with a `register<Noun>Commands`, add one line
 to `registerCommands`. No existing command changes shape.
@@ -70,52 +73,76 @@ to `registerCommands`. No existing command changes shape.
 
 Every command action runs inside `withCore(globalOpts, async (ctx) => …)`. It builds the `B6PCore` over
 the terminal providers, hands the action a `CliContext` (`core`, `prompt`, `spinner`, `globalOpts`,
-`emitJson`), and — in a `finally` — stops the spinner and closes readline. That teardown is not optional:
+`emitJson`, `fail`, `hasFailed`), and — in a `finally` — disposes the SDK, stops the spinner and closes
+readline. That teardown is not optional:
 skip it and the process hangs on an open stdin handle. Actions therefore contain no `try`/`finally` and
 no provider construction. Use `ctx.emitJson(payload)` rather than testing `--json` by hand; it is a no-op
 outside JSON mode.
 
 ### Exit codes
 
-`0` on success, `1` on any failure ([src/exit.ts](src/exit.ts)). The subtlety is that **core almost
-never throws** — it reports a failure through `Prompt.error` / `Logger.error` and returns normally — so
-the exit code cannot be derived from whether the action resolved. A `FailureTracker` wired into
-`CliPrompt` and `CliLogger` counts what crosses their error channels, and `withCore` turns a non-zero
-count into `EXIT_FAILURE`.
+`0` on success, `1` on any failure, `130` when a prompt is interrupted with Ctrl-C
+([src/exit.ts](src/exit.ts)). The subtlety is that **core almost never throws** — it reports a failure
+through `Prompt.error` and returns normally — so the exit code cannot be derived from whether the action
+resolved. A `FailureTracker` wired into `CliPrompt` counts what crosses its error channel.
 
-Consequences to preserve when touching the providers:
+Rules to preserve when touching the providers:
 
-- Count in `error`, never in `warn`. Every `Prompt.error` in core aborts the operation; `Logger.error`
-  is usually paired with a `throw`, but is the *only* failure signal in `ScriptService.deploy`'s
-  per-target `catch` — which is why the logger is counted at all.
+- **Count `Prompt.error`. Never count `Logger.error`.** This is the one that was learned the hard way.
+  `Logger` is a diagnostic channel and core writes *recoverable* conditions to it: `ScriptRoot`
+  reports a missing `.gitignore` through `logger.error`, then creates the file and carries on. Since
+  `ScriptFile.download` consults `.gitignore` before every file, counting the logger made the **first**
+  pull of any script exit `1` while the second exited `0` — a non-deterministic exit code, which is
+  worse than the always-zero bug it replaced.
+- **Signal eagerly, not at teardown.** The tracker sets `process.exitCode` as each failure is recorded.
+  An action whose promise never settles never reaches a `finally`, and a failure recorded before that
+  must still reach the shell.
 - Record **before** writing, and independently of `--quiet` / `--json` / `--verbose`. Output mode
   changes what the user sees, never what the shell is told.
-- Reporting a value is success. `b6p auth status` exits `0` when no token is stored; use `prompt.info`,
-  not `prompt.error`, for a negative answer.
+- **Reporting a value is success.** `b6p auth status` exits `0` when no token is stored; use
+  `prompt.info` for a negative answer, `ctx.fail(...)` for a genuine failure.
 - Prefer `process.exitCode = …` over `process.exit()`; the latter can truncate an in-flight `--json`
-  write. That only works because `withCore`'s `finally` releases every handle — including
-  `core.dispose()`, which stops core's session-cleanup timer.
+  write. That works because `withCore`'s `finally` releases every handle, including `core.dispose()`.
+
+**Known gap.** `ScriptService.deploy` catches each target's failure into `logger.error` and then prints
+"Deploy complete!", so a deploy in which every target failed still exits `0`. The CLI cannot distinguish
+that from a recoverable log line; fixing it requires core to throw or use `prompt.error`.
+
+### Non-interactive behaviour
+
+`--yes` makes `Prompt.confirm` return the first option, and makes `Prompt.inputBox` **throw**
+`NonInteractiveError` rather than block — core never supplies a fallback `value`, so there is nothing
+safe to return. A closed stdin throws the same error: `readline`'s `question()` never settles when its
+stream closes, which used to hang the action promise, skip teardown entirely, and exit `0` from a
+command that did nothing. `CliPrompt.ask()` races the question against the interface's `close` event to
+convert that into a reportable error.
 
 ### Deprecated top-level aliases
 
 `b6p push|pull|audit|deploy|setup` remain as hidden aliases that warn on stderr, **scheduled for removal
 in 0.6.0**. They are registered from the same registrar function as the `script` subcommands
 ([src/commands/script.ts](src/commands/script.ts)), so their flags cannot drift; a test asserts the two
-stay definitionally identical. When they are removed, delete the alias loop — not the registrars.
+accept exactly the same options and arguments. The alias's *description* deliberately differs — it
+carries the deprecation notice, because `b6p push --help`, `b6p help push` and any argument-validation
+failure short-circuit before the `preAction` hook and would otherwise show no warning at all. When the
+aliases are removed, delete the alias loop — not the registrars.
 
 ### Authentication
 
 The CLI supplies **no** `auth` provider, so core defaults to its `BearerAuthProvider`: a single opaque
 token in secret storage under the key `bearerAuth`. All prompting and storage happen in core — the CLI
-neither reads nor writes the token. Two consequences worth knowing:
+neither reads nor writes the token. Three consequences worth knowing:
 
 - The removed basic-auth scheme stored under a *different* key (`basicAuth`), so an upgraded install is
-  re-prompted automatically. Core only purges that dead key during `b6p auth clear`, so
-  `purgeLegacyBasicAuth` in [src/migrate.ts](src/migrate.ts) does it on every run. It must stay ordered
-  **after** `migrateLegacyDotfiles`, which seeds secrets from the legacy plaintext `~/.b6p/secrets.json`
-  and would otherwise re-import the pair being retired.
+  re-prompted automatically. The CLI deliberately does **not** purge that dead key. `~/.b6p` is shared
+  with the VS Code extension, and an extension still on core 0.4.x is actively using it; deleting it
+  from under another product on every `b6p` invocation destroyed working credentials. Core confines the
+  purge to an explicit `b6p auth clear`, which is the right place for it.
 - Core treats the token as opaque and has no `b6pt_` constant. Naming that format is therefore the
   terminal's job, and `b6p auth set` does it. Do not teach core the prefix just to phrase a prompt.
+- `b6p auth set` branches on `hasCredentials()`: core's `update()` begins with `getOrCreate()`, so on a
+  fresh install it prompts twice and `echo $TOKEN | b6p auth set` stored the token and *then* failed on
+  the second prompt hitting EOF. `createNew()` is the single-prompt path.
 
 ### Providers
 
@@ -150,7 +177,7 @@ which core turns into its minifilter hint.
   [esbuild.js](esbuild.js)'s `copy-ts-libs` resolves `typescript` **from core's directory**, never from
   the repo root: the shipped `dist/lib/lib.*.d.ts` must match the compiler that reads them. TS 7 ships
   no `lib.*.d.ts` at all (the Go port embeds them), so a root-resolved copy would fail the build.
-- **`types: ["node"]`** is set explicitly in `tsconfig.json`. TypeScript 7 no longer pulls every
+- **`types: ["node"]`** is set explicitly in `tsconfig.base.json`. TypeScript 7 no longer pulls every
   `node_modules/@types` package into global scope, so `process`, `__dirname` and the `node:` builtins
   must be requested by name.
 - **No linter.** ESLint and `typescript-eslint` were removed: `typescript-eslint` peer-caps TypeScript

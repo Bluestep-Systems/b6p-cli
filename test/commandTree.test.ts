@@ -25,18 +25,41 @@ function child(parent: Command, name: string): Command {
   return found;
 }
 
-test("the top level is nouns only — every verb lives under a namespace", () => {
-  const help = program().helpInformation();
-  const commandsBlock = help.slice(help.indexOf("Commands:"));
+/**
+ * Names commander would actually print under "Commands:".
+ *
+ * Asserted over `visibleCommands` rather than by regex against `helpInformation()`:
+ * `\s` matches newlines, so `^\s+push\b` also matches the wrapped continuation
+ * line of any description containing that word. The regex form would have passed
+ * with the command deleted and failed the day a description wrapped awkwardly.
+ */
+function visibleTopLevel(): string[] {
+  const root = program();
+  return root
+    .createHelp()
+    .visibleCommands(root)
+    .map((c) => c.name())
+    .filter((n) => n !== "help");
+}
 
-  for (const noun of ["script", "auth", "sessions", "config", "report", "check-updates"]) {
-    assert.match(commandsBlock, new RegExp(`^\\s+${noun}\\b`, "m"), `\`${noun}\` should be advertised`);
+test("no script verb occupies a top-level slot", () => {
+  const visible = visibleTopLevel();
+  for (const noun of ["script", "auth", "sessions", "config"]) {
+    assert.ok(visible.includes(noun), `\`${noun}\` should be advertised`);
   }
   // The whole point of the refactor: the deprecated verbs still work but must not
   // occupy an advertised top-level slot, or the noun namespace is not actually free.
   for (const verb of DEPRECATED_ALIASES) {
-    assert.doesNotMatch(commandsBlock, new RegExp(`^\\s+${verb}\\b`, "m"), `\`${verb}\` should be hidden`);
+    assert.ok(!visible.includes(verb), `\`${verb}\` should be hidden`);
   }
+});
+
+test("the advertised top level is exactly the documented set", () => {
+  // `report` and `check-updates` are machine-local commands, not platform
+  // subsystems; they are the acknowledged exceptions to the noun rule (see
+  // AGENTS.md). Pinning the whole list means adding anything new is a deliberate
+  // decision rather than a drift.
+  assert.deepEqual(visibleTopLevel(), ["script", "auth", "sessions", "config", "report", "check-updates"]);
 });
 
 test("script owns every script-tree verb", () => {
@@ -54,22 +77,35 @@ test("deprecated top-level aliases are still registered and reachable", () => {
   }
 });
 
-test("each alias is definitionally identical to its namespaced form", () => {
-  // Both are produced by the same registrar, so this is really a guard against
-  // someone hand-editing one copy: the day they diverge, `b6p push` and
-  // `b6p script push` would silently mean different things.
+test("each alias accepts exactly what its namespaced form accepts", () => {
   const root = program();
   const script = child(root, "script");
   for (const verb of DEPRECATED_ALIASES) {
     const alias = child(root, verb);
     const namespaced = child(script, verb);
-    assert.equal(alias.description(), namespaced.description(), `${verb}: description drifted`);
     assert.deepEqual(
       alias.options.map((o) => o.flags),
       namespaced.options.map((o) => o.flags),
       `${verb}: options drifted`
     );
     assert.equal(alias.usage(), namespaced.usage(), `${verb}: arguments drifted`);
+  }
+});
+
+test("the alias description carries the deprecation notice", () => {
+  // This is the ONLY notice on the paths that never run an action — `b6p push
+  // --help`, `b6p help push`, and any argument-validation failure — because the
+  // preAction hook does not fire there.
+  const root = program();
+  const script = child(root, "script");
+  for (const verb of DEPRECATED_ALIASES) {
+    const alias = child(root, verb);
+    assert.ok(
+      alias.description().startsWith(child(script, verb).description()),
+      `${verb}: alias description should extend the namespaced one`
+    );
+    assert.match(alias.description(), new RegExp(`deprecated: use \`b6p script ${verb}\``));
+    assert.match(alias.helpInformation(), /deprecated/, `${verb}: --help must show the notice`);
   }
 });
 
