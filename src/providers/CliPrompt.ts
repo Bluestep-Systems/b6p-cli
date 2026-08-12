@@ -1,6 +1,7 @@
 import * as readline from "readline/promises";
 import type { Readable, Writable } from "node:stream";
 import type { ConfirmOptions, Prompt } from "@bluestep-systems/b6p-core";
+import type { FailureTracker } from "../exit";
 
 /**
  * Thrown when the core asks for input that stdin cannot supply - piped input
@@ -70,12 +71,22 @@ export class CliPrompt implements Prompt {
    * @lastreviewed null
    */
   private waiter: { query: string; resolve: (line: string) => void; reject: (error: Error) => void } | null = null;
+  private failures: FailureTracker | null = null;
 
   constructor(opts: { autoYes?: boolean; json?: boolean; input?: InputStream; output?: Writable } = {}) {
     this.autoYes = opts.autoYes ?? false;
     this.jsonMode = opts.json ?? false;
     this.input = opts.input ?? process.stdin;
     this.output = opts.output ?? process.stderr; // keep stdout clean for --json
+  }
+
+  /**
+   * Attach the tracker that decides this invocation's exit code. See
+   * {@link FailureTracker} for why `error` counts and `warn` does not.
+   * @lastreviewed null
+   */
+  setFailureTracker(failures: FailureTracker | null): void {
+    this.failures = failures;
   }
 
   /** Attach a background activity indicator (e.g. Spinner) that should be
@@ -385,6 +396,9 @@ export class CliPrompt implements Prompt {
   }
 
   error(message: string): void {
+    // Record before writing: the count must not depend on output mode or on the
+    // write succeeding, since it is what the shell sees as the exit code.
+    this.failures?.record();
     this.pauser?.pause();
     this.output.write(`ERROR: ${message}\n`);
     this.pauser?.resume();

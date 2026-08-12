@@ -9,6 +9,7 @@ import { Spinner } from "./providers/Spinner";
 import { WindowsRestartManagerLockDiagnoser } from "./lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 import { resolveTsLibDirs } from "./tsLibs";
 import { migrateLegacyDotfiles, purgeLegacyBasicAuth } from "./migrate";
+import { EXIT_FAILURE, FailureTracker } from "./exit";
 
 /**
  * The root-level flags every command honours. Declared as a `type` rather than an
@@ -51,10 +52,16 @@ export function resolve(p: string): string {
  * Build the core SDK over the terminal providers, run `body`, and tear the
  * terminal back down.
  *
- * Every command action is wrapped in this. The teardown — stopping the spinner
- * and closing readline — must happen whether the body resolves or throws, or the
- * process hangs on an open stdin handle; centralising it here is what keeps the
- * command modules free of `try`/`finally` boilerplate.
+ * Every command action is wrapped in this. The teardown — disposing the SDK,
+ * stopping the spinner, closing readline — must happen whether the body resolves
+ * or throws, or the process hangs on an open handle; centralising it here is what
+ * keeps the command modules free of `try`/`finally` boilerplate.
+ *
+ * It also settles the **exit code**. Core reports most failures through
+ * `Prompt.error` / `Logger.error` and returns normally rather than throwing, so
+ * "did this work?" cannot be answered by whether `body` resolved; a
+ * {@link FailureTracker} wired into both adapters answers it instead. Thrown
+ * errors are handled by the top-level catch in [index.ts](index.ts).
  * @param globalOpts Root-level flags, read from the program at action time.
  * @param body Receives the constructed context; its resolved value is returned.
  * @param initialSpinnerLabel First label shown while the SDK spins up.
@@ -75,6 +82,10 @@ export async function withCore<T>(
   prompt.setActivityPauser(spinner);
   logger.setActivityPauser(spinner);
   progress.setActivityPauser(spinner);
+  // Counts failures core reports but does not throw; drives the exit code below.
+  const failures = new FailureTracker();
+  prompt.setFailureTracker(failures);
+  logger.setFailureTracker(failures);
 
   // Keep the default `~/.b6p` config dir (undefined), but inject a Windows lock
   // diagnoser so a failed shared-state rename names the processes holding the
@@ -108,7 +119,17 @@ export async function withCore<T>(
   try {
     return await body(ctx);
   } finally {
+    // Disposes the session-cleanup timer and org cache. Without it the process
+    // can stay alive on a pending handle, which matters now that failures set
+    // `process.exitCode` and let Node exit on its own instead of calling
+    // `process.exit()` (which would truncate a large `--json` payload mid-write).
+    core.dispose();
     spinner.stop();
     prompt.close();
+    if (failures.failed) {
+      // Only ever escalate. Assigning EXIT_SUCCESS here would clobber a failure
+      // recorded by an earlier command in the same process.
+      process.exitCode = EXIT_FAILURE;
+    }
   }
 }

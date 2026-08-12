@@ -52,6 +52,13 @@ point [src/index.ts](src/index.ts); terminal adapters for core's provider interf
   construction and the `finally` that stops the spinner and closes readline; an action that builds
   its own providers or skips that teardown leaks an stdin handle and hangs the process. Emit
   machine-readable output with `ctx.emitJson(...)`, not a hand-rolled `--json` check.
+- **A command that fails must exit non-zero.** Core reports most failures through `Prompt.error` /
+  `Logger.error` and returns normally instead of throwing, so a `FailureTracker` ([src/exit.ts](src/exit.ts))
+  counts those channels and `withCore` turns the count into exit `1`. When adding a command: report a
+  genuine failure through `prompt.error` (never `warn`, which does not count), and report a *negative
+  answer* through `prompt.info` — `b6p auth status` with no token stored is a success. Never make the
+  exit code depend on `--json` / `--quiet` / `--verbose`, and prefer `process.exitCode` to
+  `process.exit()`, which can truncate an in-flight stdout write.
 
 ## Commands
 
