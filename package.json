@@ -30,6 +30,7 @@
     "build:sea": "node scripts/build-sea.mjs",
     "watch": "node esbuild.js --watch",
     "check-types": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run compile",
     "test": "node esbuild.test.js",
     "clean": "rm -rf dist dist-test",
     "format": "prettier --write \"src/**/*.ts\"",

@@ -108,6 +108,34 @@ behaviour changes; the CLI's role is to surface them.
 
 ### Fixed
 
+- **Failing commands now exit non-zero.** This is the headline fix for unattended use: the CLI
+  previously reported success to the shell from commands that plainly did not work.
+
+  ```console
+  $ b6p script deploy missing.json; echo "exit=$?"
+  ERROR: Config file not found: missing.json
+  exit=0     # ← before
+  exit=1     # ← after
+  ```
+
+  The cause is that core almost never throws — it reports a failure through `Prompt.error` /
+  `Logger.error` and then returns normally, so an exit code derived from "did the action resolve?"
+  was always `0`. The terminal adapters now count what crosses their error channels
+  ([src/exit.ts](src/exit.ts)) and `withCore` turns a non-zero count into exit `1`.
+
+  Both `error` channels count; neither `warn` channel does. Every `Prompt.error` call in core aborts
+  the operation, and `Logger.error` — though usually paired with a `throw` that would surface anyway
+  — is the *only* signal in the per-target `catch` inside `ScriptService.deploy`. **A multi-target
+  deploy in which every target failed logged each failure, printed "Deploy complete!", and exited
+  `0`.** Counting is independent of whether the message was printed, so `--quiet` and `--json` change
+  what is shown, never what the shell is told.
+
+  Reporting a *value* is still success: `b6p auth status` with no token stored exits `0`, because
+  answering "not authenticated" is the command working correctly.
+- The CLI never called `B6PCore.dispose()`, leaking core's session-cleanup timer and org cache for the
+  life of the process. `withCore` now disposes in its `finally`.
+- Fatal errors set `process.exitCode` instead of calling `process.exit()`, which could truncate an
+  in-flight `--json` write to stdout.
 - `esbuild.js`'s `copy-ts-libs` plugin now resolves `typescript` **from b6p-core's directory** instead of
   the repo root, so the `lib.*.d.ts` shipped to `dist/lib/` always match the compiler that reads them.
   Core pins `typescript` at exactly `5.9.2` as a runtime dependency (its `ScriptTranspiler` compiles

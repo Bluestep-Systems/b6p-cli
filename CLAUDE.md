@@ -75,6 +75,27 @@ skip it and the process hangs on an open stdin handle. Actions therefore contain
 no provider construction. Use `ctx.emitJson(payload)` rather than testing `--json` by hand; it is a no-op
 outside JSON mode.
 
+### Exit codes
+
+`0` on success, `1` on any failure ([src/exit.ts](src/exit.ts)). The subtlety is that **core almost
+never throws** — it reports a failure through `Prompt.error` / `Logger.error` and returns normally — so
+the exit code cannot be derived from whether the action resolved. A `FailureTracker` wired into
+`CliPrompt` and `CliLogger` counts what crosses their error channels, and `withCore` turns a non-zero
+count into `EXIT_FAILURE`.
+
+Consequences to preserve when touching the providers:
+
+- Count in `error`, never in `warn`. Every `Prompt.error` in core aborts the operation; `Logger.error`
+  is usually paired with a `throw`, but is the *only* failure signal in `ScriptService.deploy`'s
+  per-target `catch` — which is why the logger is counted at all.
+- Record **before** writing, and independently of `--quiet` / `--json` / `--verbose`. Output mode
+  changes what the user sees, never what the shell is told.
+- Reporting a value is success. `b6p auth status` exits `0` when no token is stored; use `prompt.info`,
+  not `prompt.error`, for a negative answer.
+- Prefer `process.exitCode = …` over `process.exit()`; the latter can truncate an in-flight `--json`
+  write. That only works because `withCore`'s `finally` releases every handle — including
+  `core.dispose()`, which stops core's session-cleanup timer.
+
 ### Deprecated top-level aliases
 
 `b6p push|pull|audit|deploy|setup` remain as hidden aliases that warn on stderr, **scheduled for removal

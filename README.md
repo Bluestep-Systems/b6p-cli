@@ -104,6 +104,33 @@ platform; the verbs beneath it act on that part.
 Most commands accept `--json` for machine-readable output and `--yes` to skip
 interactive prompts. Run `b6p <command> --help` for full options.
 
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | The command completed without reporting an error |
+| `1` | The command failed, or its arguments were rejected |
+
+Every failure is exit `1`, whether it was thrown, reported as an `ERROR:` line, or a usage
+mistake. `--quiet` and `--json` change what is printed, never the exit code, so it is safe to
+gate a pipeline on:
+
+```bash
+set -e
+b6p script push --file ./src/app.ts --snapshot --message "release $VERSION"
+```
+
+Note that a command reporting a *value* has still succeeded — `b6p auth status` exits `0` whether
+or not a token is stored. Branch on its output, not its exit code:
+
+```bash
+b6p --json auth status | jq -e .authenticated >/dev/null
+```
+
+> **Changed in 0.5.0.** Failing commands previously exited `0` — including a multi-target
+> `deploy` in which every target failed. If a pipeline was relying on `b6p` never failing, it
+> will now correctly go red.
+
 ## Authentication
 
 `b6p` authenticates with a platform **access token**, which begins with `b6pt_`. Set one with:
