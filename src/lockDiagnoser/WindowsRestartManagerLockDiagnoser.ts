@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import type { ILockDiagnoser, LockHolder } from "@bluestep-systems/b6p-core";
+import type { LockDiagnoser, LockHolder } from "@bluestep-systems/b6p-core";
 
 /**
  * Our own internal budget for the probe. Kept comfortably under the core's
@@ -28,7 +28,7 @@ export type LockProbe = (fsPath: string, signal: AbortSignal) => Promise<LockHol
  * parses the JSON it prints. No native addon, so it survives esbuild bundling
  * and the SEA binary unchanged.
  *
- * Contract (see core `ILockDiagnoser`): never throws, and returns `[]` on
+ * Contract (see core `LockDiagnoser`): never throws, and returns `[]` on
  * non-Windows, on any internal error, on timeout, or when no user-mode process
  * holds the file. An empty result is expected and correct when only a kernel
  * filesystem minifilter (real-time AV / ransomware protection such as Sophos
@@ -37,7 +37,7 @@ export type LockProbe = (fsPath: string, signal: AbortSignal) => Promise<LockHol
  * into its minifilter hint.
  * @lastreviewed null
  */
-export class WindowsRestartManagerLockDiagnoser implements ILockDiagnoser {
+export class WindowsRestartManagerLockDiagnoser implements LockDiagnoser {
   private readonly probe: LockProbe;
   private readonly platform: NodeJS.Platform;
 

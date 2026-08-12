@@ -6,7 +6,7 @@
 // works on the whole CI Node matrix (18/20/22) since the runnable artifact is
 // plain compiled .cjs, not type-stripped TS.
 //
-// Pins the ILockDiagnoser contract: never throws; returns [] off Windows,
+// Pins the LockDiagnoser contract: never throws; returns [] off Windows,
 // on any probe error, and for malformed probe output.
 import { test } from "node:test";
 import assert from "node:assert/strict";

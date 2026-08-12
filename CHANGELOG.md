@@ -5,6 +5,46 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-08-12
+
+### Changed
+
+- **Breaking (internal API only — no user-visible CLI change).** Bumped `@bluestep-systems/b6p-core`
+  `^0.4.0` → `^0.5.0` and migrated to its reshaped surface. Every command, flag, argument, and output
+  format is unchanged; this release is a re-addressing of the same operations.
+  - Script-tree operations moved off `B6PCore` onto a `ScriptService` reached as `core.script`:
+    `push`, `pushCurrent`, `pull`, `pullCurrent`, `audit`, `auditPull`, `deploy`, `deriveWorkspacePath`
+    and `getSetupUrl` are now `core.script.*`. Signatures are byte-identical. Account-level operations
+    (`updateCredentials`, `report`, `setConfig`, `checkForUpdates`) stay on `core`.
+  - Core's provider interfaces dropped their Hungarian `I` prefix: `IFileSystem` → `FileSystem`,
+    `IPersistence` → `Persistence`, `IPrompt` → `Prompt`, `ILogger` → `Logger`, `IProgress` → `Progress`,
+    `ILockDiagnoser` → `LockDiagnoser`. The five providers in [src/providers/](src/providers/) and
+    `WindowsRestartManagerLockDiagnoser` were updated to match.
+- Upgraded the type-checker to **TypeScript 7** (`^5.9.2` → `^7.0.2`), and set `types: ["node"]`
+  explicitly in `tsconfig.json` — TS 7 no longer pulls every `node_modules/@types` package into global
+  scope, so `process`, `__dirname` and the `node:` builtins must be requested by name.
+- Bumped `prettier` → `^3.9.6` and `@types/node` → `^22.20.1`.
+
+### Fixed
+
+- `esbuild.js`'s `copy-ts-libs` plugin now resolves `typescript` **from b6p-core's directory** instead of
+  the repo root, so the `lib.*.d.ts` shipped to `dist/lib/` always match the compiler that reads them.
+  Core pins `typescript` at exactly `5.9.2` as a runtime dependency (its `ScriptTranspiler` compiles
+  snapshot pushes) and npm cannot dedupe that against this package's TS 7, so the bundled compiler and
+  the root `tsc` are deliberately different majors. Without this change the TypeScript 7 upgrade would
+  have broken the build outright: TS 7 ships **no** `lib.*.d.ts` files at all (the Go port embeds them),
+  so the old root-resolved lookup would have found zero libs and thrown `copy-ts-libs: no lib.*.d.ts
+  found`. `scripts/build-sea.mjs` reads `dist/lib/` and inherits the fix.
+
+### Removed
+
+- **ESLint and `typescript-eslint`**, along with `eslint.config.mjs`, the `npm run lint` script, and the
+  lint steps in [ci.yml](.github/workflows/ci.yml) / [publish.yml](.github/workflows/publish.yml).
+  `typescript-eslint` 8.67 (current stable) declares `typescript: ">=4.8.4 <6.1.0"`, so it cannot run
+  against TypeScript 7. `npm run check-types`, `npm run format-check` and `npm test` are now the static
+  gates. Note that the project's no-`any` rule is consequently no longer machine-enforced — see
+  [AGENTS.md](AGENTS.md). Linting should be restored when `typescript-eslint` supports TS 7.
+
 ## [0.4.0] — 2026-07-23
 
 ### Added

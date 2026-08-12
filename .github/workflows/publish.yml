@@ -70,9 +70,6 @@ jobs:
       - name: Type check
         run: npm run check-types
 
-      - name: Lint
-        run: npm run lint
-
       - name: Compile
         run: npm run compile
 
@@ -80,7 +77,7 @@ jobs:
       - name: Smoke-run CLI
         run: node dist/cli.js --help
 
-      # prepublishOnly re-runs clean+lint+check-types+compile to build dist/.
+      # prepublishOnly re-runs clean+check-types+compile to build dist/.
       - name: Publish (provenance, public)
         run: npm publish --provenance --access public
         env:

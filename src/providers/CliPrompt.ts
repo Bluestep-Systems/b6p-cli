@@ -1,5 +1,5 @@
 import * as readline from "readline/promises";
-import type { IPrompt } from "@bluestep-systems/b6p-core";
+import type { Prompt } from "@bluestep-systems/b6p-core";
 
 /**
  * CLI implementation of the prompt provider.
@@ -13,7 +13,7 @@ export interface ActivityPauser {
   resume(): void;
 }
 
-export class CliPrompt implements IPrompt {
+export class CliPrompt implements Prompt {
   private rl: readline.Interface | null = null;
   private readonly autoYes: boolean;
   private readonly jsonMode: boolean;

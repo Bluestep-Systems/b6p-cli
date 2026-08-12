@@ -90,7 +90,6 @@ metadata — pass `--file <path>` instead of re-typing the URL.
 ```bash
 npm install
 npm run check-types   # tsc --noEmit
-npm run lint          # eslint
 npm run compile       # esbuild → dist/cli.js (self-contained bundle)
 npm run watch         # esbuild --watch
 npm run format        # prettier --write

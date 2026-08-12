@@ -2,7 +2,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
-import type { IPersistence } from "@bluestep-systems/b6p-core";
+import type { Persistence } from "@bluestep-systems/b6p-core";
 
 /**
  * File-based persistence for CLI use.
@@ -13,7 +13,7 @@ import type { IPersistence } from "@bluestep-systems/b6p-core";
  * The workspace hash scopes public state per-project, matching the behaviour
  * of VS Code's `workspaceState`.
  */
-export class DotfilePersistence implements IPersistence {
+export class DotfilePersistence implements Persistence {
   private readonly configDir: string;
   private readonly statePath: string;
   private readonly secretsPath: string;

@@ -136,9 +136,9 @@ program
       const isSnapshot = opts.snapshot || opts.message !== undefined;
       try {
         if (opts.file) {
-          await core.pushCurrent({ filePath: resolve(opts.file), snapshot: isSnapshot, message: opts.message });
+          await core.script.pushCurrent({ filePath: resolve(opts.file), snapshot: isSnapshot, message: opts.message });
         } else {
-          await core.push({
+          await core.script.push({
             targetUrl,
             rootPath: resolve(opts.root || "."),
             snapshot: isSnapshot,
@@ -170,10 +170,10 @@ program
         const filePath = resolve(opts.file ?? ".");
         const workspacePath = opts.workspace
           ? resolve(opts.workspace)
-          : (core.deriveWorkspacePath(filePath) ?? process.cwd());
-        await core.pullCurrent({ filePath, workspacePath });
+          : (core.script.deriveWorkspacePath(filePath) ?? process.cwd());
+        await core.script.pullCurrent({ filePath, workspacePath });
       } else {
-        await core.pull({
+        await core.script.pull({
           formulaUrl,
           workspacePath: resolve(opts.workspace || "."),
         });
@@ -199,11 +199,11 @@ program
       const filePath = resolve(opts.file ?? ".");
       const workspacePath = opts.workspace
         ? resolve(opts.workspace)
-        : (core.deriveWorkspacePath(filePath) ?? process.cwd());
+        : (core.script.deriveWorkspacePath(filePath) ?? process.cwd());
       if (opts.pull) {
-        await core.auditPull({ filePath, workspacePath });
+        await core.script.auditPull({ filePath, workspacePath });
       } else {
-        const result = await core.audit({ filePath, workspacePath });
+        const result = await core.script.audit({ filePath, workspacePath });
         if (globalOpts.json) {
           process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         }
@@ -223,7 +223,7 @@ program
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
     try {
-      await core.deploy({ configPath: resolve(configFile) });
+      await core.script.deploy({ configPath: resolve(configFile) });
     } finally {
       spinner.stop();
       prompt.close();
@@ -363,7 +363,7 @@ program
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
     try {
-      const url = await core.getSetupUrl({ filePath: resolve(opts.file) });
+      const url = await core.script.getSetupUrl({ filePath: resolve(opts.file) });
       if (url) {
         if (globalOpts.json) {
           process.stdout.write(JSON.stringify({ setupUrl: url }, null, 2) + "\n");
