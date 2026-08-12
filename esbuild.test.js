@@ -60,6 +60,10 @@ async function main() {
     outdir: OUT_DIR,
     outExtension: { ".js": ".cjs" },
     sourcemap: "inline",
+    // Match the real build: without this the inlined map embeds a full copy of
+    // every source, which nothing reads and which doubled the test bundle
+    // (30MB -> 17MB) that node --test parses on each CI leg.
+    sourcesContent: false,
     logLevel: "info",
     // src/ reaches __B6P_VERSION__ (esbuild.js injects it in the real build), so
     // any test that pulls in a module touching it needs the same substitution or

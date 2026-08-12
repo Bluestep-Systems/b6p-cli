@@ -12,46 +12,73 @@ export const EXIT_SUCCESS = 0;
  */
 export const EXIT_FAILURE = 1;
 
+/** Conventional exit code for a process terminated by SIGINT (128 + 2). */
+export const EXIT_SIGINT = 130;
+
 /**
- * Counts failures that were *reported* rather than thrown.
+ * Records failures that were *reported* rather than thrown.
  *
  * The core layer very rarely throws. It reports a failed operation through
- * `Prompt.error` / `Logger.error` and then returns normally, which left the CLI
- * exiting `0` from commands that plainly did not work — `b6p script deploy` with
- * an unreadable config printed `ERROR: Config file not found` and reported
- * success to the shell. For a CLI whose whole purpose is unattended use, that is
- * the difference between a red pipeline and a silently broken one.
+ * `Prompt.error` and then returns normally, which left the CLI exiting `0` from
+ * commands that plainly did not work — `b6p script deploy` with an unreadable
+ * config printed `ERROR: Config file not found` and reported success to the
+ * shell. For a CLI whose whole purpose is unattended use, that is the difference
+ * between a red pipeline and a silently broken one.
  *
- * So the terminal adapters count what passes through their error channels, and
- * {@link withCore} turns a non-zero count into {@link EXIT_FAILURE}. Both `error`
- * channels are counted, and neither `warn` channel is:
+ * **Only `Prompt.error` is counted — `Logger.error` is not.** That distinction is
+ * load-bearing and was learned the hard way. `Logger` is a diagnostic channel and
+ * core writes recoverable conditions to it: `ScriptRoot.modifyGitIgnore` reports a
+ * missing `.gitignore` via `logger.error`, then creates the file and continues
+ * normally. Since `ScriptFile.download` consults `.gitignore` before every file,
+ * counting the logger made the *first* pull of any script exit `1` while the
+ * second exited `0` — a non-deterministic exit code, which is worse than the
+ * always-zero bug it replaced. `Prompt` is the user-facing channel and every core
+ * call to `Prompt.error` aborts the operation, so it is the signal to trust.
  *
- * - Every `Prompt.error` call in core aborts the operation (each is immediately
- *   followed by a `return`), so it is an unambiguous failure signal.
- * - `Logger.error` is mostly paired with a `throw` — which would surface anyway —
- *   but it is the *only* signal in two places, the important one being the
- *   per-target `catch` in `ScriptService.deploy`. A deploy in which every target
- *   failed logs each one, prints "Deploy complete!", and would otherwise exit `0`.
+ * Known gap, and it needs a core fix rather than a workaround here:
+ * `ScriptService.deploy` catches each target's failure into `logger.error`, then
+ * prints "Deploy complete!". A deploy in which every target failed therefore still
+ * exits `0`. The CLI cannot tell that apart from a recoverable log line.
  *
  * Counting is deliberately independent of whether the message was *printed*:
  * `--quiet` and `--json` change what the user sees, never what the shell is told.
  * @lastreviewed null
  */
 export class FailureTracker {
-  private failures = 0;
+  private readonly reported: string[] = [];
 
-  /** Note that a failure was reported. */
-  record(): void {
-    this.failures += 1;
+  /**
+   * @param onFailure Invoked on every recorded failure. Defaults to setting
+   *   `process.exitCode`, which is done **eagerly** rather than during teardown:
+   *   an action whose promise never settles (a prompt that reaches EOF instead of
+   *   answering) never reaches a `finally`, and a failure recorded before that
+   *   point must still reach the shell. Injectable so tests need not mutate
+   *   global process state.
+   */
+  constructor(
+    private readonly onFailure: () => void = () => {
+      process.exitCode = EXIT_FAILURE;
+    }
+  ) {}
+
+  /** Note that a failure was reported, with the message shown to the user. */
+  record(message: string): void {
+    this.reported.push(message);
+    this.onFailure();
+  }
+
+  /** The reported failure messages, in order. */
+  get messages(): readonly string[] {
+    return this.reported;
   }
 
   /** How many failures were reported during this invocation. */
   get count(): number {
-    return this.failures;
+    return this.reported.length;
   }
 
   /** Whether any failure was reported. */
   get failed(): boolean {
-    return this.failures > 0;
+    return this.reported.length > 0;
   }
 }
