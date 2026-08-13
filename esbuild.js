@@ -75,6 +75,25 @@ const copyTsLibs = {
       if (copied === 0) {
         throw new Error(`copy-ts-libs: no lib.*.d.ts found in ${tsLibDir}`);
       }
+
+      // Assert the libs we just shipped belong to the compiler that actually got
+      // bundled. Both are meant to be core's TypeScript, but nothing else forces
+      // that: resolving from the repo root instead looks like a harmless tidy-up,
+      // and today it fails loudly only because TS 7 ships no lib.*.d.ts at all.
+      // Once core moves to TS 7 that accident disappears and a mismatch would
+      // ship silently, breaking `b6p push --snapshot` at runtime with
+      // "Cannot find global type 'Array'" for users while every build stayed
+      // green. Cheap end-to-end check: the bundled compiler embeds its own
+      // version string.
+      const tsVersion = require(path.join(tsLibDir, '..', 'package.json')).version;
+      const bundle = fs.readFileSync('dist/cli.js', 'utf8');
+      if (!bundle.includes(`"${tsVersion}"`)) {
+        throw new Error(
+          `copy-ts-libs: shipped lib.*.d.ts came from TypeScript ${tsVersion}, but dist/cli.js does not ` +
+            `embed that version — the bundled compiler and its standard library have diverged. ` +
+            `Both must resolve from b6p-core (${coreDir}).`
+        );
+      }
     });
   },
 };
