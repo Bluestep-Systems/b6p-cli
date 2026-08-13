@@ -173,10 +173,19 @@ which core turns into its minifilter hint.
 - **Two TypeScripts, on purpose.** This package type-checks with TypeScript 7 (`devDependencies`), while
   `b6p-core` transpiles pushes with an exact-pinned TypeScript 5.9.2 in its own `dependencies`. npm
   cannot dedupe them, so a nested `node_modules/@bluestep-systems/b6p-core/node_modules/typescript`
-  is expected — that nested copy is what esbuild bundles into `dist/cli.js`. Consequently
-  [esbuild.js](esbuild.js)'s `copy-ts-libs` resolves `typescript` **from core's directory**, never from
-  the repo root: the shipped `dist/lib/lib.*.d.ts` must match the compiler that reads them. TS 7 ships
-  no `lib.*.d.ts` at all (the Go port embeds them), so a root-resolved copy would fail the build.
+  is expected — **that nested copy is what esbuild bundles into `dist/cli.js`**, and it is the compiler
+  that runs at runtime for `b6p script push --snapshot`. The root TS 7 only ever runs `tsc --noEmit`;
+  no CLI source imports `typescript`.
+
+  Consequently [esbuild.js](esbuild.js)'s `copy-ts-libs` resolves `typescript` **from core's directory**,
+  never from the repo root: the shipped `dist/lib/lib.*.d.ts` must match the compiler that reads them.
+  TS 7 ships no `lib.*.d.ts` at all (the Go port embeds them), so a root-resolved copy fails the build
+  today — but that is an accident that disappears the moment core moves to TS 7, after which a mismatch
+  would ship silently and break snapshot pushes at runtime with "Cannot find global type 'Array'".
+  `copy-ts-libs` therefore **asserts** that `dist/cli.js` embeds the version whose libs it copied, and
+  [test/typescriptLibs.test.ts](test/typescriptLibs.test.ts) compiles real ES2022 source against
+  `dist/lib` using core's compiler to prove the pair actually works. Do not "tidy" either resolution to
+  the repo root.
 - **`types: ["node"]`** is set explicitly in `tsconfig.base.json`. TypeScript 7 no longer pulls every
   `node_modules/@types` package into global scope, so `process`, `__dirname` and the `node:` builtins
   must be requested by name.
