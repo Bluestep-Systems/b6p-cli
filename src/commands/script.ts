@@ -25,21 +25,36 @@ const addPush: Registrar = (parent, globals, hidden) =>
         targetUrl: string | undefined,
         opts: { file?: string; root?: string; snapshot?: boolean; message?: string }
       ) => {
-        await withCore(globals(), async ({ core }) => {
+        await withCore(globals(), async ({ core, emitJson, fail }) => {
           const isSnapshot = opts.snapshot || opts.message !== undefined;
-          if (opts.file) {
-            await core.script.pushCurrent({
-              filePath: resolve(opts.file),
-              snapshot: isSnapshot,
-              message: opts.message,
-            });
-          } else {
-            await core.script.push({
-              targetUrl,
-              rootPath: resolve(opts.root || "."),
-              snapshot: isSnapshot,
-              message: opts.message,
-            });
+          const result = opts.file
+            ? await core.script.pushCurrent({
+                filePath: resolve(opts.file),
+                snapshot: isSnapshot,
+                message: opts.message,
+              })
+            : await core.script.push({
+                targetUrl,
+                rootPath: resolve(opts.root || "."),
+                snapshot: isSnapshot,
+                message: opts.message,
+              });
+          if (result === null) {
+            // Cancelled at the target-URL prompt; core already reported that,
+            // so the exit code is settled and there is no result to emit.
+            return;
+          }
+          emitJson(result);
+          if (!result.pushed) {
+            // A push that uploaded nothing is not a success: a typo'd --root
+            // printed an error and still exited 0, which could mark a CI deploy
+            // green having shipped nothing.
+            fail(`Nothing was pushed. Check that the target has a draft/ folder with files in it.`);
+          } else if (!result.historyRecorded) {
+            fail(
+              `Snapshot files were uploaded, but the snapshot history entry was NOT recorded — ` +
+                `the browser IDE has no restore point for this snapshot. Run the snapshot push again.`
+            );
           }
         });
       }
@@ -52,21 +67,28 @@ const addPull: Registrar = (parent, globals, hidden) =>
     .option("--file <path>", "Derive source from local file metadata")
     .option("--workspace <path>", "Target workspace folder (default: cwd)")
     .action(async (formulaUrl: string | undefined, opts: { file?: string; workspace?: string }) => {
-      await withCore(globals(), async ({ core }) => {
+      await withCore(globals(), async ({ core, emitJson }) => {
         // Default to "pull current" when no formula URL is given:
         // use --file if provided, otherwise treat cwd as the file path so the
         // script root can be derived by walking up.
+        let result;
         if (!formulaUrl) {
           const filePath = resolve(opts.file ?? ".");
           const workspacePath = opts.workspace
             ? resolve(opts.workspace)
             : (core.script.deriveWorkspacePath(filePath) ?? process.cwd());
-          await core.script.pullCurrent({ filePath, workspacePath });
+          result = await core.script.pullCurrent({ filePath, workspacePath });
         } else {
-          await core.script.pull({
+          result = await core.script.pull({
             formulaUrl,
             workspacePath: resolve(opts.workspace || "."),
           });
+        }
+        if (result !== null) {
+          // `keptLocalPaths` is reported, never failed: keeping a locally-edited
+          // file is the divergence guard working as intended, and failing here
+          // would make every pull in a tree with local edits exit non-zero.
+          emitJson(result);
         }
       });
     });
