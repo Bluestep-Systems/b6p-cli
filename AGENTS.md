@@ -76,6 +76,32 @@ Use underscores for thousands separators in numeric literals (e.g. `1_000`, `10_
 Prettier governs style (see `.prettierrc`): 120 print width, 2-space tabs, semicolons,
 `trailingComma: es5`. Run `npm run format` before committing.
 
+## Branch, Commit, PR, and ClickUp Conventions
+
+Substantive work is tracked by a ClickUp task; feedback-pipeline reports and their tracking tasks live
+in the **AI.List** list. Follow these so ClickUp's GitHub integration can auto-link the work:
+
+- **Branches** carry the ClickUp task id with the `CU-` prefix: `CU-<taskid>`, or
+  `<type>/<slug>-CU-<taskid>` when a descriptive slug helps. The `CU-` spelling is what ClickUp's
+  GitHub integration matches — a bare id or another prefix does not auto-link.
+- **Commits** use conventional-commit style (`fix(scope):`, `feat:`, `test:`, `refactor:`, `chore:`,
+  `docs:`, `release: vX.Y.Z — summary`) and reference the ClickUp task as `(CU-<taskid>)`. AI-authored
+  commits end with their agent's `Co-Authored-By` trailer.
+- **PRs** target `master` and must pass CI. Expect automated review rounds (e.g. Copilot); address
+  them as follow-up commits on the same branch. AI-generated PR bodies end with the Claude Code
+  attribution line.
+- **Feedback-pipeline lifecycle**: when a fix has actually shipped to users, comment on the reporting
+  ClickUp task and move it to **"check on 20"** — the bspecs side runs a live verification wave.
+  **Never close tasks directly**: a pass is closed by the resolution-note email flow (which also
+  notifies reporters); a fail comes back on the "rejected fix" lane with the failing check cited.
+- **Shipping chain**: a fix in `@bluestep-systems/b6p-core` reaches users only when this CLI (or the
+  VS Code extension) releases with the bumped core. "Shipped" for the ClickUp lifecycle means the
+  consumer release is published (npm publish on version tag; standalone binaries attach to the GitHub
+  Release), not that a PR merged somewhere upstream.
+- **Line endings**: repo blobs are LF. On a CRLF checkout (Windows `autocrlf`), a local
+  `npm run format-check` can false-fail on every file while CI passes — trust CI, or run the check
+  from an LF checkout. Do not commit a mass "reformat" for line-ending noise.
+
 ## Overriding Guidelines
 
 In exceptional cases where a guideline is impractical, you may override it — but document the override
