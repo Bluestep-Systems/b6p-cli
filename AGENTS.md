@@ -70,7 +70,10 @@ Whenever making code changes, ensure all TypeScript types are accurate and up to
 ## Static Checks
 
 There is **no linter**. ESLint and `typescript-eslint` were removed when this package moved to
-TypeScript 7 (`typescript-eslint` peer-caps TypeScript at `<6.1.0`). The remaining gates are:
+TypeScript 7 (`typescript-eslint` peer-caps TypeScript at `<6.1.0`). That cap is satisfiable again
+now that the package is back on 5.9.2 (see
+[docs/adr/0002-typescript-version-strategy.md](docs/adr/0002-typescript-version-strategy.md)), so
+restoring the linter is an open decision rather than a blocked one. Until it is taken, the gates are:
 
 ```bash
 npm run check-types   # tsc --noEmit — the only semantic gate

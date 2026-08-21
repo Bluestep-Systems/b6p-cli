@@ -5,6 +5,40 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] — 2026-08-21
+
+### Changed
+
+- **Rolled back the TypeScript 7 type-checker: `typescript` is now pinned to exactly `5.9.2`, the
+  same version `b6p-core` bundles to transpile pushes.** No CLI behaviour changes — no command, flag,
+  argument or output is affected. The source did not change either; it type-checks clean on 5.9.2,
+  6.0.0-beta and 7.0.2 alike, so this is a toolchain change only.
+
+  **Why.** `b6p-core` compiles TypeScript *at runtime* — `b6p push --snapshot` transpiles a
+  component's `draft/scripts/*.ts` in-process — and TypeScript 7 cannot do that. Its `typescript`
+  entry point is only a version stub, the classic API (`createProgram`, `transpileModule`) is gone,
+  and its replacement drives a per-platform native Go binary over JSON-RPC, which cannot be inlined
+  into this package's single `dist/cli.js` or embedded in its Node SEA binaries. TypeScript 7 also
+  ships no `lib.*.d.ts` at all, while the transpiler needs real lib files on disk.
+
+  Type-checking with 7 while core compiled with 5.9 therefore meant two TypeScripts permanently, an
+  un-dedupable nested copy under `node_modules/@bluestep-systems/b6p-core/`, and a lib-copying step
+  that had to resolve the compiler from core's directory to stay correct. Pinning both to the same
+  exact version collapses all of that: npm now dedupes to one copy, and `dist/lib/` carries 99
+  `lib.*.d.ts` matching the 5.9.2 the bundle embeds.
+
+  The decision, the alternatives (including why not the 6.0 beta — there is no stable 6.x) and the
+  condition for moving forward again are recorded in
+  [docs/adr/0002-typescript-version-strategy.md](docs/adr/0002-typescript-version-strategy.md).
+
+  The scaffolding from the TS 7 migration is **kept on purpose**: `types: ["node"]`, `copy-ts-libs`
+  resolving from core's directory, and the lib-set invariant test all stay. They cost nothing on 5.9
+  and are what a future upgrade needs.
+
+### Added
+
+- ADR 0002 documenting the TypeScript version strategy and the trigger to revisit it.
+
 ## [0.6.0] — 2026-08-21
 
 ### Changed (breaking, user-visible)
