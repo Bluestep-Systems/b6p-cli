@@ -52,7 +52,11 @@ async function main() {
     entryPoints,
     bundle: true,
     format: "cjs",
-    platform: "node", // Node builtins (node:test, child_process, …) stay external automatically.
+    platform: "node", // node:-prefixed builtins (node:test, node:stream) stay external automatically.
+    // BARE builtin subpaths are NOT: platform:node alone leaves readline/promises
+    // unresolved, which broke this build the first time a test imported CliPrompt.
+    // Mirrors the external list in esbuild.js - keep the two in step.
+    external: ["path", "fs", "fs/promises", "crypto", "readline/promises", "url"],
     outdir: OUT_DIR,
     outExtension: { ".js": ".cjs" },
     sourcemap: "inline",

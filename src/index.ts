@@ -135,15 +135,29 @@ program
       const { core, prompt, spinner } = await createCore(globalOpts);
       const isSnapshot = opts.snapshot || opts.message !== undefined;
       try {
-        if (opts.file) {
-          await core.script.pushCurrent({ filePath: resolve(opts.file), snapshot: isSnapshot, message: opts.message });
-        } else {
-          await core.script.push({
-            targetUrl,
-            rootPath: resolve(opts.root || "."),
-            snapshot: isSnapshot,
-            message: opts.message,
-          });
+        const result = opts.file
+          ? await core.script.pushCurrent({
+              filePath: resolve(opts.file),
+              snapshot: isSnapshot,
+              message: opts.message,
+            })
+          : await core.script.push({
+              targetUrl,
+              rootPath: resolve(opts.root || "."),
+              snapshot: isSnapshot,
+              message: opts.message,
+            });
+        if (globalOpts.json) {
+          process.stdout.write(JSON.stringify(result ?? { cancelled: true }, null, 2) + "\n");
+        }
+        // A push that uploaded nothing (bad --root, empty draft) or a snapshot
+        // that shipped without a history entry must not report success to the
+        // shell — that is what let a typo'd --root mark a deploy green. A null
+        // result means the user cancelled at the target-URL prompt, which is not
+        // a failure. `exitCode` rather than `exit()` so an in-flight --json
+        // write still flushes.
+        if (result && (!result.pushed || !result.historyRecorded)) {
+          process.exitCode = 1;
         }
       } finally {
         spinner.stop();
@@ -166,18 +180,27 @@ program
       // Default to "pull current" when no formula URL is given:
       // use --file if provided, otherwise treat cwd as the file path so the
       // script root can be derived by walking up.
+      let result;
       if (!formulaUrl) {
         const filePath = resolve(opts.file ?? ".");
         const workspacePath = opts.workspace
           ? resolve(opts.workspace)
           : (core.script.deriveWorkspacePath(filePath) ?? process.cwd());
-        await core.script.pullCurrent({ filePath, workspacePath });
+        result = await core.script.pullCurrent({ filePath, workspacePath });
       } else {
-        await core.script.pull({
+        result = await core.script.pull({
           formulaUrl,
           workspacePath: resolve(opts.workspace || "."),
         });
       }
+      if (globalOpts.json) {
+        process.stdout.write(JSON.stringify(result ?? { cancelled: true }, null, 2) + "\n");
+      }
+      // `keptLocalPaths` is deliberately NOT an exit-code failure: keeping a
+      // locally-edited file is the guard working as designed, and failing here
+      // would make every pull in a tree with local edits exit non-zero forever.
+      // The outcome reaches machines through --json and humans through the
+      // warning core prints.
     } finally {
       spinner.stop();
       prompt.close();

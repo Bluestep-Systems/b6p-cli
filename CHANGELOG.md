@@ -5,6 +5,59 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-08-21
+
+### Changed (breaking, user-visible)
+
+- **Authentication now uses an access token instead of a username and password.** This comes from
+  `b6p-core` 0.5.0 replacing basic auth with bearer auth, and **there is no migration path by
+  construction** — a token cannot be derived from a stored username and password. On first use
+  after upgrading you will be asked for an access token; run `b6p auth set` to store one up front.
+  `b6p auth clear` also purges the obsolete stored credentials.
+
+### Fixed
+
+- **A prompt that cannot be answered no longer exits `0` having done nothing.** `readline`'s
+  `question()` promise never settles once stdin has ended, so the event loop drained and the process
+  exited **successfully** from a command that did nothing. Combined with the auth change above, the
+  first non-interactive run after upgrading would have printed `Enter your access token:` and exited
+  `0` without pulling anything. `CliPrompt` now detects end-of-input and fails with an actionable
+  message (exit `1`), and remembers that stdin is spent so a later prompt reports the same thing
+  rather than readline's internal `readline was closed`. That second half is
+  [ClickUp 86bb8f6v0](https://app.clickup.com/t/86bb8f6v0): a push reaching a *second* "upstairs file
+  changed" prompt with one piped answer died on that internal error mid-push.
+
+  An answer that *is* available always wins: piped input ends in the same turn its bytes arrive, so
+  the end-of-input check is deferred one macrotask — `echo Sync | b6p ...` still works. Covered by
+  `test/CliPrompt.test.ts`, whose cases fail (hang, then time out) against the old implementation.
+
+The rest come from bumping `@bluestep-systems/b6p-core` `^0.5.0` → `^0.6.0`, which carries two
+fixes reported through the feedback pipeline plus a safety change. All three are core-side
+behaviour changes; the CLI's role is to surface them.
+
+- **`b6p pull` no longer overwrites a locally-edited file it has previously synced** (ClickUp
+  86bbdr4r0). A file whose content differs from both the platform copy and the last-synced hash is
+  kept, and every kept file is listed in one warning at the end of the pull. Downloads are also
+  atomic now, so an interrupted pull can no longer leave a truncated file behind — and the ETag
+  integrity check runs before the write rather than after it.
+- **`b6p push --snapshot` no longer prints "Snapshot complete!" when the snapshot history was not
+  recorded** (ClickUp 86bbed9wu). The history mutation is retried when the platform rejects it with
+  the post-upload "version mismatch" (which is what made the *second* consecutive snapshot push to a
+  component lose its restore point); if it still fails, the push says so explicitly.
+- **`b6p audit --pull` no longer authorizes overwrites non-interactively.** Its "Sync?" confirmation
+  now defaults to *Cancel*, so `--yes` declines rather than overwriting locally-edited files, and a
+  real confirmation only force-overwrites the files it actually listed. To take the platform copy
+  non-interactively, delete the file and pull.
+
+### Added
+
+- **`--json` output for `push` and `pull`,** and a non-zero exit code for a push that did not do what
+  was asked. `push` emits core's `PushResult` (`{ pushed, historyRecorded }`) and exits `1` when
+  `pushed` is false (bad `--root`, empty draft — previously a typo could mark a CI deploy green) or
+  when a snapshot shipped without its history entry. `pull` emits `PullResult`
+  (`{ keptLocalPaths }`), which is reporting only: keeping a locally-edited file is the guard working
+  as designed, so it stays exit `0` rather than failing every pull in a tree with local edits.
+
 ## [0.5.0] — 2026-08-12
 
 ### Changed
