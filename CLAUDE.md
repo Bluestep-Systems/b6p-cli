@@ -69,19 +69,31 @@ which core turns into its minifilter hint.
 
 - **Target/module**: ES2022 / Node16, `strict` mode. Base options in `tsconfig.base.json`, package
   overrides in `tsconfig.json` (`noEmit: true` — esbuild produces the artifact, not `tsc`).
-- **Two TypeScripts, on purpose.** This package type-checks with TypeScript 7 (`devDependencies`), while
-  `b6p-core` transpiles pushes with an exact-pinned TypeScript 5.9.2 in its own `dependencies`. npm
-  cannot dedupe them, so a nested `node_modules/@bluestep-systems/b6p-core/node_modules/typescript`
-  is expected — that nested copy is what esbuild bundles into `dist/cli.js`. Consequently
-  [esbuild.js](esbuild.js)'s `copy-ts-libs` resolves `typescript` **from core's directory**, never from
-  the repo root: the shipped `dist/lib/lib.*.d.ts` must match the compiler that reads them. TS 7 ships
-  no `lib.*.d.ts` at all (the Go port embeds them), so a root-resolved copy would fail the build.
-- **`types: ["node"]`** is set explicitly in `tsconfig.json`. TypeScript 7 no longer pulls every
-  `node_modules/@types` package into global scope, so `process`, `__dirname` and the `node:` builtins
-  must be requested by name.
-- **No linter.** ESLint and `typescript-eslint` were removed: `typescript-eslint` peer-caps TypeScript
-  at `<6.1.0`, which is incompatible with TS 7. `npm run check-types` and `npm run format-check` are the
-  static gates. Restore linting once `typescript-eslint` supports TS 7.
+- **One TypeScript, exact-pinned at 5.9.2 — matching the one core bundles.** This package pins
+  `typescript` to exactly `5.9.2`, the same exact version `b6p-core` declares as a runtime
+  `dependency` for transpiling pushes, so npm dedupes to a single copy and there is no nested
+  `node_modules/@bluestep-systems/b6p-core/node_modules/typescript`. Do not float this to a range or a
+  newer major without reading
+  [docs/adr/0002-typescript-version-strategy.md](docs/adr/0002-typescript-version-strategy.md):
+  TypeScript 7 cannot compile in-process (no `createProgram`/`transpileModule`; its replacement drives
+  a per-platform native binary over JSON-RPC) and ships no `lib.*.d.ts` at all, which is incompatible
+  with both `ScriptTranspiler` and this package's single-bundle + SEA distribution.
+- **`copy-ts-libs` resolves `typescript` from core's directory, never the repo root.** The shipped
+  `dist/lib/lib.*.d.ts` are read **at runtime** by the compiler esbuild inlined into `dist/cli.js`, so
+  they must match *that* compiler. It happens to be the same 5.9.2 the root has while the pins agree —
+  and resolving from core is what keeps it correct if they ever diverge. Note the failure mode is
+  **silent** on 5.x (a root-resolved lookup finds *some* libs and ships them); the lib-set invariant
+  test is what makes a mismatch red instead of a broken `push --snapshot` in the field.
+- **`types: ["node"]`** is set explicitly in `tsconfig.base.json`. It was required by TS 7 (which no
+  longer pulls every `node_modules/@types` package into global scope) and is kept deliberately: on 5.9
+  it is simply a narrower, explicit global scope, and it is one less thing to redo if this package ever
+  moves forward again.
+- **No linter, for now.** ESLint and `typescript-eslint` were removed when this package moved to TS 7,
+  because `typescript-eslint` peer-caps TypeScript at `<6.1.0`. The rollback to 5.9.2 makes that peer
+  satisfiable again, so restoring it is now possible — an explicitly deferred decision, not a
+  constraint. Until then `npm run check-types` and `npm run format-check` are the static gates, and the
+  **no-`any` rule is documentation only**: an explicit `any` compiles silently (`noImplicitAny` still
+  catches the implicit case), so enforce it by reading the diff.
 - **Output**: `dist/cli.js`, a single CJS bundle with a `#!/usr/bin/env node` banner and `0755` mode, so
   it runs directly as the `b6p` bin.
 
