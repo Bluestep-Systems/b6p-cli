@@ -67,6 +67,22 @@ Whenever making code changes, ensure all TypeScript types are accurate and up to
 - Verify type imports reflect the current codebase.
 - Types shared with the extension belong in `@bluestep-systems/b6p-core`, not here.
 
+## Static Checks
+
+There is **no linter**. ESLint and `typescript-eslint` were removed when this package moved to
+TypeScript 7 (`typescript-eslint` peer-caps TypeScript at `<6.1.0`). The remaining gates are:
+
+```bash
+npm run check-types   # tsc --noEmit — the only semantic gate
+npm run format-check  # prettier --check
+npm test              # node --test over dist-test/
+```
+
+This matters for the **no-`any`** rule above: it used to be backstopped by
+`@typescript-eslint/no-explicit-any`, and now it is not. An explicit `any` will compile silently. Enforce
+it by reading the diff, not by trusting the build. `noImplicitAny` in `tsconfig.base.json` still catches
+the *implicit* case.
+
 ## Number Formatting
 
 Use underscores for thousands separators in numeric literals (e.g. `1_000`, `10_000_000`).

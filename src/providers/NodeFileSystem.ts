@@ -1,9 +1,9 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { B6PUri } from "@bluestep-systems/b6p-core";
-import type { FileStat, IFileSystem } from "@bluestep-systems/b6p-core";
+import type { FileStat, FileSystem } from "@bluestep-systems/b6p-core";
 
-export class NodeFileSystem implements IFileSystem {
+export class NodeFileSystem implements FileSystem {
   async readFile(uri: B6PUri): Promise<Uint8Array> {
     return fs.readFile(uri.fsPath);
   }

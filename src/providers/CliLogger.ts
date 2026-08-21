@@ -1,7 +1,7 @@
-import type { ILogger } from "@bluestep-systems/b6p-core";
+import type { Logger } from "@bluestep-systems/b6p-core";
 import type { ActivityPauser } from "./CliPrompt";
 
-export class CliLogger implements ILogger {
+export class CliLogger implements Logger {
   private readonly verbose: boolean;
   private pauser: ActivityPauser | null = null;
 

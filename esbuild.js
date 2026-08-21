@@ -35,13 +35,23 @@ const chmodCli = {
 // core's bundled compile can resolve them — once bundled, TS can't find them
 // relative to __filename. Copy the whole set so any lib/target combination
 // resolves; the SEA binary embeds these instead (scripts/build-sea.mjs).
+//
+// These libs must match the compiler that READS them, which is the TypeScript
+// esbuild bundled into dist/cli.js — i.e. b6p-core's own `typescript` (an exact
+// pin in its `dependencies`), NOT this package's devDependency. The two are
+// deliberately different majors: we type-check with TS 7 while core still
+// transpiles with TS 5, so resolving from the repo root here would ship TS 7
+// lib.*.d.ts to a TS 5 compiler and break `b6p push --snapshot`. Resolve from
+// core's directory so the libs always track the bundled compiler.
 const copyTsLibs = {
   name: 'copy-ts-libs',
   setup(build) {
     build.onEnd(() => {
       // require.resolve('typescript') → <pkg>/lib/typescript.js, so its dirname
-      // is the lib dir. Robust to hoisting; no hard-coded node_modules path.
-      const tsLibDir = path.dirname(require.resolve('typescript'));
+      // is the lib dir. Resolved from core's own location, so it finds core's
+      // nested copy when npm can't dedupe it to the root. No hard-coded path.
+      const coreDir = path.dirname(require.resolve('@bluestep-systems/b6p-core/package.json'));
+      const tsLibDir = path.dirname(require.resolve('typescript', { paths: [coreDir] }));
       const destDir = path.join('dist', 'lib');
       // Rebuild from scratch so a TypeScript upgrade can't leave stale (removed
       // or renamed) lib.*.d.ts behind to be shipped.

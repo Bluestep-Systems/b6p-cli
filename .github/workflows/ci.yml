@@ -2,7 +2,7 @@
 # b6p-cli CI
 # ============================================================================
 # Purpose: Validate the CLI on pull requests and pushes to the default
-#          branch (type-check, lint, compile, then smoke-run the built
+#          branch (type-check, compile, unit-test, then smoke-run the built
 #          binary). No secrets required — the @bluestep-systems scope
 #          resolves from public npm via .npmrc.
 # ============================================================================
@@ -57,9 +57,6 @@ jobs:
 
       - name: Type check
         run: npm run check-types
-
-      - name: Lint
-        run: npm run lint
 
       - name: Compile
         run: npm run compile

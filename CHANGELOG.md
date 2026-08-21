@@ -5,6 +5,99 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-08-21
+
+### Changed (breaking, user-visible)
+
+- **Authentication now uses an access token instead of a username and password.** This comes from
+  `b6p-core` 0.5.0 replacing basic auth with bearer auth, and **there is no migration path by
+  construction** — a token cannot be derived from a stored username and password. On first use
+  after upgrading you will be asked for an access token; run `b6p auth set` to store one up front.
+  `b6p auth clear` also purges the obsolete stored credentials.
+
+### Fixed
+
+- **A prompt that cannot be answered no longer exits `0` having done nothing.** `readline`'s
+  `question()` promise never settles once stdin has ended, so the event loop drained and the process
+  exited **successfully** from a command that did nothing. Combined with the auth change above, the
+  first non-interactive run after upgrading would have printed `Enter your access token:` and exited
+  `0` without pulling anything. `CliPrompt` now detects end-of-input and fails with an actionable
+  message (exit `1`), and remembers that stdin is spent so a later prompt reports the same thing
+  rather than readline's internal `readline was closed`. That second half is
+  [ClickUp 86bb8f6v0](https://app.clickup.com/t/86bb8f6v0): a push reaching a *second* "upstairs file
+  changed" prompt with one piped answer died on that internal error mid-push.
+
+  An answer that *is* available always wins: piped input ends in the same turn its bytes arrive, so
+  the end-of-input check is deferred one macrotask — `echo Sync | b6p ...` still works. Covered by
+  `test/CliPrompt.test.ts`, whose cases fail (hang, then time out) against the old implementation.
+
+The rest come from bumping `@bluestep-systems/b6p-core` `^0.5.0` → `^0.6.0`, which carries two
+fixes reported through the feedback pipeline plus a safety change. All three are core-side
+behaviour changes; the CLI's role is to surface them.
+
+- **`b6p pull` no longer overwrites a locally-edited file it has previously synced** (ClickUp
+  86bbdr4r0). A file whose content differs from both the platform copy and the last-synced hash is
+  kept, and every kept file is listed in one warning at the end of the pull. Downloads are also
+  atomic now, so an interrupted pull can no longer leave a truncated file behind — and the ETag
+  integrity check runs before the write rather than after it.
+- **`b6p push --snapshot` no longer prints "Snapshot complete!" when the snapshot history was not
+  recorded** (ClickUp 86bbed9wu). The history mutation is retried when the platform rejects it with
+  the post-upload "version mismatch" (which is what made the *second* consecutive snapshot push to a
+  component lose its restore point); if it still fails, the push says so explicitly.
+- **`b6p audit --pull` no longer authorizes overwrites non-interactively.** Its "Sync?" confirmation
+  now defaults to *Cancel*, so `--yes` declines rather than overwriting locally-edited files, and a
+  real confirmation only force-overwrites the files it actually listed. To take the platform copy
+  non-interactively, delete the file and pull.
+
+### Added
+
+- **`--json` output for `push` and `pull`,** and a non-zero exit code for a push that did not do what
+  was asked. `push` emits core's `PushResult` (`{ pushed, historyRecorded }`) and exits `1` when
+  `pushed` is false (bad `--root`, empty draft — previously a typo could mark a CI deploy green) or
+  when a snapshot shipped without its history entry. `pull` emits `PullResult`
+  (`{ keptLocalPaths }`), which is reporting only: keeping a locally-edited file is the guard working
+  as designed, so it stays exit `0` rather than failing every pull in a tree with local edits.
+
+## [0.5.0] — 2026-08-12
+
+### Changed
+
+- **Breaking (internal API only — no user-visible CLI change).** Bumped `@bluestep-systems/b6p-core`
+  `^0.4.0` → `^0.5.0` and migrated to its reshaped surface. Every command, flag, argument, and output
+  format is unchanged; this release is a re-addressing of the same operations.
+  - Script-tree operations moved off `B6PCore` onto a `ScriptService` reached as `core.script`:
+    `push`, `pushCurrent`, `pull`, `pullCurrent`, `audit`, `auditPull`, `deploy`, `deriveWorkspacePath`
+    and `getSetupUrl` are now `core.script.*`. Signatures are byte-identical. Account-level operations
+    (`updateCredentials`, `report`, `setConfig`, `checkForUpdates`) stay on `core`.
+  - Core's provider interfaces dropped their Hungarian `I` prefix: `IFileSystem` → `FileSystem`,
+    `IPersistence` → `Persistence`, `IPrompt` → `Prompt`, `ILogger` → `Logger`, `IProgress` → `Progress`,
+    `ILockDiagnoser` → `LockDiagnoser`. The five providers in [src/providers/](src/providers/) and
+    `WindowsRestartManagerLockDiagnoser` were updated to match.
+- Upgraded the type-checker to **TypeScript 7** (`^5.9.2` → `^7.0.2`), and set `types: ["node"]`
+  explicitly in `tsconfig.json` — TS 7 no longer pulls every `node_modules/@types` package into global
+  scope, so `process`, `__dirname` and the `node:` builtins must be requested by name.
+- Bumped `prettier` → `^3.9.6` and `@types/node` → `^22.20.1`.
+
+### Fixed
+
+- `esbuild.js`'s `copy-ts-libs` plugin now resolves `typescript` **from b6p-core's directory** instead of
+  the repo root, so the `lib.*.d.ts` shipped to `dist/lib/` always match the compiler that reads them.
+  Core pins `typescript` at exactly `5.9.2` as a runtime dependency (its `ScriptTranspiler` compiles
+  snapshot pushes) and npm cannot dedupe that against this package's TS 7, so the bundled compiler and
+  the root `tsc` are deliberately different majors. Without this change the TypeScript 7 upgrade would
+  have broken the build outright: TS 7 ships **no** `lib.*.d.ts` files at all (the Go port embeds them),
+  so the old root-resolved lookup would have found zero libs and thrown `copy-ts-libs: no lib.*.d.ts
+  found`. `scripts/build-sea.mjs` reads `dist/lib/` and inherits the fix.
+
+### Removed
+
+- **ESLint and `typescript-eslint`**, along with `eslint.config.mjs`, the `npm run lint` script, and the
+  lint steps in [ci.yml](.github/workflows/ci.yml) / [publish.yml](.github/workflows/publish.yml).
+  `typescript-eslint` 8.67 (current stable) declares `typescript: ">=4.8.4 <6.1.0"`, so it cannot run
+  against TypeScript 7. `npm run check-types`, `npm run format-check` and `npm test` are now the static
+  gates. Note that the project's no-`any` rule is consequently no longer machine-enforced — see
+  [AGENTS.md](AGENTS.md). Linting should be restored when `typescript-eslint` supports TS 7.
+
 ## [0.4.0] — 2026-07-23
 
 ### Added

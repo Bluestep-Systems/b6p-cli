@@ -21,7 +21,6 @@ npm run compile       # Bundle → dist/cli.js (esbuild, production)
 npm run build:sea     # Standalone binary for the current OS (Node SEA; see docs/adr/0001)
 npm run watch         # Rebuild on change (esbuild --watch)
 npm run check-types   # Type-check only (tsc --noEmit)
-npm run lint          # ESLint
 npm run format        # Prettier --write (config in .prettierrc)
 npm run format-check  # Prettier --check
 npm run test          # Bundle test/**/*.test.ts → dist-test/ (esbuild.test.js) and run node --test
@@ -40,13 +39,19 @@ The entry point is [src/index.ts](src/index.ts): it defines the [commander](http
 command tree (`pull`, `push`, `audit`, `deploy`, `setup`, `report`, `auth`, `sessions`, `config`,
 `check-updates`), parses argv, constructs a `B6PCore` from `@bluestep-systems/b6p-core`, and dispatches.
 
+Script-tree operations do **not** hang off `B6PCore` itself. Core groups them on a `ScriptService`
+reached as `core.script` — `core.script.push(...)`, `core.script.pull(...)`, `core.script.audit(...)`,
+`core.script.deploy(...)`, `core.script.getSetupUrl(...)`. Account-level operations (`updateCredentials`,
+`report`, `setConfig`, `checkForUpdates`) stay directly on `core`. New platform subsystems are expected
+to sit beside `script` rather than flatten onto the root object.
+
 All platform behaviour the core needs is supplied through Node implementations of the core's provider
 interfaces, under [src/providers/](src/providers/):
 
-- **NodeFileSystem** — `IFileSystem` over `node:fs`.
-- **CliPrompt** — `IPrompt` via `readline` (honors `--yes` for non-interactive use).
-- **CliLogger** — `ILogger` to stderr (honors `--verbose`).
-- **CliProgress** / **Spinner** — `IProgress` + a TTY spinner (suppressed in `--json` / `--quiet`).
+- **NodeFileSystem** — `FileSystem` over `node:fs`.
+- **CliPrompt** — `Prompt` via `readline` (honors `--yes` for non-interactive use).
+- **CliLogger** — `Logger` to stderr (honors `--verbose`).
+- **CliProgress** / **Spinner** — `Progress` + a TTY spinner (suppressed in `--json` / `--quiet`).
 - **DotfilePersistence** — legacy dotfile migration into the core's `SharedFilePersistence`.
 
 Durable state (credentials, sessions, settings) is handled by the core's `SharedFilePersistence`, not by
@@ -54,7 +59,7 @@ the CLI. The CLI only adapts I/O, prompting, logging, and progress to a terminal
 
 One further platform-specific dependency is injected into `SharedFilePersistence` at construction
 ([src/index.ts](src/index.ts)): a **`WindowsRestartManagerLockDiagnoser`** ([src/lockDiagnoser/](src/lockDiagnoser/)),
-implementing the core's `ILockDiagnoser`. When a shared-state `rename` fails on Windows, core calls it to
+implementing the core's `LockDiagnoser`. When a shared-state `rename` fails on Windows, core calls it to
 name the user-mode processes holding the file (via the Windows Restart Manager, queried from a bundled
 PowerShell script) so the thrown error is actionable. It is best-effort — never throws, and returns no
 holders off Windows or when only a kernel filesystem minifilter (AV/ransomware protection) is involved,
@@ -64,6 +69,19 @@ which core turns into its minifilter hint.
 
 - **Target/module**: ES2022 / Node16, `strict` mode. Base options in `tsconfig.base.json`, package
   overrides in `tsconfig.json` (`noEmit: true` — esbuild produces the artifact, not `tsc`).
+- **Two TypeScripts, on purpose.** This package type-checks with TypeScript 7 (`devDependencies`), while
+  `b6p-core` transpiles pushes with an exact-pinned TypeScript 5.9.2 in its own `dependencies`. npm
+  cannot dedupe them, so a nested `node_modules/@bluestep-systems/b6p-core/node_modules/typescript`
+  is expected — that nested copy is what esbuild bundles into `dist/cli.js`. Consequently
+  [esbuild.js](esbuild.js)'s `copy-ts-libs` resolves `typescript` **from core's directory**, never from
+  the repo root: the shipped `dist/lib/lib.*.d.ts` must match the compiler that reads them. TS 7 ships
+  no `lib.*.d.ts` at all (the Go port embeds them), so a root-resolved copy would fail the build.
+- **`types: ["node"]`** is set explicitly in `tsconfig.json`. TypeScript 7 no longer pulls every
+  `node_modules/@types` package into global scope, so `process`, `__dirname` and the `node:` builtins
+  must be requested by name.
+- **No linter.** ESLint and `typescript-eslint` were removed: `typescript-eslint` peer-caps TypeScript
+  at `<6.1.0`, which is incompatible with TS 7. `npm run check-types` and `npm run format-check` are the
+  static gates. Restore linting once `typescript-eslint` supports TS 7.
 - **Output**: `dist/cli.js`, a single CJS bundle with a `#!/usr/bin/env node` banner and `0755` mode, so
   it runs directly as the `b6p` bin.
 
