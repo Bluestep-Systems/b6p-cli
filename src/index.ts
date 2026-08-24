@@ -156,7 +156,16 @@ program
         // result means the user cancelled at the target-URL prompt, which is not
         // a failure. `exitCode` rather than `exit()` so an in-flight --json
         // write still flushes.
+        //
+        // A snapshot that shipped with type-check diagnostics (> 0) also exits
+        // non-zero: the platform runs the emitted JS un-type-checked, so this
+        // push was the only gate — CI must be able to catch it (core already
+        // warned loudly). `typeCheckDiagnostics` is null for a plain push (no
+        // compile) and 0 for a clean one, neither of which fails.
         if (result && (!result.pushed || !result.historyRecorded)) {
+          process.exitCode = 1;
+        }
+        if (result && result.typeCheckDiagnostics !== null && result.typeCheckDiagnostics > 0) {
           process.exitCode = 1;
         }
       } finally {
