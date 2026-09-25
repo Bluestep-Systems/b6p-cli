@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking, user-visible)
+
+- **`--yes` and an empty answer now decline overwrites and deletes.** Core 0.8.0 puts the safe
+  answer first in every prompt that overwrites or deletes something on the platform (`[Cancel] /
+  Overwrite all`, `[No] / Yes`), and `--yes` or pressing Enter takes that first answer. Before, `--yes`
+  overwrote files changed on the platform and deleted platform-only files without showing either
+  question.
+- **`--yes` now prints every question it answers**, with the options and the answer it took, on
+  stderr (also with `--json`). A destructive prompt says `--yes` never confirms an overwrite or a
+  delete.
+
 ### Changed
 
 - **Bundles `@bluestep-systems/b6p-core` 0.8.0.** A snapshot push now checks, before uploading
@@ -28,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   while no prompt was waiting and was lost, so the second prompt failed with "No input available".
   Each line now answers the next prompt. On a non-terminal stdin the answer is written after its
   prompt, so the output shows what was answered (never for a token).
+- **An answer that matches none of a prompt's options now says so** (`"Overwrite" is not one of the
+  answers (Cancel, Overwrite all), so none was chosen.`) instead of declining silently.
 
 ## [0.6.1] — 2026-08-21
 

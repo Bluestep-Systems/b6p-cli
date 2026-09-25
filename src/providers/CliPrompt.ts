@@ -1,6 +1,6 @@
 import * as readline from "readline/promises";
 import type { Readable, Writable } from "node:stream";
-import type { Prompt } from "@bluestep-systems/b6p-core";
+import type { ConfirmOptions, Prompt } from "@bluestep-systems/b6p-core";
 
 /**
  * Thrown when the core asks for input that stdin cannot supply - piped input
@@ -29,11 +29,13 @@ export class NonInteractiveInputError extends Error {
 /**
  * CLI implementation of the prompt provider.
  *
- * When `autoYes` is true, confirmations return the first option automatically
- * and input boxes return their default value when they have one. An input box
+ * When `autoYes` is true, confirmations return their default (the first option,
+ * or the safe one on a destructive prompt) and print the question and the answer
+ * taken, and input boxes return their default value when they have one. An input box
  * with no default still needs a real answer: it is read from stdin, and if stdin
  * has nothing to give, {@link NonInteractiveInputError} is thrown rather than
  * hanging on a promise that can never settle.
+ * @lastreviewed null
  */
 export interface ActivityPauser {
   pause(): void;
@@ -311,18 +313,57 @@ export class CliPrompt implements Prompt {
     });
   }
 
-  async confirm(message: string, options: string[]): Promise<string | undefined> {
+  /**
+   * Ask a question with a fixed set of answers.
+   *
+   * The default is `options[0]`, which core makes the safe option on a destructive prompt; if a
+   * destructive prompt ever names a `safeOption` that isn't first, that one is the default instead,
+   * so neither `--yes` nor an empty answer can confirm an overwrite or a delete.
+   *
+   * Under `--yes` nothing is read, but the question, the options and the answer taken are printed,
+   * in every mode (`--json` included): an agent never sees a prompt otherwise, and so would never
+   * learn which files `--yes` declined to overwrite or delete (ClickUp 86bc2h3ef).
+   * @param message The question
+   * @param options The answers to offer, default first
+   * @param opts Whether the prompt overwrites or deletes something, and its safe answer
+   * @returns The option chosen, or `undefined` for an answer that matches none
+   * @lastreviewed null
+   */
+  async confirm(message: string, options: string[], opts: ConfirmOptions = {}): Promise<string | undefined> {
+    const fallback =
+      opts.destructive && opts.safeOption !== undefined && options.includes(opts.safeOption)
+        ? opts.safeOption
+        : options[0];
+    const optStr = options.map((o) => (o === fallback ? `[${o}]` : o)).join(" / ");
     if (this.autoYes) {
-      return options[0];
+      const why = opts.destructive ? "the safe choice; --yes never confirms an overwrite or a delete" : "the default";
+      this.notice(`${message}\n${optStr}: ${fallback}  (answered by --yes: ${why})`);
+      return fallback;
     }
     return this.aroundIO(async () => {
-      const optStr = options.map((o, i) => (i === 0 ? `[${o}]` : o)).join(" / ");
       const answer = await this.ask(`${message}\n${optStr}: `);
       if (!answer) {
-        return options[0];
+        return fallback;
       }
-      return options.find((o) => o.toLowerCase() === answer.toLowerCase());
+      const chosen = options.find((o) => o.toLowerCase() === answer.toLowerCase());
+      if (chosen === undefined) {
+        this.output.write(`"${answer}" is not one of the answers (${options.join(", ")}), so none was chosen.\n`);
+      }
+      return chosen;
     });
+  }
+
+  /**
+   * A plain line on stderr that is shown in every mode, `--json` included (unlike {@link info}),
+   * without the `WARNING:` prefix: for what a caller must see to go on, such as the command that
+   * confirms an overwrite.
+   * @param message The text to print
+   * @lastreviewed null
+   */
+  notice(message: string): void {
+    this.pauser?.pause();
+    this.output.write(`${message}\n`);
+    this.pauser?.resume();
   }
 
   info(message: string): void {

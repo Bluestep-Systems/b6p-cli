@@ -186,3 +186,100 @@ describe("CliPrompt end-of-input handling", () => {
     assert.match(written, /ERROR: broken/);
   });
 });
+
+/** An output stream that records what was written to it. */
+function recordingOutput(): { output: PassThrough; text: () => string } {
+  const output = new PassThrough();
+  let written = "";
+  output.on("data", (chunk: Buffer) => {
+    written += chunk.toString("utf8");
+  });
+  return { output, text: () => written };
+}
+
+// ClickUp 86bc2h3ef. Core 0.8.0 puts the safe answer first in every prompt that overwrites or
+// deletes, and --yes answers the first option, so --yes declines. But --yes used to answer without
+// printing anything, so an agent (no TTY) never saw which files it had declined.
+describe("CliPrompt confirmations: --yes shows what it answered", () => {
+  const overwrite = "2 file(s) would overwrite a platform version nobody here has seen:\n\nscripts/app.ts\nREADME.md";
+
+  it("prints the question, the options and the safe answer on a destructive prompt", async () => {
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({ autoYes: true, input: makeInput([], { keepOpen: true }), output: rec.output });
+    const answer = await withTimeout(
+      prompt.confirm(overwrite, ["Cancel", "Overwrite all"], { destructive: true, safeOption: "Cancel" }),
+      "confirm"
+    );
+    assert.strictEqual(answer, "Cancel");
+    assert.match(rec.text(), /scripts\/app\.ts\nREADME\.md\n\[Cancel\] \/ Overwrite all: Cancel/);
+    assert.match(rec.text(), /answered by --yes: the safe choice; --yes never confirms an overwrite or a delete/);
+  });
+
+  it("prints it under --json too: stderr is where an agent reads it", async () => {
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({
+      autoYes: true,
+      json: true,
+      input: makeInput([], { keepOpen: true }),
+      output: rec.output,
+    });
+    await withTimeout(
+      prompt.confirm("Delete them?", ["No", "Yes"], { destructive: true, safeOption: "No" }),
+      "confirm"
+    );
+    assert.match(rec.text(), /Delete them\?\n\[No\] \/ Yes: No  \(answered by --yes/);
+  });
+
+  it("says 'the default' on a prompt that destroys nothing", async () => {
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({ autoYes: true, input: makeInput([], { keepOpen: true }), output: rec.output });
+    assert.strictEqual(await withTimeout(prompt.confirm("Continue?", ["Yes", "No"]), "confirm"), "Yes");
+    assert.match(rec.text(), /Continue\?\n\[Yes\] \/ No: Yes  \(answered by --yes: the default\)/);
+  });
+
+  it("takes the named safe option even if a destructive prompt lists it second", async () => {
+    // Core's contract puts it first; this keeps --yes safe if that ever slips.
+    const prompt = new CliPrompt({ autoYes: true, input: makeInput([], { keepOpen: true }), output: makeOutput() });
+    const answer = await withTimeout(
+      prompt.confirm("Delete them?", ["Yes", "No"], { destructive: true, safeOption: "No" }),
+      "confirm"
+    );
+    assert.strictEqual(answer, "No");
+  });
+
+  it("an empty answer also takes the named safe option", async () => {
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({ input: makeInput([""]), output: rec.output });
+    const answer = await withTimeout(
+      prompt.confirm("Delete them?", ["Yes", "No"], { destructive: true, safeOption: "No" }),
+      "confirm"
+    );
+    assert.strictEqual(answer, "No");
+    assert.match(rec.text(), /Yes \/ \[No\]: /, "the default shown in brackets is the one taken");
+  });
+
+  it("says so when an answer matches no option, and returns undefined", async () => {
+    // The old per-file label: piping "Overwrite" to the batch prompt used to decline silently.
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({ input: makeInput(["Overwrite"]), output: rec.output });
+    const answer = await withTimeout(
+      prompt.confirm(overwrite, ["Cancel", "Overwrite all"], { destructive: true, safeOption: "Cancel" }),
+      "confirm"
+    );
+    assert.strictEqual(answer, undefined);
+    assert.match(rec.text(), /"Overwrite" is not one of the answers \(Cancel, Overwrite all\), so none was chosen\./);
+  });
+
+  it("notice and warn reach the output under --json; info does not", () => {
+    // Core's liveVerified: null and kept-files messages are warnings; the CLI's next-step lines are
+    // notices. Both must reach a --json caller on stderr.
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({ json: true, input: makeInput([]), output: rec.output });
+    prompt.info("chatty");
+    prompt.warn("Could not verify the live copy of 1 file(s)");
+    prompt.notice("To overwrite them, run: b6p push --overwrite x");
+    assert.doesNotMatch(rec.text(), /chatty/);
+    assert.match(rec.text(), /WARNING: Could not verify the live copy/);
+    assert.match(rec.text(), /^To overwrite them, run: b6p push --overwrite x$/m);
+  });
+});
