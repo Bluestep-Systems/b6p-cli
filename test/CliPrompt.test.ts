@@ -112,10 +112,7 @@ describe("CliPrompt end-of-input handling", () => {
   });
 
   it("matches a confirm answer case-insensitively, and empty input takes the default", async () => {
-    // Each answer is delivered AFTER its question is registered. readline emits
-    // a `line` event for every buffered line as soon as the bytes arrive, so
-    // pre-writing two answers loses the second — a property of readline, not of
-    // this provider, and the reason a multi-prompt run needs a real responder.
+    // Each answer is delivered AFTER its question is registered, as a person typing would.
     const input = makeInput([], { keepOpen: true });
     const prompt = new CliPrompt({ input, output: makeOutput() });
     const first = prompt.confirm("q1", ["Cancel", "Sync"]);
@@ -124,6 +121,54 @@ describe("CliPrompt end-of-input handling", () => {
     const second = prompt.confirm("q2", ["Cancel", "Sync"]);
     input.write("\n");
     assert.strictEqual(await withTimeout(second, "confirm 2"), "Cancel", "empty answer takes the first option");
+  });
+
+  it("answers one prompt per line when every line arrives at once (printf 'A\\nB\\n' | b6p …)", async () => {
+    // readline emits a `line` for every buffered line as soon as the bytes arrive. The second
+    // line used to arrive with no question pending and was dropped, so the second prompt threw
+    // NonInteractiveInputError (b6p-core close-wave verification, row 13).
+    const input = makeInput(["Overwrite all", "Yes"], { keepOpen: true });
+    const prompt = new CliPrompt({ input, output: makeOutput() });
+    const first = await withTimeout(prompt.confirm("overwrite?", ["Cancel", "Overwrite all"]), "confirm 1");
+    const second = await withTimeout(prompt.confirm("delete?", ["No", "Yes"]), "confirm 2");
+    assert.strictEqual(first, "Overwrite all");
+    assert.strictEqual(second, "Yes");
+  });
+
+  it("reads an ended stream line by line, like `< answers.txt`, then fails at the end", async () => {
+    // The stream ends before the first prompt is even asked: every line is already queued.
+    const prompt = new CliPrompt({ input: makeInput(["Overwrite all", "Yes", "a-token"]), output: makeOutput() });
+    assert.strictEqual(
+      await withTimeout(prompt.confirm("q1", ["Cancel", "Overwrite all"]), "confirm 1"),
+      "Overwrite all"
+    );
+    assert.strictEqual(await withTimeout(prompt.confirm("q2", ["No", "Yes"]), "confirm 2"), "Yes");
+    assert.strictEqual(await withTimeout(prompt.inputBox({ prompt: "Token", password: true }), "inputBox"), "a-token");
+    await assert.rejects(() => withTimeout(prompt.confirm("q4", ["No", "Yes"]), "confirm 4"), NonInteractiveInputError);
+  });
+
+  it("still answers a prompt from a line that arrived while none was waiting", async () => {
+    const input = makeInput([], { keepOpen: true });
+    const prompt = new CliPrompt({ input, output: makeOutput() });
+    const first = prompt.confirm("q1", ["No", "Yes"]);
+    input.write("Yes\nNo\n"); // the second line arrives before the second prompt exists
+    assert.strictEqual(await withTimeout(first, "confirm 1"), "Yes");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(await withTimeout(prompt.confirm("q2", ["No", "Yes"]), "confirm 2"), "No");
+  });
+
+  it("writes a piped answer after its prompt, but never a secret", async () => {
+    const output = new PassThrough();
+    let written = "";
+    output.on("data", (chunk: Buffer) => {
+      written += chunk.toString("utf8");
+    });
+    const prompt = new CliPrompt({ input: makeInput(["Yes", "s3cret-token"]), output });
+    await withTimeout(prompt.confirm("Delete them?", ["No", "Yes"]), "confirm");
+    await withTimeout(prompt.inputBox({ prompt: "Enter your access token", password: true }), "inputBox");
+    assert.match(written, /Delete them\?\n\[No\] \/ Yes: Yes\n/);
+    assert.match(written, /Enter your access token: \n/);
+    assert.doesNotMatch(written, /s3cret-token/);
   });
 
   it("writes prompts and messages to the injected output, never stdout", async () => {

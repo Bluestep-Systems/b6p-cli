@@ -32,6 +32,11 @@ point [src/index.ts](src/index.ts); terminal adapters for core's provider interf
   logging and progress to a terminal. The one platform-specific piece injected into it is
   `WindowsRestartManagerLockDiagnoser` ([src/lockDiagnoser/](src/lockDiagnoser/)), which names the
   processes holding a file when a Windows `rename` fails — best-effort, never throws.
+- **Prompts are answered from a line queue.** Most users drive `b6p` through an agent whose stdin is
+  not a TTY and ends at once, so [CliPrompt](src/providers/CliPrompt.ts) keeps one `line` listener
+  and queues lines: one line answers one prompt, however they arrive, and end of input with the
+  queue empty throws `NonInteractiveInputError`. Don't go back to `question()` per prompt: it drops
+  a line that arrives with no question pending and never settles at end of input.
 
 ## Commands
 

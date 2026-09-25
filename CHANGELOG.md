@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in `liveMismatches`). `--json` prints both new fields. A copy served without a content hash can't
   be compared (`liveVerified: null`): that prints a warning on stderr and still exits `0`.
 - **A refused upload prints its details once**, not a second time after `[ERROR] Failed to push …`.
+- **Piped answers reach every prompt, not only the first.** When stdin delivers every line at once
+  (`printf 'Overwrite all\nYes\n' | b6p push …`, or `< answers.txt`), the second line used to arrive
+  while no prompt was waiting and was lost, so the second prompt failed with "No input available".
+  Each line now answers the next prompt. On a non-terminal stdin the answer is written after its
+  prompt, so the output shows what was answered (never for a token).
 
 ## [0.6.1] — 2026-08-21
 

@@ -56,6 +56,18 @@ export class CliPrompt implements Prompt {
   private readonly output: Writable;
   /** Set once stdin has ended; every later prompt fails fast instead of re-reading a dead stream. */
   private stdinExhausted = false;
+  /**
+   * Lines that arrived while no prompt was waiting, oldest first. Piped input (`printf 'A\nB\n' |`,
+   * `< answers.txt`) delivers every line at once; each one answers the next prompt instead of
+   * being dropped.
+   * @lastreviewed null
+   */
+  private readonly queue: string[] = [];
+  /**
+   * The prompt waiting for a line, if any. At most one: core asks one question at a time.
+   * @lastreviewed null
+   */
+  private waiter: { query: string; resolve: (line: string) => void; reject: (error: Error) => void } | null = null;
 
   constructor(opts: { autoYes?: boolean; json?: boolean; input?: InputStream; output?: Writable } = {}) {
     this.autoYes = opts.autoYes ?? false;
@@ -85,13 +97,36 @@ export class CliPrompt implements Prompt {
         input: this.input,
         output: this.output,
       });
+      // One listener for the interface's whole life, not one question() per prompt: readline
+      // emits a `line` for every buffered line as soon as the bytes arrive, and a line with no
+      // question pending was simply lost. Queue it for the next prompt instead.
+      rl.on("line", (line: string) => {
+        const waiter = this.waiter;
+        if (waiter) {
+          this.waiter = null;
+          waiter.resolve(line);
+        } else {
+          this.queue.push(line);
+        }
+      });
       // stdin ending is terminal for interactive input. Remember it so the next
       // prompt reports the real problem instead of readline's internal
-      // \"readline was closed\" from a reused dead interface.
+      // \"readline was closed\" from a reused dead interface. readline emits the
+      // last line before `close`, so a delivered answer is already queued or
+      // handed over by now.
       rl.once("close", () => {
         this.stdinExhausted = true;
         if (this.rl === rl) {
           this.rl = null;
+        }
+        const waiter = this.waiter;
+        if (waiter) {
+          this.waiter = null;
+          if (!this.input.isTTY) {
+            // End the prompt's line, so the error that follows doesn't start on it.
+            this.output.write("\n");
+          }
+          waiter.reject(new NonInteractiveInputError(waiter.query));
         }
       });
       this.rl = rl;
@@ -117,46 +152,42 @@ export class CliPrompt implements Prompt {
   /**
    * Read one line, rejecting rather than hanging when stdin cannot answer.
    *
-   * question() alone is not enough: at end-of-input its promise simply never
-   * settles. Racing it against the interface's close event turns that silent
-   * hang into a thrown {@link NonInteractiveInputError}.
+   * A line that already arrived (piped input delivers them all at once) answers straight away;
+   * otherwise the prompt waits for the next `line`, or rejects when stdin ends first. readline's
+   * question() is not used: its promise never settles at end of input, and a line that arrives
+   * while no question() is pending is dropped.
+   *
+   * On a non-TTY input nothing echoes the answer, so it is written after the prompt (unless
+   * `secret`), which keeps the transcript readable: prompt, answer, newline.
    * @param query The fully-formatted prompt to display
+   * @param opts.secret Never write the answer out (a token read on a non-TTY)
    * @returns The line the user (or piped input) supplied
-   * @throws a {@link NonInteractiveInputError} When stdin has ended
+   * @throws a {@link NonInteractiveInputError} When stdin has ended with no line left for this prompt
    * @lastreviewed null
    */
-  private async ask(query: string): Promise<string> {
+  private async ask(query: string, opts: { secret?: boolean } = {}): Promise<string> {
+    const echo = (answer: string): string => {
+      if (!this.input.isTTY) {
+        this.output.write(opts.secret ? "\n" : `${answer}\n`);
+      }
+      return answer;
+    };
+    const queued = this.queue.shift();
+    if (queued !== undefined) {
+      this.output.write(query);
+      return echo(queued);
+    }
     if (this.stdinExhausted) {
       throw new NonInteractiveInputError(query);
     }
     const rl = this.getRL();
-    return await new Promise<string>((resolve, reject) => {
-      let settled = false;
-      const finish = (act: () => void): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        rl.off("close", onClose);
-        act();
-      };
-      // `close` routinely fires in the SAME turn as the answer being delivered:
-      // piped input ends immediately after its bytes, and readline flushes the
-      // final line before closing. Rejecting straight from the event would
-      // therefore discard an answer that did arrive — it broke
-      // `echo Sync | b6p ...`, the exact workaround this error recommends.
-      // Deferring one macrotask lets any delivered line settle first, because
-      // question()'s `then` runs as a microtask; a genuine EOF still has
-      // nothing pending and rejects.
-      const onClose = (): void => {
-        setImmediate(() => finish(() => reject(new NonInteractiveInputError(query))));
-      };
-      rl.once("close", onClose);
-      rl.question(query).then(
-        (answer) => finish(() => resolve(answer)),
-        (error: unknown) => finish(() => reject(error instanceof Error ? error : new Error(String(error))))
-      );
+    const answer = await new Promise<string>((resolve, reject) => {
+      this.waiter = { query, resolve, reject };
+      // setPrompt + prompt rather than a raw write, so a TTY redraws the prompt while the user edits.
+      rl.setPrompt(query);
+      rl.prompt();
     });
+    return echo(answer);
   }
 
   async inputBox(options: { prompt: string; password?: boolean; value?: string }): Promise<string | undefined> {
@@ -191,8 +222,14 @@ export class CliPrompt implements Prompt {
     const output = this.output;
 
     if (!input.isTTY || typeof input.setRawMode !== "function") {
-      // Cannot mask non-TTY input — fall back to the standard (echoing) read.
-      return this.ask(query).then((answer) => answer || undefined);
+      // Cannot mask non-TTY input — fall back to the line read, which never writes a secret out.
+      return this.ask(query, { secret: true }).then((answer) => answer || undefined);
+    }
+    // A line typed ahead of this prompt is already in the queue (and was already echoed by the TTY).
+    const queued = this.queue.shift();
+    if (queued !== undefined) {
+      output.write(`${query}\n`);
+      return Promise.resolve(queued || undefined);
     }
     const setRawMode = input.setRawMode.bind(input);
 
