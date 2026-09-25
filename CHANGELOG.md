@@ -5,7 +5,7 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] — 2026-09-25
 
 ### Changed (breaking, user-visible)
 
@@ -13,7 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answer first in every prompt that overwrites or deletes something on the platform (`[Cancel] /
   Overwrite all`, `[No] / Yes`), and `--yes` or pressing Enter takes that first answer. Before, `--yes`
   overwrote files changed on the platform and deleted platform-only files without showing either
-  question.
+  question. A script or agent that relies on `--yes` now gets exit `1` where it used to overwrite
+  (with the command that confirms the files), and keeps platform-only files where it used to delete
+  them (exit `0`). The old per-file answer `Overwrite` no longer matches the question, so it declines
+  too; the answer is now `Overwrite all`.
 - **`--yes` now prints every question it answers**, with the options and the answer it took, on
   stderr (also with `--json`). A destructive prompt says `--yes` never confirms an overwrite or a
   delete.
@@ -53,7 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`b6p push --snapshot` no longer exits `0` when the live version is broken.** It exits `1` when
   nothing was uploaded (`pushed: false`, e.g. a blank or types-only `app.ts`) and when a live copy
   is still missing, unreadable or different after the re-send (`liveVerified: false`, with the files
-  in `liveMismatches`). `--json` prints both new fields. A copy served without a content hash can't
+  in `liveMismatches`). `--json` prints the new fields (`liveVerified`, `liveMismatches`,
+  `keptPlatformOnly`). A copy served without a content hash can't
   be compared (`liveVerified: null`): that prints a warning on stderr and still exits `0`.
 - **A refused upload prints its details once**, not a second time after `[ERROR] Failed to push …`.
 - **Piped answers reach every prompt, not only the first.** When stdin delivers every line at once
