@@ -67,14 +67,51 @@ The npm install above is unchanged and remains the recommended path wherever Nod
 | `b6p pull --file <path>` | Pull using metadata stored with a local file |
 | `b6p push --file <path>` | Push local files to the platform |
 | `b6p push --file <path> --snapshot --message "…"` | Push and record a versioned snapshot |
+| `b6p push --file <path> --overwrite <file>` | Push, overwriting a file that changed on the platform |
 | `b6p audit --file <path>` | Diff local vs. server |
 | `b6p audit --file <path> --pull` | Audit and pull if differences found |
 | `b6p deploy <config.json>` | Multi-target deploy from a config file |
 | `b6p setup --file <path>` | Print the web-UI setup URL for a script |
 | `b6p report` | Report cached state |
+| `b6p auth set` | Store or replace your CLI access token (a gateway token, `b6pt_…`, is refused) |
 
-Most commands accept `--json` for machine-readable output and `--yes` to skip
-interactive prompts. Run `b6p <command> --help` for full options.
+Most commands accept `--json` for machine-readable output and `--yes` to answer every question with
+its default (and print what it answered). Run `b6p <command> --help` for full options.
+
+## Pushing
+
+A push can ask two questions. Both default to the safe answer, which `--yes` and an empty answer
+take, so `--yes` never overwrites or deletes anything on the platform:
+
+1. **Before uploading anything**, when files would overwrite a platform version nobody here has seen
+   (it changed on the platform since your last push or pull, or this machine never synced it):
+   `[Cancel] / Overwrite all`. One question lists every such file; Cancel stops the push with nothing
+   uploaded (exit `1`). New files and files already equal to the platform copy never ask.
+2. **After uploading**, when the platform has files your draft doesn't: `[No] / Yes` to delete them.
+   No keeps them (exit `0`).
+
+When question 1 is declined, the CLI prints the command that confirms it. After checking the
+platform versions (`b6p audit`), confirm specific files up front with `--overwrite`, once per file,
+using the path the question listed:
+
+```bash
+b6p --yes push --file <path> --snapshot --overwrite scripts/app.ts --overwrite README.md
+```
+
+Question 2 has no flag: run without `--yes` and answer `Yes`. Answers can be piped, one line per
+question, in order (`printf 'Overwrite all\nYes\n' | b6p push --file <path>`, or `< answers.txt`;
+in PowerShell, `'Overwrite all', 'Yes' | b6p push --file <path>`). The commands the CLI prints are
+written for your shell: POSIX, or PowerShell on Windows outside Git Bash.
+
+**Exit codes:** `0` when the push went through (keeping platform-only files is still `0`); `1` when
+nothing was uploaded, an overwrite was not confirmed, an upload was refused, or, on a snapshot, a
+live copy is still wrong after one re-send, the history entry wasn't recorded, or type-check
+diagnostics were reported.
+
+**`--json`** prints one object on stdout: `pushed`, `historyRecorded`, `typeCheckDiagnostics`,
+`liveVerified`, `liveMismatches`, `keptPlatformOnly`, `declinedOverwrites`. A declined overwrite
+prints `pushed: false` with the files in `declinedOverwrites`. Questions, warnings and next steps
+go to stderr.
 
 ## WebDAV URL format
 

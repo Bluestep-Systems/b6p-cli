@@ -5,6 +5,88 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-09-25
+
+### Changed (breaking, user-visible)
+
+- **`--yes` and an empty answer now decline overwrites and deletes.** Core 0.8.0 puts the safe
+  answer first in every prompt that overwrites or deletes something on the platform (`[Cancel] /
+  Overwrite all`, `[No] / Yes`), and `--yes` or pressing Enter takes that first answer. Before, `--yes`
+  overwrote files changed on the platform and deleted platform-only files without showing either
+  question. A script or agent that relies on `--yes` now gets exit `1` where it used to overwrite
+  (with the command that confirms the files), and keeps platform-only files where it used to delete
+  them (exit `0`). The old per-file answer `Overwrite` no longer matches the question, so it declines
+  too; the answer is now `Overwrite all`.
+- **`--yes` now prints every question it answers**, with the options and the answer it took, on
+  stderr (also with `--json`). A destructive prompt says `--yes` never confirms an overwrite or a
+  delete.
+
+### Added
+
+- **`b6p push --overwrite <path>`** (repeatable) confirms overwriting that file on the platform up
+  front, so a push that `--yes` would stop can go through for exactly the files you checked. The
+  path is the one the overwrite question lists (e.g. `scripts/app.ts`).
+- **A declined overwrite now says how to go on**: after core's message (which files, and why), the
+  CLI prints the command that repeats the push with one `--overwrite` per file. A push that kept
+  platform-only files prints the command that deletes them (without `--yes`, answering `Yes`). Both
+  are quoted for your shell: POSIX, or PowerShell on Windows outside Git Bash / MSYS.
+- **`--json` for a declined overwrite.** The push used to print nothing on stdout; it now prints the
+  same object as any push, with `pushed: false` and the files in a new `declinedOverwrites` field
+  (`[]` on every other push), and exits `1`.
+- **`b6p auth set` refuses a gateway token.** A value starting with `b6pt_` is the token for the
+  BlueStep AI tools, not the CLI; storing it made every later call fail with `HTTP Error: 401`. It is
+  now refused with a message saying so, and nothing is stored (exit `1`). The same check runs on the
+  token question any command asks on first use.
+- **`b6p --help` and `b6p push --help`** say what `--yes` answers, the two questions a push can
+  ask, `--overwrite`, piping answers, the exit codes and the `--json` shape.
+
+### Changed
+
+- **One overwrite question per push, before anything is uploaded.** Core 0.8.0 lists every file
+  that would overwrite a platform change in a single `[Cancel] / Overwrite all` question, so a
+  declined or unanswered question can no longer leave a push half done. New files and files already
+  equal to the platform copy no longer ask.
+- **Bundles `@bluestep-systems/b6p-core` 0.8.0.** A snapshot push now checks, before uploading
+  anything, that the compiled `scripts/app.js` exists and has code; checks every upload to
+  `snapshot/`; and reads each live copy back afterwards, sending it again once if it doesn't match.
+  A re-push also repairs a live copy left stale by an earlier failed push, even when nothing changed
+  locally.
+
+### Fixed
+
+- **`b6p push --snapshot` no longer exits `0` when the live version is broken.** It exits `1` when
+  nothing was uploaded (`pushed: false`, e.g. a blank or types-only `app.ts`) and when a live copy
+  is still missing, unreadable or different after the re-send (`liveVerified: false`, with the files
+  in `liveMismatches`). `--json` prints the new fields (`liveVerified`, `liveMismatches`,
+  `keptPlatformOnly`). A copy served without a content hash can't
+  be compared (`liveVerified: null`): that prints a warning on stderr and still exits `0`.
+- **A refused upload prints its details once**, not a second time after `[ERROR] Failed to push …`.
+- **Piped answers reach every prompt, not only the first.** When stdin delivers every line at once
+  (`printf 'Overwrite all\nYes\n' | b6p push …`, or `< answers.txt`), the second line used to arrive
+  while no prompt was waiting and was lost, so the second prompt failed with "No input available".
+  Each line now answers the next prompt. On a non-terminal stdin the answer is written after its
+  prompt, so the output shows what was answered (never for a token).
+- **An answer that matches none of a prompt's options now says so** (`"Overwrite" is not one of the
+  answers (Cancel, Overwrite all), so none was chosen.`) instead of declining silently.
+
+## [0.7.0] — 2026-08-24
+
+Entry added on 2026-09-25: this release shipped without one.
+
+### Changed
+
+- **Bundles `@bluestep-systems/b6p-core` 0.7.0.** The type-check a snapshot push runs before
+  publishing now loads the component's declaration files, so platform globals (`B`, `console`,
+  `Bluestep`, `Record_*`, …) no longer come back as hundreds of false `Cannot find name`
+  diagnostics. What remains is real.
+
+### Fixed
+
+- **`b6p push --snapshot` exits `1` when the type-check reported diagnostics.** The platform runs
+  the emitted JavaScript without type-checking it, so this push is the only type gate; CI can now
+  catch a publish that went out un-type-checked. A plain push (no compile) and a clean snapshot
+  still exit `0`. Client-bundle diagnostics (e.g. a merge report's `static/`) stay advisory.
+
 ## [0.6.1] — 2026-08-21
 
 ### Changed
