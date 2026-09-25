@@ -11,6 +11,7 @@ import { CliProgress } from "./providers/CliProgress";
 import { Spinner } from "./providers/Spinner";
 import { WindowsRestartManagerLockDiagnoser } from "./lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 import { resolveTsLibDirs } from "./tsLibs";
+import { pushExitCode, toPushJson } from "./pushOutcome";
 
 // Replaced at build time by esbuild's `define` with the package.json version.
 declare const __B6P_VERSION__: string;
@@ -25,6 +26,7 @@ async function createCore(
 ): Promise<{
   core: B6PCore;
   prompt: CliPrompt;
+  logger: CliLogger;
   spinner: Spinner;
 }> {
   const prompt = new CliPrompt({ autoYes: globalOpts.yes, json: globalOpts.json });
@@ -53,7 +55,7 @@ async function createCore(
     typescriptLibDirs: resolveTsLibDirs(),
   });
   spinner.start();
-  return { core, prompt, spinner };
+  return { core, prompt, logger, spinner };
 }
 
 /**
@@ -132,7 +134,7 @@ program
       opts: { file?: string; root?: string; snapshot?: boolean; message?: string }
     ) => {
       const globalOpts = program.opts();
-      const { core, prompt, spinner } = await createCore(globalOpts);
+      const { core, prompt, logger, spinner } = await createCore(globalOpts);
       const isSnapshot = opts.snapshot || opts.message !== undefined;
       try {
         const result = opts.file
@@ -148,26 +150,23 @@ program
               message: opts.message,
             });
         if (globalOpts.json) {
-          process.stdout.write(JSON.stringify(result ?? { cancelled: true }, null, 2) + "\n");
+          process.stdout.write(JSON.stringify(result ? toPushJson(result) : { cancelled: true }, null, 2) + "\n");
         }
-        // A push that uploaded nothing (bad --root, empty draft) or a snapshot
-        // that shipped without a history entry must not report success to the
-        // shell — that is what let a typo'd --root mark a deploy green. A null
-        // result means the user cancelled at the target-URL prompt, which is not
-        // a failure. `exitCode` rather than `exit()` so an in-flight --json
-        // write still flushes.
-        //
-        // A snapshot that shipped with type-check diagnostics (> 0) also exits
-        // non-zero: the platform runs the emitted JS un-type-checked, so this
-        // push was the only gate — CI must be able to catch it (core already
-        // warned loudly). `typeCheckDiagnostics` is null for a plain push (no
-        // compile) and 0 for a clean one, neither of which fails.
-        if (result && (!result.pushed || !result.historyRecorded)) {
+        // `exitCode` rather than `exit()` so an in-flight --json write still flushes.
+        // The rule itself, and why each case fails or not, is in pushOutcome.ts.
+        if (pushExitCode(result) !== 0) {
           process.exitCode = 1;
         }
-        if (result && result.typeCheckDiagnostics !== null && result.typeCheckDiagnostics > 0) {
+      } catch (e) {
+        // Core logs a refused upload as "Failed to push <file>: <details>" and then rethrows it;
+        // the top-level handler would print the same details a second time.
+        if (e instanceof Error && logger.hasReported(e.message)) {
+          spinner.stop();
+          process.stderr.write("Push stopped: the error above has the details.\n");
           process.exitCode = 1;
+          return;
         }
+        throw e;
       } finally {
         spinner.stop();
         prompt.close();

@@ -5,6 +5,25 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Bundles `@bluestep-systems/b6p-core` 0.8.0.** A snapshot push now checks, before uploading
+  anything, that the compiled `scripts/app.js` exists and has code; checks every upload to
+  `snapshot/`; and reads each live copy back afterwards, sending it again once if it doesn't match.
+  A re-push also repairs a live copy left stale by an earlier failed push, even when nothing changed
+  locally.
+
+### Fixed
+
+- **`b6p push --snapshot` no longer exits `0` when the live version is broken.** It exits `1` when
+  nothing was uploaded (`pushed: false`, e.g. a blank or types-only `app.ts`) and when a live copy
+  is still missing, unreadable or different after the re-send (`liveVerified: false`, with the files
+  in `liveMismatches`). `--json` prints both new fields. A copy served without a content hash can't
+  be compared (`liveVerified: null`): that prints a warning on stderr and still exits `0`.
+- **A refused upload prints its details once**, not a second time after `[ERROR] Failed to push …`.
+
 ## [0.6.1] — 2026-08-21
 
 ### Changed
