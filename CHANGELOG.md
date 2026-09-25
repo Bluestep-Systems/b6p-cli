@@ -64,6 +64,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **An answer that matches none of a prompt's options now says so** (`"Overwrite" is not one of the
   answers (Cancel, Overwrite all), so none was chosen.`) instead of declining silently.
 
+## [0.7.0] — 2026-08-24
+
+Entry added on 2026-09-25: this release shipped without one.
+
+### Changed
+
+- **Bundles `@bluestep-systems/b6p-core` 0.7.0.** The type-check a snapshot push runs before
+  publishing now loads the component's declaration files, so platform globals (`B`, `console`,
+  `Bluestep`, `Record_*`, …) no longer come back as hundreds of false `Cannot find name`
+  diagnostics. What remains is real.
+
+### Fixed
+
+- **`b6p push --snapshot` exits `1` when the type-check reported diagnostics.** The platform runs
+  the emitted JavaScript without type-checking it, so this push is the only type gate; CI can now
+  catch a publish that went out un-type-checked. A plain push (no compile) and a clean snapshot
+  still exit `0`. Client-bundle diagnostics (e.g. a merge report's `static/`) stay advisory.
+
 ## [0.6.1] — 2026-08-21
 
 ### Changed
