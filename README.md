@@ -85,7 +85,8 @@ take, so `--yes` never overwrites or deletes anything on the platform:
 
 1. **Before uploading anything**, when files would overwrite a platform version nobody here has seen
    (it changed on the platform since your last push or pull, or this machine never synced it):
-   `[Cancel] / Overwrite all`. Cancel stops the push with nothing uploaded (exit `1`).
+   `[Cancel] / Overwrite all`. One question lists every such file; Cancel stops the push with nothing
+   uploaded (exit `1`). New files and files already equal to the platform copy never ask.
 2. **After uploading**, when the platform has files your draft doesn't: `[No] / Yes` to delete them.
    No keeps them (exit `0`).
 

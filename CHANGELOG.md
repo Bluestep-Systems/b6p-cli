@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One overwrite question per push, before anything is uploaded.** Core 0.8.0 lists every file
+  that would overwrite a platform change in a single `[Cancel] / Overwrite all` question, so a
+  declined or unanswered question can no longer leave a push half done. New files and files already
+  equal to the platform copy no longer ask.
 - **Bundles `@bluestep-systems/b6p-core` 0.8.0.** A snapshot push now checks, before uploading
   anything, that the compiled `scripts/app.js` exists and has code; checks every upload to
   `snapshot/`; and reads each live copy back afterwards, sending it again once if it doesn't match.
