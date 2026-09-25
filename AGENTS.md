@@ -44,7 +44,8 @@ point [src/index.ts](src/index.ts); terminal adapters for core's provider interf
 - **`push`'s exit code and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**, as
   pure functions with their own tests. `--json` is one shape for every push outcome (core's
   `PushResult` plus `declinedOverwrites`); add fields there, never a second shape. Core says what
-  happened and why; the "how to go on" lines (the `--overwrite` and delete commands) are the CLI's.
+  happened and why; the "how to go on" lines (the `--overwrite` and delete commands) are the CLI's,
+  quoted per `ShellDialect` (POSIX, or PowerShell on Windows without `MSYSTEM`/`SHELL`).
 
 ## Commands
 

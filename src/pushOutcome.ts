@@ -76,18 +76,48 @@ export function declinedPushJson(paths: string[]): PushJson {
 }
 
 /**
- * Quote one argument for a POSIX shell (bash, zsh, Git Bash), and for PowerShell, which reads
- * single quotes the same way for anything without a `'`. Left bare when it has nothing a shell
- * would touch.
+ * The shell syntax for the commands the CLI prints: POSIX (bash, zsh, Git Bash, WSL) or PowerShell.
+ * They quote differently (a `'` is `'\''` in POSIX, `''` in PowerShell) and pipe an answer
+ * differently (`printf` doesn't exist in PowerShell). `cmd.exe` is not targeted.
+ * @lastreviewed null
+ */
+export type ShellDialect = "posix" | "powershell";
+
+/**
+ * Which shell a printed command should be written for. POSIX everywhere except Windows outside
+ * Git Bash / MSYS2 / Cygwin, which set `MSYSTEM` or `SHELL` (Claude Code on Windows runs its Bash
+ * tool there); plain Windows terminals default to PowerShell.
+ * @param platform `process.platform`
+ * @param env `process.env`
+ * @returns The dialect to quote for
+ * @lastreviewed null
+ */
+export function detectShellDialect(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env
+): ShellDialect {
+  if (platform !== "win32") {
+    return "posix";
+  }
+  return env.MSYSTEM || env.SHELL ? "posix" : "powershell";
+}
+
+/**
+ * Quote one argument for `dialect`, left bare when it has nothing that shell would touch. Both
+ * dialects single-quote, which neither expands; they differ in how a `'` inside is written.
  * @param arg One command-line argument
+ * @param dialect The shell the command is printed for
  * @returns The argument, single-quoted if needed
  * @lastreviewed null
  */
-export function shellQuote(arg: string): string {
-  if (/^[A-Za-z0-9_\-./:=@%+,]+$/.test(arg)) {
+export function shellQuote(arg: string, dialect: ShellDialect): string {
+  // PowerShell reads a leading `@` as splatting and `,` as the array operator, so neither is bare there.
+  const bare = dialect === "posix" ? /^[A-Za-z0-9_\-./:%+,@][A-Za-z0-9_\-./:=%+,@]*$/ : /^[A-Za-z0-9_\-./:=%+]+$/;
+  if (bare.test(arg)) {
     return arg;
   }
-  return `'${arg.replace(/'/g, `'\\''`)}'`;
+  const escaped = dialect === "posix" ? arg.replace(/'/g, `'\\''`) : arg.replace(/'/g, "''");
+  return `'${escaped}'`;
 }
 
 /**
@@ -96,12 +126,13 @@ export function shellQuote(arg: string): string {
  * file.
  * @param args The push's arguments as given (`process.argv.slice(2)`)
  * @param paths The files to confirm, as core listed them
+ * @param dialect The shell the command is printed for
  * @returns A copyable command line
  * @lastreviewed null
  */
-export function overwriteCommand(args: string[], paths: string[]): string {
+export function overwriteCommand(args: string[], paths: string[], dialect: ShellDialect): string {
   const all = [...args, ...paths.flatMap((p) => ["--overwrite", p])];
-  return ["b6p", ...all.map(shellQuote)].join(" ");
+  return ["b6p", ...all.map((a) => shellQuote(a, dialect))].join(" ");
 }
 
 /**
@@ -110,10 +141,12 @@ export function overwriteCommand(args: string[], paths: string[]): string {
  * By then the files are in sync, so the delete question is the only one left; if anything else
  * asks first, "Yes" matches none of its answers and it declines, which is safe.
  * @param args The push's arguments as given (`process.argv.slice(2)`)
+ * @param dialect The shell the command is printed for
  * @returns A copyable command line
  * @lastreviewed null
  */
-export function deleteCommand(args: string[]): string {
+export function deleteCommand(args: string[], dialect: ShellDialect): string {
   const kept = args.filter((a) => a !== "--yes");
-  return `printf 'Yes\\n' | ${["b6p", ...kept.map(shellQuote)].join(" ")}`;
+  const push = ["b6p", ...kept.map((a) => shellQuote(a, dialect))].join(" ");
+  return dialect === "posix" ? `printf 'Yes\\n' | ${push}` : `'Yes' | ${push}`;
 }

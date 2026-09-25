@@ -99,7 +99,9 @@ b6p --yes push --file <path> --snapshot --overwrite scripts/app.ts --overwrite R
 ```
 
 Question 2 has no flag: run without `--yes` and answer `Yes`. Answers can be piped, one line per
-question, in order (`printf 'Overwrite all\nYes\n' | b6p push --file <path>`, or `< answers.txt`).
+question, in order (`printf 'Overwrite all\nYes\n' | b6p push --file <path>`, or `< answers.txt`;
+in PowerShell, `'Overwrite all', 'Yes' | b6p push --file <path>`). The commands the CLI prints are
+written for your shell: POSIX, or PowerShell on Windows outside Git Bash.
 
 **Exit codes:** `0` when the push went through (keeping platform-only files is still `0`); `1` when
 nothing was uploaded, an overwrite was not confirmed, an upload was refused, or, on a snapshot, a

@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path is the one the overwrite question lists (e.g. `scripts/app.ts`).
 - **A declined overwrite now says how to go on**: after core's message (which files, and why), the
   CLI prints the command that repeats the push with one `--overwrite` per file. A push that kept
-  platform-only files prints the command that deletes them (without `--yes`, answering `Yes`).
+  platform-only files prints the command that deletes them (without `--yes`, answering `Yes`). Both
+  are quoted for your shell: POSIX, or PowerShell on Windows outside Git Bash / MSYS.
 - **`--json` for a declined overwrite.** The push used to print nothing on stdout; it now prints the
   same object as any push, with `pushed: false` and the files in a new `declinedOverwrites` field
   (`[]` on every other push), and exits `1`.

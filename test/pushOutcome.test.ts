@@ -10,6 +10,7 @@ import type { PushResult } from "@bluestep-systems/b6p-core";
 import {
   declinedPushJson,
   deleteCommand,
+  detectShellDialect,
   overwriteCommand,
   pushExitCode,
   shellQuote,
@@ -104,34 +105,76 @@ describe("declinedPushJson", () => {
   });
 });
 
+describe("detectShellDialect", () => {
+  it("is POSIX off Windows, and on Windows under Git Bash / MSYS (MSYSTEM or SHELL set)", () => {
+    assert.strictEqual(detectShellDialect("linux", {}), "posix");
+    assert.strictEqual(detectShellDialect("darwin", {}), "posix");
+    assert.strictEqual(detectShellDialect("win32", { MSYSTEM: "MINGW64" }), "posix");
+    assert.strictEqual(detectShellDialect("win32", { SHELL: "/usr/bin/bash" }), "posix");
+  });
+
+  it("is PowerShell in a plain Windows terminal", () => {
+    assert.strictEqual(detectShellDialect("win32", {}), "powershell");
+  });
+});
+
+// Copilot review on PR #27: the printed commands were POSIX-only while presented as copyable on
+// Windows. A `'` is `'\''` in POSIX but `''` in PowerShell, and PowerShell has no printf.
 describe("shellQuote", () => {
-  it("leaves plain paths, flags and URLs bare", () => {
+  it("leaves plain paths, flags and URLs bare in both dialects", () => {
     for (const arg of ["--file", "draft/scripts/app.ts", "https://x.bluestep.net/files/1/draft/", "--message=v1"]) {
-      assert.strictEqual(shellQuote(arg), arg);
+      assert.strictEqual(shellQuote(arg, "posix"), arg);
+      assert.strictEqual(shellQuote(arg, "powershell"), arg);
     }
   });
 
-  it("single-quotes spaces and shell characters, and escapes a single quote", () => {
-    assert.strictEqual(shellQuote("My Component/draft/app.ts"), "'My Component/draft/app.ts'");
-    assert.strictEqual(shellQuote("fix $HOME & `x`"), "'fix $HOME & `x`'");
-    assert.strictEqual(shellQuote("it's"), "'it'\\''s'");
-    assert.strictEqual(shellQuote(""), "''");
+  it("POSIX: single-quotes spaces and shell characters, and writes a ' as '\\''", () => {
+    assert.strictEqual(shellQuote("My Component/draft/app.ts", "posix"), "'My Component/draft/app.ts'");
+    assert.strictEqual(shellQuote("fix $HOME & `x`", "posix"), "'fix $HOME & `x`'");
+    assert.strictEqual(shellQuote("it's", "posix"), "'it'\\''s'");
+    assert.strictEqual(shellQuote("=cmd", "posix"), "'=cmd'", "zsh expands a leading =");
+    assert.strictEqual(shellQuote("", "posix"), "''");
+  });
+
+  it("PowerShell: single-quotes, doubles a ', and quotes @ and , which it would parse", () => {
+    assert.strictEqual(shellQuote("it's", "powershell"), "'it''s'");
+    assert.strictEqual(shellQuote("fix $HOME & `x`", "powershell"), "'fix $HOME & `x`'");
+    assert.strictEqual(shellQuote("C:\\U\\My Comp\\draft\\app.ts", "powershell"), "'C:\\U\\My Comp\\draft\\app.ts'");
+    assert.strictEqual(shellQuote("@args", "powershell"), "'@args'");
+    assert.strictEqual(shellQuote("a,b", "powershell"), "'a,b'");
+    assert.strictEqual(shellQuote("", "powershell"), "''");
   });
 });
 
 describe("overwriteCommand", () => {
+  const args = ["--yes", "push", "--file", "U1/Bob's Comp/draft/scripts/app.ts", "--snapshot"];
+
   it("repeats the push as given, --yes included, with one --overwrite per declined file", () => {
-    const args = ["--yes", "push", "--file", "U1/My Comp/draft/scripts/app.ts", "--snapshot"];
     assert.strictEqual(
-      overwriteCommand(args, ["scripts/app.ts", "README.md"]),
-      "b6p --yes push --file 'U1/My Comp/draft/scripts/app.ts' --snapshot --overwrite scripts/app.ts --overwrite README.md"
+      overwriteCommand(args, ["scripts/app.ts", "README.md"], "posix"),
+      "b6p --yes push --file 'U1/Bob'\\''s Comp/draft/scripts/app.ts' --snapshot --overwrite scripts/app.ts --overwrite README.md"
+    );
+  });
+
+  it("quotes for PowerShell when asked", () => {
+    assert.strictEqual(
+      overwriteCommand(args, ["scripts/app.ts"], "powershell"),
+      "b6p --yes push --file 'U1/Bob''s Comp/draft/scripts/app.ts' --snapshot --overwrite scripts/app.ts"
     );
   });
 });
 
 describe("deleteCommand", () => {
-  it("drops --yes and pipes Yes, keeping every other argument", () => {
-    const args = ["--yes", "--json", "push", "--file", "d/app.ts", "--message", "v2 fix"];
-    assert.strictEqual(deleteCommand(args), "printf 'Yes\\n' | b6p --json push --file d/app.ts --message 'v2 fix'");
+  const args = ["--yes", "--json", "push", "--file", "d/app.ts", "--message", "v2 fix"];
+
+  it("POSIX: drops --yes and pipes Yes with printf, keeping every other argument", () => {
+    assert.strictEqual(
+      deleteCommand(args, "posix"),
+      "printf 'Yes\\n' | b6p --json push --file d/app.ts --message 'v2 fix'"
+    );
+  });
+
+  it("PowerShell: pipes the string 'Yes' (no printf there)", () => {
+    assert.strictEqual(deleteCommand(args, "powershell"), "'Yes' | b6p --json push --file d/app.ts --message 'v2 fix'");
   });
 });

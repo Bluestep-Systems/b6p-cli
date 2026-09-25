@@ -12,7 +12,14 @@ import { Spinner } from "./providers/Spinner";
 import { WindowsRestartManagerLockDiagnoser } from "./lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 import { resolveTsLibDirs } from "./tsLibs";
 import { GatewayTokenGuardPrompt } from "./auth/GatewayTokenGuard";
-import { declinedPushJson, deleteCommand, overwriteCommand, pushExitCode, toPushJson } from "./pushOutcome";
+import {
+  declinedPushJson,
+  deleteCommand,
+  detectShellDialect,
+  overwriteCommand,
+  pushExitCode,
+  toPushJson,
+} from "./pushOutcome";
 
 // Replaced at build time by esbuild's `define` with the package.json version.
 declare const __B6P_VERSION__: string;
@@ -139,6 +146,7 @@ Questions a push can ask (both default to the safe answer, which --yes and an em
   as the question lists it (e.g. scripts/app.ts). Question 2 has no flag: run without --yes and
   answer Yes. Answers can be piped, one line per question, in order:
     printf 'Overwrite all\\nYes\\n' | b6p push --file <path>
+    'Overwrite all', 'Yes' | b6p push --file <path>        (PowerShell)
 
 Exit codes:
   0  pushed (keeping platform-only files is still 0)
@@ -175,6 +183,7 @@ program
       const isSnapshot = opts.snapshot || opts.message !== undefined;
       // The user's own arguments, to print commands that repeat this push with a confirmation added.
       const args = process.argv.slice(2);
+      const dialect = detectShellDialect();
       try {
         const result = opts.file
           ? await core.script.pushCurrent({
@@ -197,7 +206,7 @@ program
         if (result && result.keptPlatformOnly.length > 0) {
           prompt.notice(
             `To delete ${result.keptPlatformOnly.length === 1 ? "it" : "them"} from the platform, run the push ` +
-              `again without --yes and answer Yes to the delete question:\n  ${deleteCommand(args)}`
+              `again without --yes and answer Yes to the delete question:\n  ${deleteCommand(args, dialect)}`
           );
         }
         // `exitCode` rather than `exit()` so an in-flight --json write still flushes.
@@ -212,7 +221,7 @@ program
           prompt.error(e.message);
           prompt.notice(
             `After checking ${e.paths.length === 1 ? "it" : "them"}, overwrite ${e.paths.length === 1 ? "it" : "them"} ` +
-              `with your local ${e.paths.length === 1 ? "file" : "files"} with:\n  ${overwriteCommand(args, e.paths)}`
+              `with your local ${e.paths.length === 1 ? "file" : "files"} with:\n  ${overwriteCommand(args, e.paths, dialect)}`
           );
           if (globalOpts.json) {
             process.stdout.write(JSON.stringify(declinedPushJson(e.paths), null, 2) + "\n");
