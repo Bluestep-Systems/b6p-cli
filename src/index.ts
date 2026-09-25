@@ -2,7 +2,7 @@ import { Command } from "commander";
 import * as path from "path";
 import * as fs from "fs/promises";
 import * as os from "os";
-import { B6PCore } from "@bluestep-systems/b6p-core";
+import { B6PCore, Err } from "@bluestep-systems/b6p-core";
 import { SharedFilePersistence } from "@bluestep-systems/b6p-core";
 import { NodeFileSystem } from "./providers/NodeFileSystem";
 import { CliPrompt } from "./providers/CliPrompt";
@@ -11,7 +11,7 @@ import { CliProgress } from "./providers/CliProgress";
 import { Spinner } from "./providers/Spinner";
 import { WindowsRestartManagerLockDiagnoser } from "./lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 import { resolveTsLibDirs } from "./tsLibs";
-import { pushExitCode, toPushJson } from "./pushOutcome";
+import { declinedPushJson, deleteCommand, overwriteCommand, pushExitCode, toPushJson } from "./pushOutcome";
 
 // Replaced at build time by esbuild's `define` with the package.json version.
 declare const __B6P_VERSION__: string;
@@ -114,12 +114,39 @@ async function migrateLegacyDotfiles(persistence: SharedFilePersistence): Promis
 const program = new Command("b6p")
   .description("BlueStep B6P script management CLI")
   .version(__B6P_VERSION__)
-  .option("--yes", "Skip confirmation prompts")
+  .option(
+    "--yes",
+    "Answer every confirmation with its default and print what it answered. Overwrite and delete " +
+      "questions default to Cancel/No, so --yes never overwrites or deletes platform files (see push --overwrite)"
+  )
   .option("--json", "Machine-readable JSON output")
   .option("--verbose", "Verbose logging")
   .option("--quiet", "Suppress progress output");
 
 // ── Push ──────────────────────────────────────────────────────────
+
+const PUSH_HELP = `
+Questions a push can ask (both default to the safe answer, which --yes and an empty answer take):
+  1. Before uploading anything, when files would overwrite a platform version nobody here has
+     seen: [Cancel] / Overwrite all. Cancel stops the push with nothing uploaded (exit 1).
+  2. After uploading, when the platform has files your draft doesn't: [No] / Yes to delete
+     them. No keeps them (exit 0).
+  --overwrite <path> answers question 1 for that file up front; repeat it per file, with the path
+  as the question lists it (e.g. scripts/app.ts). Question 2 has no flag: run without --yes and
+  answer Yes. Answers can be piped, one line per question, in order:
+    printf 'Overwrite all\\nYes\\n' | b6p push --file <path>
+
+Exit codes:
+  0  pushed (keeping platform-only files is still 0)
+  1  nothing uploaded; an overwrite not confirmed; an upload refused; on a snapshot, a live copy
+     still wrong after one re-send, no history entry recorded, or type-check diagnostics
+
+--json prints one object on stdout:
+  { pushed, historyRecorded, typeCheckDiagnostics, liveVerified, liveMismatches,
+    keptPlatformOnly, declinedOverwrites }
+  A declined overwrite prints pushed: false with the files in declinedOverwrites; a cancelled
+  target-URL prompt prints { cancelled: true }. Questions, warnings and next steps go to stderr.
+`;
 
 program
   .command("push [target-url]")
@@ -128,29 +155,46 @@ program
   .option("--root <path>", "Script root folder")
   .option("--snapshot", "Push as snapshot")
   .option("--message <text>", "Commit message for snapshot history (implies --snapshot)")
+  .option(
+    "--overwrite <path>",
+    "Overwrite this file on the platform even though it changed there (repeatable; path as the question lists it)",
+    (value: string, previous: string[] | undefined) => [...(previous ?? []), value]
+  )
+  .addHelpText("after", PUSH_HELP)
   .action(
     async (
       targetUrl: string | undefined,
-      opts: { file?: string; root?: string; snapshot?: boolean; message?: string }
+      opts: { file?: string; root?: string; snapshot?: boolean; message?: string; overwrite?: string[] }
     ) => {
       const globalOpts = program.opts();
       const { core, prompt, logger, spinner } = await createCore(globalOpts);
       const isSnapshot = opts.snapshot || opts.message !== undefined;
+      // The user's own arguments, to print commands that repeat this push with a confirmation added.
+      const args = process.argv.slice(2);
       try {
         const result = opts.file
           ? await core.script.pushCurrent({
               filePath: resolve(opts.file),
               snapshot: isSnapshot,
               message: opts.message,
+              overwrite: opts.overwrite,
             })
           : await core.script.push({
               targetUrl,
               rootPath: resolve(opts.root || "."),
               snapshot: isSnapshot,
               message: opts.message,
+              overwrite: opts.overwrite,
             });
         if (globalOpts.json) {
           process.stdout.write(JSON.stringify(result ? toPushJson(result) : { cancelled: true }, null, 2) + "\n");
+        }
+        // Core's warning says which platform-only files were kept and why; how to delete them is ours.
+        if (result && result.keptPlatformOnly.length > 0) {
+          prompt.notice(
+            `To delete ${result.keptPlatformOnly.length === 1 ? "it" : "them"} from the platform, run the push ` +
+              `again without --yes and answer Yes to the delete question:\n  ${deleteCommand(args)}`
+          );
         }
         // `exitCode` rather than `exit()` so an in-flight --json write still flushes.
         // The rule itself, and why each case fails or not, is in pushOutcome.ts.
@@ -158,6 +202,20 @@ program
           process.exitCode = 1;
         }
       } catch (e) {
+        // Nothing was uploaded. Core's message says which files and why; how to confirm them is ours.
+        if (e instanceof Err.OverwriteDeclinedError) {
+          spinner.stop();
+          prompt.error(e.message);
+          prompt.notice(
+            `After checking ${e.paths.length === 1 ? "it" : "them"}, overwrite ${e.paths.length === 1 ? "it" : "them"} ` +
+              `with your local ${e.paths.length === 1 ? "file" : "files"} with:\n  ${overwriteCommand(args, e.paths)}`
+          );
+          if (globalOpts.json) {
+            process.stdout.write(JSON.stringify(declinedPushJson(e.paths), null, 2) + "\n");
+          }
+          process.exitCode = 1;
+          return;
+        }
         // Core logs a refused upload as "Failed to push <file>: <details>" and then rethrows it;
         // the top-level handler would print the same details a second time.
         if (e instanceof Error && logger.hasReported(e.message)) {

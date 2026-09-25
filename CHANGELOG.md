@@ -18,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stderr (also with `--json`). A destructive prompt says `--yes` never confirms an overwrite or a
   delete.
 
+### Added
+
+- **`b6p push --overwrite <path>`** (repeatable) confirms overwriting that file on the platform up
+  front, so a push that `--yes` would stop can go through for exactly the files you checked. The
+  path is the one the overwrite question lists (e.g. `scripts/app.ts`).
+- **A declined overwrite now says how to go on**: after core's message (which files, and why), the
+  CLI prints the command that repeats the push with one `--overwrite` per file. A push that kept
+  platform-only files prints the command that deletes them (without `--yes`, answering `Yes`).
+- **`--json` for a declined overwrite.** The push used to print nothing on stdout; it now prints the
+  same object as any push, with `pushed: false` and the files in a new `declinedOverwrites` field
+  (`[]` on every other push), and exits `1`.
+- **`b6p --help` and `b6p push --help`** say what `--yes` answers, the two questions a push can
+  ask, `--overwrite`, piping answers, the exit codes and the `--json` shape.
+
 ### Changed
 
 - **Bundles `@bluestep-systems/b6p-core` 0.8.0.** A snapshot push now checks, before uploading

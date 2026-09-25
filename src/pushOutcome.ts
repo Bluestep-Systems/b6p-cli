@@ -55,3 +55,65 @@ export function pushExitCode(result: PushResult | null): 0 | 1 {
 export function toPushJson(result: PushResult): PushJson {
   return { ...result, declinedOverwrites: [] };
 }
+
+/**
+ * The `--json` body for a push that stopped at the overwrite confirmation (core threw
+ * `Err.OverwriteDeclinedError`): nothing was uploaded, so every other field reads as "did not run".
+ * @param paths The files whose overwrite was not confirmed (`err.paths`)
+ * @returns A {@link PushJson} with `pushed: false` and the files in `declinedOverwrites`
+ * @lastreviewed null
+ */
+export function declinedPushJson(paths: string[]): PushJson {
+  return {
+    pushed: false,
+    historyRecorded: false,
+    typeCheckDiagnostics: null,
+    liveVerified: null,
+    liveMismatches: [],
+    keptPlatformOnly: [],
+    declinedOverwrites: [...paths],
+  };
+}
+
+/**
+ * Quote one argument for a POSIX shell (bash, zsh, Git Bash), and for PowerShell, which reads
+ * single quotes the same way for anything without a `'`. Left bare when it has nothing a shell
+ * would touch.
+ * @param arg One command-line argument
+ * @returns The argument, single-quoted if needed
+ * @lastreviewed null
+ */
+export function shellQuote(arg: string): string {
+  if (/^[A-Za-z0-9_\-./:=@%+,]+$/.test(arg)) {
+    return arg;
+  }
+  return `'${arg.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * The command that repeats a push with the declined files confirmed: the user's own arguments,
+ * `--yes` included (it only declines what `--overwrite` doesn't name), plus one `--overwrite` per
+ * file.
+ * @param args The push's arguments as given (`process.argv.slice(2)`)
+ * @param paths The files to confirm, as core listed them
+ * @returns A copyable command line
+ * @lastreviewed null
+ */
+export function overwriteCommand(args: string[], paths: string[]): string {
+  const all = [...args, ...paths.flatMap((p) => ["--overwrite", p])];
+  return ["b6p", ...all.map(shellQuote)].join(" ");
+}
+
+/**
+ * The command that repeats a push and answers "Yes" to its delete question. There is no delete
+ * flag (core takes no list of files to delete up front), so it drops `--yes` and pipes the answer.
+ * By then the files are in sync, so the delete question is the only one left; if anything else
+ * asks first, "Yes" matches none of its answers and it declines, which is safe.
+ * @param args The push's arguments as given (`process.argv.slice(2)`)
+ * @returns A copyable command line
+ * @lastreviewed null
+ */
+export function deleteCommand(args: string[]): string {
+  const kept = args.filter((a) => a !== "--yes");
+  return `printf 'Yes\\n' | ${["b6p", ...kept.map(shellQuote)].join(" ")}`;
+}

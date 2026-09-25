@@ -7,7 +7,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import type { PushResult } from "@bluestep-systems/b6p-core";
-import { pushExitCode, toPushJson } from "../src/pushOutcome";
+import {
+  declinedPushJson,
+  deleteCommand,
+  overwriteCommand,
+  pushExitCode,
+  shellQuote,
+  toPushJson,
+} from "../src/pushOutcome";
 
 /** A clean snapshot push; each case overrides what it tests. */
 function result(overrides: Partial<PushResult> = {}): PushResult {
@@ -72,5 +79,59 @@ describe("toPushJson", () => {
   it("keeps every PushResult field and adds an empty declinedOverwrites", () => {
     const r = result({ liveVerified: false, liveMismatches: ["a.js"], keptPlatformOnly: ["b.ts"] });
     assert.deepStrictEqual(toPushJson(r), { ...r, declinedOverwrites: [] });
+  });
+});
+
+// ClickUp 86bc2h3ef: a declined overwrite throws, so no PushResult exists. --json used to print
+// nothing at all; it now prints the same shape as every other push, marked as not pushed.
+describe("declinedPushJson", () => {
+  it("reads as a push that did not run, with the declined files", () => {
+    const json = declinedPushJson(["scripts/app.ts", "README.md"]);
+    assert.deepStrictEqual(json, {
+      pushed: false,
+      historyRecorded: false,
+      typeCheckDiagnostics: null,
+      liveVerified: null,
+      liveMismatches: [],
+      keptPlatformOnly: [],
+      declinedOverwrites: ["scripts/app.ts", "README.md"],
+    });
+    assert.strictEqual(pushExitCode(json), 1, "the same body must never read as success");
+  });
+
+  it("has exactly the keys of a normal push's JSON", () => {
+    assert.deepStrictEqual(Object.keys(declinedPushJson([])).sort(), Object.keys(toPushJson(result())).sort());
+  });
+});
+
+describe("shellQuote", () => {
+  it("leaves plain paths, flags and URLs bare", () => {
+    for (const arg of ["--file", "draft/scripts/app.ts", "https://x.bluestep.net/files/1/draft/", "--message=v1"]) {
+      assert.strictEqual(shellQuote(arg), arg);
+    }
+  });
+
+  it("single-quotes spaces and shell characters, and escapes a single quote", () => {
+    assert.strictEqual(shellQuote("My Component/draft/app.ts"), "'My Component/draft/app.ts'");
+    assert.strictEqual(shellQuote("fix $HOME & `x`"), "'fix $HOME & `x`'");
+    assert.strictEqual(shellQuote("it's"), "'it'\\''s'");
+    assert.strictEqual(shellQuote(""), "''");
+  });
+});
+
+describe("overwriteCommand", () => {
+  it("repeats the push as given, --yes included, with one --overwrite per declined file", () => {
+    const args = ["--yes", "push", "--file", "U1/My Comp/draft/scripts/app.ts", "--snapshot"];
+    assert.strictEqual(
+      overwriteCommand(args, ["scripts/app.ts", "README.md"]),
+      "b6p --yes push --file 'U1/My Comp/draft/scripts/app.ts' --snapshot --overwrite scripts/app.ts --overwrite README.md"
+    );
+  });
+});
+
+describe("deleteCommand", () => {
+  it("drops --yes and pipes Yes, keeping every other argument", () => {
+    const args = ["--yes", "--json", "push", "--file", "d/app.ts", "--message", "v2 fix"];
+    assert.strictEqual(deleteCommand(args), "printf 'Yes\\n' | b6p --json push --file d/app.ts --message 'v2 fix'");
   });
 });
