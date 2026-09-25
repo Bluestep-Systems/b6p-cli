@@ -73,6 +73,7 @@ The npm install above is unchanged and remains the recommended path wherever Nod
 | `b6p deploy <config.json>` | Multi-target deploy from a config file |
 | `b6p setup --file <path>` | Print the web-UI setup URL for a script |
 | `b6p report` | Report cached state |
+| `b6p auth set` | Store or replace your CLI access token (a gateway token, `b6pt_…`, is refused) |
 
 Most commands accept `--json` for machine-readable output and `--yes` to answer every question with
 its default (and print what it answered). Run `b6p <command> --help` for full options.

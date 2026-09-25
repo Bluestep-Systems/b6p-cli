@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`--json` for a declined overwrite.** The push used to print nothing on stdout; it now prints the
   same object as any push, with `pushed: false` and the files in a new `declinedOverwrites` field
   (`[]` on every other push), and exits `1`.
+- **`b6p auth set` refuses a gateway token.** A value starting with `b6pt_` is the token for the
+  BlueStep AI tools, not the CLI; storing it made every later call fail with `HTTP Error: 401`. It is
+  now refused with a message saying so, and nothing is stored (exit `1`). The same check runs on the
+  token question any command asks on first use.
 - **`b6p --help` and `b6p push --help`** say what `--yes` answers, the two questions a push can
   ask, `--overwrite`, piping answers, the exit codes and the `--json` shape.
 

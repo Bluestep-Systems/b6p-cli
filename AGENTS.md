@@ -37,6 +37,14 @@ point [src/index.ts](src/index.ts); terminal adapters for core's provider interf
   and queues lines: one line answers one prompt, however they arrive, and end of input with the
   queue empty throws `NonInteractiveInputError`. Don't go back to `question()` per prompt: it drops
   a line that arrives with no question pending and never settles at end of input.
+- **The auth provider gets a guarded prompt.** `createCore` passes core the same
+  `BearerAuthProvider` it would build by default, over
+  [GatewayTokenGuardPrompt](src/auth/GatewayTokenGuard.ts), which refuses a gateway (`b6pt_`) token
+  before it is stored. Only the auth provider gets it: every `inputBox` it makes is a token prompt.
+- **`push`'s exit code and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**, as
+  pure functions with their own tests. `--json` is one shape for every push outcome (core's
+  `PushResult` plus `declinedOverwrites`); add fields there, never a second shape. Core says what
+  happened and why; the "how to go on" lines (the `--overwrite` and delete commands) are the CLI's.
 
 ## Commands
 
