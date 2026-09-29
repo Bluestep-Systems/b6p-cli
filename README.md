@@ -59,6 +59,22 @@ clear it with `xattr -d com.apple.quarantine ~/.bluestep/bin/b6p` and make it ex
 
 The npm install above is unchanged and remains the recommended path wherever Node is available.
 
+## Signing in
+
+`b6p` signs in with your BlueStep platform access token, which starts with `b6pt_`. It is the same
+token the BlueStep AI tools use for the gateway MCP (`B6PT_TOKEN`), so if you already have one, use it
+here too. To make one: **Tools → Organization Admin → Super → Global Users → Access Tokens → Create
+New Token**.
+
+Store it with:
+
+```bash
+b6p auth set
+```
+
+If no token is stored, the first command you run asks for it. A `401` with a `b6pt_` token usually
+means the token expired or its account lost access, not that it is the wrong kind of token.
+
 ## Commands
 
 | Command | Purpose |
@@ -73,7 +89,7 @@ The npm install above is unchanged and remains the recommended path wherever Nod
 | `b6p deploy <config.json>` | Multi-target deploy from a config file |
 | `b6p setup --file <path>` | Print the web-UI setup URL for a script |
 | `b6p report` | Report cached state |
-| `b6p auth set` | Store or replace your platform access token (`b6pt_…`) |
+| `b6p auth set` | Store or replace your platform access token (`b6pt_…`, see [Signing in](#signing-in)) |
 
 Most commands accept `--json` for machine-readable output and `--yes` to answer every question with
 its default (and print what it answered). Run `b6p <command> --help` for full options.
