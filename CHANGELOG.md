@@ -5,6 +5,16 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] — 2026-09-29
+
+### Fixed
+
+- **`b6p auth set` accepts a `b6pt_` platform access token again.** 0.8.0 refused any token starting
+  with `b6pt_` as a "gateway token", but that is the access token the CLI signs in with, so the
+  refusal blocked sign-in. The check is gone: `b6p auth set` and the first-use token question store
+  whatever token you enter, as in 0.7.0. (The 401 that led to the check came from an account that
+  had lost its access, not from the kind of token.)
+
 ## [0.8.0] — 2026-09-25
 
 ### Changed (breaking, user-visible)

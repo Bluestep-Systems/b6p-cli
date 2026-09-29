@@ -2,7 +2,7 @@ import { Command } from "commander";
 import * as path from "path";
 import * as fs from "fs/promises";
 import * as os from "os";
-import { B6PCore, BearerAuthProvider, Err } from "@bluestep-systems/b6p-core";
+import { B6PCore, Err } from "@bluestep-systems/b6p-core";
 import { SharedFilePersistence } from "@bluestep-systems/b6p-core";
 import { NodeFileSystem } from "./providers/NodeFileSystem";
 import { CliPrompt } from "./providers/CliPrompt";
@@ -11,7 +11,6 @@ import { CliProgress } from "./providers/CliProgress";
 import { Spinner } from "./providers/Spinner";
 import { WindowsRestartManagerLockDiagnoser } from "./lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 import { resolveTsLibDirs } from "./tsLibs";
-import { GatewayTokenGuardPrompt } from "./auth/GatewayTokenGuard";
 import {
   declinedPushJson,
   deleteCommand,
@@ -59,9 +58,6 @@ async function createCore(
     prompt,
     logger,
     progress,
-    // The same bearer scheme core builds by default, but its token prompts refuse a gateway
-    // (b6pt_) token before it is stored (see GatewayTokenGuard.ts).
-    auth: new BearerAuthProvider(persistence, new GatewayTokenGuardPrompt(prompt), logger),
     // Resolve lib.*.d.ts for the core's bundled TypeScript compile (see tsLibs.ts).
     typescriptLibDirs: resolveTsLibDirs(),
   });
