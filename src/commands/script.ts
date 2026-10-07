@@ -145,12 +145,11 @@ const addPull: Registrar = (parent, globals) =>
             workspacePath: resolve(opts.workspace || "."),
           });
         }
-        if (result !== null) {
-          // `keptLocalPaths` is reported, never failed: keeping a locally-edited
-          // file is the divergence guard working as intended, and failing here
-          // would make every pull in a tree with local edits exit non-zero.
-          emitJson(result);
-        }
+        // `keptLocalPaths` is reported, never failed: keeping a locally-edited
+        // file is the divergence guard working as intended, and failing here
+        // would make every pull in a tree with local edits exit non-zero. A null
+        // result prints `{cancelled: true}`, the shape 0.8.0 shipped.
+        emitJson(result ?? { cancelled: true });
       });
     });
 

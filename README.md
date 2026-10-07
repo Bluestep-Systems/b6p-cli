@@ -74,8 +74,16 @@ Store it with:
 b6p auth set
 ```
 
-If no token is stored, the first command you run asks for it. A `401` with a `b6pt_` token usually
-means the token expired or its account lost access, not that it is the wrong kind of token.
+The token is stored in encrypted secret storage under `~/.b6p/`. If no token is stored, the first
+command you run asks for it, so `b6p auth set` is optional — but it is the only way to *replace* a
+token without clearing it first. It can be set non-interactively by piping it in:
+
+```bash
+echo "$B6P_TOKEN" | b6p auth set
+```
+
+A `401` with a `b6pt_` token usually means the token expired or its account lost access, not that
+it is the wrong kind of token.
 
 ## Commands
 
@@ -116,7 +124,8 @@ it can be omitted — it is read from the clone's `origin`. Builds run on the pl
 submits and polls, the diagnostics and the builder's log come back as the platform reports them,
 and `publish` never builds (the platform refuses a publish without a finished build of the draft's
 current commit, and the error says what to run). A failed build exits `1`; `--json` prints the
-platform's build status object.
+platform's build status object, or a bare `null` from `status` on a component never built (exit
+`0` — that is an answer, not a failure).
 
 ### `b6p auth` — credentials
 
@@ -152,17 +161,18 @@ take, so `--yes` never overwrites or deletes anything on the platform:
    No keeps them (exit `0`).
 
 When question 1 is declined, the CLI prints the command that confirms it. After checking the
-platform versions (`b6p audit`), confirm specific files up front with `--overwrite`, once per file,
-using the path the question listed:
+platform versions (`b6p script audit`), confirm specific files up front with `--overwrite`, once
+per file, using the path the question listed:
 
 ```bash
-b6p --yes push --file <path> --snapshot --overwrite scripts/app.ts --overwrite README.md
+b6p --yes script push --file <path> --snapshot --overwrite scripts/app.ts --overwrite README.md
 ```
 
 Question 2 has no flag: run without `--yes` and answer `Yes`. Answers can be piped, one line per
-question, in order (`printf 'Overwrite all\nYes\n' | b6p push --file <path>`, or `< answers.txt`;
-in PowerShell, `'Overwrite all', 'Yes' | b6p push --file <path>`). The commands the CLI prints are
-written for your shell: POSIX, or PowerShell on Windows outside Git Bash.
+question, in order (`printf 'Overwrite all\nYes\n' | b6p script push --file <path>`, or
+`< answers.txt`; in PowerShell, `'Overwrite all', 'Yes' | b6p script push --file <path>`). The
+commands the CLI prints are written for your shell: POSIX, or PowerShell on Windows outside Git
+Bash.
 
 **Exit codes:** `0` when the push went through (keeping platform-only files is still `0`); `1` when
 nothing was uploaded, an overwrite was not confirmed, an upload was refused, or, on a snapshot, a
@@ -207,7 +217,7 @@ or not a token is stored. Branch on its output, not its exit code:
 b6p --json auth status | jq -e .authenticated >/dev/null
 ```
 
-> **Changed in 0.5.0.** Failing commands previously exited `0`. If a pipeline was relying on
+> **Breaking change.** Failing commands previously exited `0`. If a pipeline was relying on
 > `b6p` never failing, it will now correctly go red.
 
 **Known gap:** a multi-target `b6p script deploy` in which some targets fail still exits `0` and
@@ -222,39 +232,17 @@ Every command is usable from a script, but two flags matter:
 - `--json` writes machine-readable output to stdout and keeps all human text on stderr.
 
 A closed stdin is also an error rather than a hang, so `b6p … < /dev/null` in CI fails fast
-instead of stalling until the job times out.
+instead of stalling until the job times out. A question with no default (such as the first-use
+token prompt) still takes a piped answer under `--yes`; with nothing piped it fails rather than
+waiting.
 
-## Authentication
-
-`b6p` authenticates with a platform **access token**, which begins with `b6pt_`. Set one with:
-
-```bash
-b6p auth set
-```
-
-The token is stored in encrypted secret storage under `~/.b6p/`. Any command that needs
-credentials prompts for a token if none is stored, so `b6p auth set` is optional — but it is
-the only way to *replace* a token without clearing it first.
-
-For unattended use, check for credentials before running anything that might prompt:
+Check for credentials before running anything that might prompt:
 
 ```bash
 if [ "$(b6p --json auth status | jq -r .authenticated)" != "true" ]; then
   echo "no b6p token configured" >&2; exit 1
 fi
 ```
-
-Set a token non-interactively by piping it in:
-
-```bash
-echo "$B6P_TOKEN" | b6p auth set
-```
-
-> **Upgrading from 0.4.x?** Authentication changed from a username/password pair to a bearer
-> token, stored under a different key — so the first command you run after upgrading will prompt
-> for your `b6pt_` token. Your old credentials are left in place (`~/.b6p` is shared with the VS
-> Code extension, which may still be using them); clear them with `b6p auth clear` once every
-> tool on this machine has moved to a token.
 
 ## WebDAV URL format
 

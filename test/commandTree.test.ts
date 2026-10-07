@@ -12,8 +12,8 @@ import assert from "node:assert/strict";
 import type { Command } from "commander";
 import { buildProgram } from "../src/program";
 
-/** The pre-0.5.0 top-level verbs, kept as hidden aliases until 0.6.0. */
-const DEPRECATED_ALIASES = ["push", "pull", "audit", "deploy", "setup"];
+/** The pre-restructure top-level verbs, now hidden failing stubs that name the new spelling. */
+const MOVED_VERBS = ["push", "pull", "audit", "deploy", "setup"];
 
 function program(): Command {
   return buildProgram("0.0.0-test");
@@ -47,9 +47,9 @@ test("no script verb occupies a top-level slot", () => {
   for (const noun of ["script", "auth", "sessions", "config"]) {
     assert.ok(visible.includes(noun), `\`${noun}\` should be advertised`);
   }
-  // The whole point of the refactor: the deprecated verbs still work but must not
-  // occupy an advertised top-level slot, or the noun namespace is not actually free.
-  for (const verb of DEPRECATED_ALIASES) {
+  // The whole point of the refactor: the old verbs fail with a pointer and must
+  // not occupy an advertised top-level slot, or the noun namespace is not free.
+  for (const verb of MOVED_VERBS) {
     assert.ok(!visible.includes(verb), `\`${verb}\` should be hidden`);
   }
 });
@@ -85,7 +85,7 @@ test("the old top-level verbs still resolve — to a stub that names the move", 
   // parsing, is always what comes back.
   const root = program();
   const names = root.commands.map((c) => c.name());
-  for (const verb of DEPRECATED_ALIASES) {
+  for (const verb of MOVED_VERBS) {
     assert.ok(names.includes(verb), `\`b6p ${verb}\` should still resolve`);
     const stub = child(root, verb);
     assert.match(stub.description(), new RegExp(`use \`b6p script ${verb}\``));

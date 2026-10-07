@@ -19,16 +19,54 @@ import { withCore, type GlobalOpts } from "../context";
  */
 export function originUrlFromClone(cwd: string): string | null {
   for (let dir = cwd; ; dir = path.dirname(dir)) {
-    const config = path.join(dir, ".git", "config");
-    try {
-      const text = fs.readFileSync(config, "utf8");
-      return parseOriginUrl(text);
-    } catch {
-      // No .git/config at this level; keep walking up.
+    if (fs.existsSync(path.join(dir, ".git"))) {
+      // The nearest repo answers, even with no readable config or no origin:
+      // walking past it would hand back an ENCLOSING repo's origin, which is a
+      // different project (a submodule would resolve to its parent's URL).
+      const text = readCloneConfig(dir);
+      return text === null ? null : parseOriginUrl(text);
     }
     if (path.dirname(dir) === dir) {
       return null;
     }
+  }
+}
+
+/**
+ * The git config text of the repo rooted at `dir`, or null. `.git` is a
+ * directory in a primary clone, but a FILE (`gitdir: <path>`) in a linked
+ * worktree or a submodule; a worktree's config then lives in the shared
+ * directory its `commondir` file names.
+ * @lastreviewed null
+ */
+function readCloneConfig(dir: string): string | null {
+  const dotGit = path.join(dir, ".git");
+  try {
+    return fs.readFileSync(path.join(dotGit, "config"), "utf8");
+  } catch {
+    // Not a directory with a config; try the pointer-file form.
+  }
+  let pointer: string;
+  try {
+    pointer = fs.readFileSync(dotGit, "utf8");
+  } catch {
+    return null;
+  }
+  const match = /^gitdir:\s*(.+?)\s*$/m.exec(pointer);
+  if (!match) {
+    return null;
+  }
+  const gitDir = path.resolve(dir, match[1]);
+  try {
+    const common = fs.readFileSync(path.join(gitDir, "commondir"), "utf8").trim();
+    return fs.readFileSync(path.join(path.resolve(gitDir, common), "config"), "utf8");
+  } catch {
+    // No commondir: a submodule's gitdir holds the config itself.
+  }
+  try {
+    return fs.readFileSync(path.join(gitDir, "config"), "utf8");
+  } catch {
+    return null;
   }
 }
 
@@ -47,9 +85,11 @@ export function parseOriginUrl(configText: string): string | null {
       continue;
     }
     if (inOrigin) {
-      const match = /^url\s*=\s*(.+)$/.exec(line);
+      const match = /^url\s*=\s*(.+)$/i.exec(line);
       if (match) {
-        return match[1].trim();
+        // Unquote, and drop a trailing git-config comment (` # …` / ` ; …`).
+        const value = match[1].trim().replace(/\s+[#;].*$/, "");
+        return /^".*"$/.test(value) ? value.slice(1, -1) : value;
       }
     }
   }

@@ -36,7 +36,9 @@ point [src/index.ts](src/index.ts); terminal adapters for core's provider interf
   not a TTY and ends at once, so [CliPrompt](src/providers/CliPrompt.ts) keeps one `line` listener
   and queues lines: one line answers one prompt, however they arrive, and end of input with the
   queue empty throws `NonInteractiveInputError`. Don't go back to `question()` per prompt: it drops
-  a line that arrives with no question pending and never settles at end of input.
+  a line that arrives with no question pending and never settles at end of input. Under `--yes` a
+  no-default prompt still takes a piped line (CI pipes tokens in); it refuses only when nothing can
+  answer — a TTY at once, a silent open pipe after a short grace, EOF with the queue empty.
 - **`push`'s exit code and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**, as
   pure functions with their own tests. `--json` is one shape for every push outcome (core's
   `PushResult` plus `declinedOverwrites`); add fields there, never a second shape. Core says what
@@ -44,9 +46,9 @@ point [src/index.ts](src/index.ts); terminal adapters for core's provider interf
   quoted per `ShellDialect` (POSIX, or PowerShell on Windows without `MSYSTEM`/`SHELL`).
 
 - **The command tree is noun-first: `b6p <subsystem> <verb>`.** The top level is a namespace of platform
-  subsystems (`script`, `auth`, `sessions`, `config`), each owning its verbs. **Never add a top-level
-  verb for platform work** — that slot is reserved for subsystems, and reintroducing `b6p <verb>`
-  re-creates exactly the collision the 0.5.0 restructure removed. `report` and `check-updates` are the
+  subsystems (`script`, `component`, `auth`, `sessions`, `config`), each owning its verbs. **Never add
+  a top-level verb for platform work** — that slot is reserved for subsystems, and reintroducing
+  `b6p <verb>` re-creates exactly the collision the noun-first restructure removed. `report` and `check-updates` are the
   two grandfathered exceptions: they act on this installation, not on the platform. A new command that
   touches the platform belongs under a noun, full stop. Add a command by writing `src/commands/<noun>.ts` exporting
   `register<Noun>Commands(program)` and adding one line to `registerCommands` in

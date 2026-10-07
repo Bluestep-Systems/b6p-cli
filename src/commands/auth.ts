@@ -10,6 +10,7 @@ import { withCore, type GlobalOpts } from "../context";
  * phrase a prompt — so naming the format is the terminal's job. A user upgrading
  * from a username/password install otherwise meets a bare token prompt with no
  * indication of what to paste.
+ * @lastreviewed null
  */
 const TOKEN_HINT = "Platform access tokens begin with `b6pt_`. Paste the whole token, including that prefix.";
 

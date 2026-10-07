@@ -1,4 +1,4 @@
-/** Process exit code for a command that completed without reporting an error. */
+/** Process exit code for a command that completed without reporting an error. @lastreviewed null */
 export const EXIT_SUCCESS = 0;
 
 /**
@@ -9,10 +9,11 @@ export const EXIT_SUCCESS = 0;
  * would mean callers had to distinguish "the CLI rejected your arguments" from
  * "the operation failed" — a distinction no caller has asked for, and one that
  * would be a breaking change to walk back.
+ * @lastreviewed null
  */
 export const EXIT_FAILURE = 1;
 
-/** Conventional exit code for a process terminated by SIGINT (128 + 2). */
+/** Conventional exit code for a process terminated by SIGINT (128 + 2). @lastreviewed null */
 export const EXIT_SIGINT = 130;
 
 /**

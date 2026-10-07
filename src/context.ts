@@ -2,7 +2,7 @@ import * as path from "path";
 import { B6PCore } from "@bluestep-systems/b6p-core";
 import { SharedFilePersistence } from "@bluestep-systems/b6p-core";
 import { NodeFileSystem } from "./providers/NodeFileSystem";
-import { CliPrompt } from "./providers/CliPrompt";
+import { CliPrompt, PromptCancelledError } from "./providers/CliPrompt";
 import { CliLogger } from "./providers/CliLogger";
 import { CliProgress } from "./providers/CliProgress";
 import { Spinner } from "./providers/Spinner";
@@ -74,7 +74,7 @@ function getVersion(): string {
   return typeof __B6P_VERSION__ === "string" ? __B6P_VERSION__ : "0.0.0-dev";
 }
 
-/** Resolve a user-supplied path against the process working directory. */
+/** Resolve a user-supplied path against the process working directory. @lastreviewed null */
 export function resolve(p: string): string {
   return path.resolve(process.cwd(), p);
 }
@@ -167,6 +167,16 @@ export async function withCore<T>(
 
   try {
     return await body(ctx);
+  } catch (e) {
+    // A THROWN failure must reach --json consumers too — the finally below only
+    // covers failures core reported through Prompt.error. Ctrl-C is excepted:
+    // it is the user's own interrupt, not a machine-readable failure.
+    if (globalOpts.json && !emittedJson && !(e instanceof PromptCancelledError)) {
+      const message = e instanceof Error ? e.message : String(e);
+      emittedJson = true;
+      process.stdout.write(JSON.stringify({ error: message, errors: [message] }, null, 2) + "\n");
+    }
+    throw e;
   } finally {
     // Disposes the session-cleanup timer and org cache. Without it the process
     // can stay alive on a pending handle, which matters now that failures set

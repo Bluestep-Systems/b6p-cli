@@ -66,9 +66,10 @@ describe("CliPrompt end-of-input handling", () => {
     await assert.rejects(
       () => withTimeout(prompt.inputBox({ prompt: "Enter your access token" }), "inputBox"),
       (e: unknown) => {
-        assert.ok(e instanceof NonInteractiveError, `expected NonInteractiveError, got ${String(e)}`);
+        assert.ok(e instanceof NonInteractiveInputError, `expected NonInteractiveInputError, got ${String(e)}`);
         assert.match(e.message, /Enter your access token/);
         assert.match(e.message, /end of input/);
+        assert.match(e.message, /b6p auth set/);
         return true;
       }
     );
@@ -82,7 +83,7 @@ describe("CliPrompt end-of-input handling", () => {
       () => withTimeout(prompt.confirm("overwrite file 2?", ["Overwrite", "Cancel"]), "confirm 2"),
       (e: unknown) => {
         // Must be our actionable error, NOT readline's "readline was closed".
-        assert.ok(e instanceof NonInteractiveError, `expected NonInteractiveError, got ${String(e)}`);
+        assert.ok(e instanceof NonInteractiveInputError, `expected NonInteractiveInputError, got ${String(e)}`);
         assert.doesNotMatch(e.message, /readline was closed/);
         return true;
       }
@@ -113,15 +114,39 @@ describe("CliPrompt end-of-input handling", () => {
     assert.strictEqual(answer, "/tmp/ws");
   });
 
-  it("refuses an input box with no default under --yes, without reading stdin", async () => {
-    // Deliberate: blocking here is what let `--yes` runs stall until a CI job
-    // timed out. stdin is left open, so a read would trip the watchdog.
+  it("answers an input box with no default from a piped line under --yes", async () => {
+    // CI sets tokens with `echo $TOKEN | b6p --yes auth set`; --yes must not
+    // refuse an answer that is already there.
+    const prompt = new CliPrompt({ autoYes: true, input: makeInput(["b6pt_piped"]), output: makeOutput() });
+    const answer = await withTimeout(prompt.inputBox({ prompt: "Enter your access token" }), "inputBox");
+    assert.strictEqual(answer, "b6pt_piped");
+  });
+
+  it("refuses an input box with no default under --yes when the open pipe stays silent", async () => {
+    // Deliberate: blocking forever here is what let `--yes` runs stall until a
+    // CI job timed out. stdin is left open and silent, so the refusal must come
+    // from the pipe grace elapsing, well inside the watchdog.
     const prompt = new CliPrompt({ autoYes: true, input: makeInput([], { keepOpen: true }), output: makeOutput() });
     await assert.rejects(
       () => withTimeout(prompt.inputBox({ prompt: "Enter your access token" }), "inputBox"),
       (e: unknown) => {
         assert.ok(e instanceof NonInteractiveError, `expected NonInteractiveError, got ${String(e)}`);
         assert.match(e.message, /Enter your access token/);
+        assert.match(e.message, /--yes/);
+        return true;
+      }
+    );
+  });
+
+  it("refuses with the --yes message when stdin is at EOF under --yes", async () => {
+    // Same situation as the silent pipe: --yes has no answer. The --yes
+    // refusal names the fixes (pipe the value, drop --yes), which the plain
+    // end-of-input error does not.
+    const prompt = new CliPrompt({ autoYes: true, input: makeInput([]), output: makeOutput() });
+    await assert.rejects(
+      () => withTimeout(prompt.inputBox({ prompt: "Enter your access token" }), "inputBox"),
+      (e: unknown) => {
+        assert.ok(e instanceof NonInteractiveError, `expected NonInteractiveError, got ${String(e)}`);
         assert.match(e.message, /--yes/);
         return true;
       }

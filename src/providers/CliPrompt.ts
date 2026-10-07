@@ -64,6 +64,16 @@ type InputStream = Readable & {
   setRawMode?: (mode: boolean) => unknown;
 };
 
+/**
+ * Terminal implementation of core's `Prompt`. Answers come from a line queue:
+ * piped input (`printf 'A\nB\n' |`, `< answers.txt`) delivers every line at
+ * once, and each one answers the next prompt instead of being dropped. Under
+ * `--yes`, a confirm takes its default (printing what it answered), and an
+ * input box with no default is answered by a piped line when there is one —
+ * only a prompt that would wait on a human refuses. stdin ending is an error
+ * ({@link NonInteractiveInputError}), never a hang or a silent exit 0.
+ * @lastreviewed null
+ */
 export class CliPrompt implements Prompt {
   private rl: readline.Interface | null = null;
   private readonly autoYes: boolean;
@@ -223,17 +233,73 @@ export class CliPrompt implements Prompt {
     return echo(answer);
   }
 
+  /**
+   * One `ask()` bounded by the `--yes` pipe grace: a line already queued or
+   * arriving within {@link YES_PIPE_GRACE_MS} answers; a pipe that stays silent
+   * refuses with `makeRefusal()` rather than holding an unattended run open,
+   * and stdin ending with nothing left refuses the same way.
+   * @lastreviewed null
+   */
+  private async askWithGrace(query: string, secret: boolean | undefined, makeRefusal: () => Error): Promise<string> {
+    try {
+      if (this.queue.length > 0 || this.stdinExhausted) {
+        return await this.ask(query, { secret });
+      }
+      return await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          // Detach the pending prompt so a line that straggles in later is
+          // queued for the next prompt instead of resolving a dead promise.
+          if (this.waiter?.query === query) {
+            this.waiter = null;
+          }
+          reject(makeRefusal());
+        }, CliPrompt.YES_PIPE_GRACE_MS);
+        // Deliberately NOT unref'd: the grace must fire even when this prompt
+        // is the only thing keeping the event loop alive, and it is cleared the
+        // moment the ask settles.
+        this.ask(query, { secret }).then(
+          (answer) => {
+            clearTimeout(timer);
+            resolve(answer);
+          },
+          (error: Error) => {
+            clearTimeout(timer);
+            reject(error);
+          }
+        );
+      });
+    } catch (e) {
+      // End of input with nothing piped is the same situation as the silent
+      // pipe: --yes has no answer. Report it as the --yes refusal, which names
+      // the ways to supply the value.
+      throw e instanceof NonInteractiveInputError ? makeRefusal() : e;
+    }
+  }
+
+  /** How long `--yes` waits for a piped line before refusing a no-default prompt. @lastreviewed null */
+  private static readonly YES_PIPE_GRACE_MS = 1_000;
+
   async inputBox(options: { prompt: string; password?: boolean; value?: string }): Promise<string | undefined> {
     if (this.autoYes) {
       if (options.value !== undefined) {
         return options.value;
       }
-      // No default to fall back on. Blocking here is what made `b6p --yes script
-      // push` sit on a prompt until the CI job timed out, so refuse instead.
-      throw new NonInteractiveError(
-        `Cannot prompt for "${options.prompt}" with --yes and no default. ` +
-          `Supply the value on the command line, or drop --yes to answer interactively.`
-      );
+      // No default to fall back on. A piped line can still answer (`echo $TOKEN |
+      // b6p --yes auth set` relies on it), so --yes refuses only a prompt that
+      // would WAIT: a TTY refuses at once, and a silent open pipe refuses after
+      // a short grace — blocking indefinitely is what made `b6p --yes script
+      // push` sit on a prompt until the CI job timed out. stdin ending with
+      // nothing piped refuses with the same message.
+      const refusal = (): NonInteractiveError =>
+        new NonInteractiveError(
+          `Cannot prompt for "${options.prompt}" with --yes and no default. ` +
+            `Supply the value on the command line, pipe it in, or drop --yes to answer interactively.`
+        );
+      if (this.input.isTTY && this.queue.length === 0) {
+        throw refusal();
+      }
+      const answer = await this.aroundIO(() => this.askWithGrace(`${options.prompt}: `, options.password, refusal));
+      return answer || undefined;
     }
     const query = `${options.prompt}: `;
     if (options.password) {

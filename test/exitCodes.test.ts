@@ -194,8 +194,9 @@ test("`script audit` outside a script tree fails instead of printing null", () =
 
 test("--yes refuses to block on a prompt it cannot answer", () => {
   // Regression: --yes did not suppress core's input prompts, so this blocked on
-  // stdin until the CI job timed out. stdin is held open (not EOF) to prove the
-  // refusal comes from --yes rather than from the stream closing.
+  // stdin until the CI job timed out. runCli closes stdin with nothing on it,
+  // and the refusal must still be the --yes one (naming the fixes: pipe the
+  // value, or drop --yes), not readline's internal error.
   const run = runCli(["--yes", "script", "push"], "");
   assert.equal(run.status, EXIT_FAILURE);
   assert.match(run.stderr, /--yes/, "should explain that --yes cannot answer the prompt");
@@ -218,14 +219,31 @@ test("an old top-level verb fails and names the new spelling", () => {
 });
 
 test("the old verbs fail with the message whatever the arguments", () => {
-  // The stub swallows options (allowUnknownOption, helpOption off), so even
-  // spellings that would trip commander's parsing come back with the move
-  // message rather than an option error.
-  for (const argv of [["push"], ["push", "--file", "x.ts"], ["pull", "--bogus-flag"]]) {
+  // The pre-dispatch check in index.ts (plus the stub's allowUnknownOption /
+  // helpOption off as a backstop) means even spellings commander itself would
+  // answer — the root -V/--version parsed during option parsing, the built-in
+  // `help` command showing the stub's own help — come back with the move
+  // message and exit 1.
+  for (const argv of [
+    ["push"],
+    ["push", "--file", "x.ts"],
+    ["pull", "--bogus-flag"],
+    ["push", "-V"],
+    ["pull", "--version"],
+    ["help", "push"],
+  ]) {
     const run = runCli(argv);
     assert.equal(run.status, EXIT_FAILURE, `${argv.join(" ")} should exit 1`);
     assert.match(run.stderr, /has moved: run `b6p script /, `${argv.join(" ")} should name the move`);
+    assert.doesNotMatch(run.stdout, /^\d+\.\d+\.\d+/, `${argv.join(" ")} must not answer with the version`);
   }
+});
+
+test("a moved verb under --json also writes the failure to stdout", () => {
+  const run = runCli(["--json", "push", "--file", "x.ts"]);
+  assert.equal(run.status, EXIT_FAILURE);
+  const payload = JSON.parse(run.stdout);
+  assert.match(payload.error, /has moved/);
 });
 
 test("usage errors exit non-zero", () => {
