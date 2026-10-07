@@ -1,6 +1,25 @@
 import * as readline from "readline/promises";
 import type { Readable, Writable } from "node:stream";
 import type { ConfirmOptions, Prompt } from "@bluestep-systems/b6p-core";
+import type { FailureTracker } from "../exit";
+
+export interface ActivityPauser {
+  pause(): void;
+  resume(): void;
+}
+
+/**
+ * Thrown when input is required but cannot be obtained non-interactively:
+ * `--yes` was passed and the prompt has no default to take, or stdin cannot
+ * supply an answer ({@link NonInteractiveInputError}, the EOF case).
+ * @lastreviewed null
+ */
+export class NonInteractiveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NonInteractiveError";
+  }
+}
 
 /**
  * Thrown when the core asks for input that stdin cannot supply - piped input
@@ -15,10 +34,10 @@ import type { ConfirmOptions, Prompt } from "@bluestep-systems/b6p-core";
  * is the point; do not soften this into a return value.
  * @lastreviewed null
  */
-export class NonInteractiveInputError extends Error {
+export class NonInteractiveInputError extends NonInteractiveError {
   constructor(query: string) {
     super(
-      `No input available for prompt: \"${query.trim()}\". stdin reached end of input, so this ` +
+      `No input available for prompt: "${query.trim()}". stdin reached end of input, so this ` +
         `value cannot be asked for interactively. Run the command in a terminal, pipe an answer, ` +
         `or configure the value up front (for credentials: \`b6p auth set\`).`
     );
@@ -27,19 +46,15 @@ export class NonInteractiveInputError extends Error {
 }
 
 /**
- * CLI implementation of the prompt provider.
- *
- * When `autoYes` is true, confirmations return their default (the first option,
- * or the safe one on a destructive prompt) and print the question and the answer
- * taken, and input boxes return their default value when they have one. An input box
- * with no default still needs a real answer: it is read from stdin, and if stdin
- * has nothing to give, {@link NonInteractiveInputError} is thrown rather than
- * hanging on a promise that can never settle.
+ * Thrown when the user interrupts a prompt with Ctrl-C, so the top level can
+ * exit `130` (the conventional 128 + SIGINT) rather than a generic failure.
  * @lastreviewed null
  */
-export interface ActivityPauser {
-  pause(): void;
-  resume(): void;
+export class PromptCancelledError extends Error {
+  constructor() {
+    super("Cancelled");
+    this.name = "PromptCancelledError";
+  }
 }
 
 /** The subset of a stdin-like stream this provider uses. process.stdin satisfies it structurally. */
@@ -49,14 +64,31 @@ type InputStream = Readable & {
   setRawMode?: (mode: boolean) => unknown;
 };
 
+/**
+ * Terminal implementation of core's `Prompt`. Answers come from a line queue:
+ * piped input (`printf 'A\nB\n' |`, `< answers.txt`) delivers every line at
+ * once, and each one answers the next prompt instead of being dropped. Under
+ * `--yes`, a confirm takes its default (printing what it answered), and an
+ * input box with no default is answered by a piped line when there is one —
+ * only a prompt that would wait on a human refuses. stdin ending is an error
+ * ({@link NonInteractiveInputError}), never a hang or a silent exit 0.
+ * @lastreviewed null
+ */
 export class CliPrompt implements Prompt {
   private rl: readline.Interface | null = null;
   private readonly autoYes: boolean;
   private readonly jsonMode: boolean;
   private pauser: ActivityPauser | null = null;
+  private failures: FailureTracker | null = null;
   private readonly input: InputStream;
   private readonly output: Writable;
-  /** Set once stdin has ended; every later prompt fails fast instead of re-reading a dead stream. */
+  /**
+   * Set once stdin has ended. Without it the next prompt reuses a dead
+   * interface and surfaces readline's internal 'readline was closed' rather
+   * than the real diagnosis - the reported symptom of CU 86bb8f6v0, where a
+   * push hit a SECOND overwrite prompt with only one piped answer.
+   * @lastreviewed null
+   */
   private stdinExhausted = false;
   /**
    * Lines that arrived while no prompt was waiting, oldest first. Piped input (`printf 'A\nB\n' |`,
@@ -76,6 +108,15 @@ export class CliPrompt implements Prompt {
     this.jsonMode = opts.json ?? false;
     this.input = opts.input ?? process.stdin;
     this.output = opts.output ?? process.stderr; // keep stdout clean for --json
+  }
+
+  /**
+   * Attach the tracker that decides this invocation's exit code. See
+   * {@link FailureTracker} for why `error` counts and `warn` does not.
+   * @lastreviewed null
+   */
+  setFailureTracker(failures: FailureTracker | null): void {
+    this.failures = failures;
   }
 
   /** Attach a background activity indicator (e.g. Spinner) that should be
@@ -137,9 +178,9 @@ export class CliPrompt implements Prompt {
   }
 
   /**
-   * Close and forget the current interface **without** treating it as stdin
-   * ending - used by the masked read, which deliberately tears the interface
-   * down so it can drive raw mode itself.
+   * Close and forget the current interface WITHOUT recording stdin as ended -
+   * for the masked read, which tears the interface down on purpose so it can
+   * drive raw mode itself.
    * @lastreviewed null
    */
   private discardRL(): void {
@@ -192,9 +233,73 @@ export class CliPrompt implements Prompt {
     return echo(answer);
   }
 
+  /**
+   * One `ask()` bounded by the `--yes` pipe grace: a line already queued or
+   * arriving within {@link YES_PIPE_GRACE_MS} answers; a pipe that stays silent
+   * refuses with `makeRefusal()` rather than holding an unattended run open,
+   * and stdin ending with nothing left refuses the same way.
+   * @lastreviewed null
+   */
+  private async askWithGrace(query: string, secret: boolean | undefined, makeRefusal: () => Error): Promise<string> {
+    try {
+      if (this.queue.length > 0 || this.stdinExhausted) {
+        return await this.ask(query, { secret });
+      }
+      return await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          // Detach the pending prompt so a line that straggles in later is
+          // queued for the next prompt instead of resolving a dead promise.
+          if (this.waiter?.query === query) {
+            this.waiter = null;
+          }
+          reject(makeRefusal());
+        }, CliPrompt.YES_PIPE_GRACE_MS);
+        // Deliberately NOT unref'd: the grace must fire even when this prompt
+        // is the only thing keeping the event loop alive, and it is cleared the
+        // moment the ask settles.
+        this.ask(query, { secret }).then(
+          (answer) => {
+            clearTimeout(timer);
+            resolve(answer);
+          },
+          (error: Error) => {
+            clearTimeout(timer);
+            reject(error);
+          }
+        );
+      });
+    } catch (e) {
+      // End of input with nothing piped is the same situation as the silent
+      // pipe: --yes has no answer. Report it as the --yes refusal, which names
+      // the ways to supply the value.
+      throw e instanceof NonInteractiveInputError ? makeRefusal() : e;
+    }
+  }
+
+  /** How long `--yes` waits for a piped line before refusing a no-default prompt. @lastreviewed null */
+  private static readonly YES_PIPE_GRACE_MS = 1_000;
+
   async inputBox(options: { prompt: string; password?: boolean; value?: string }): Promise<string | undefined> {
-    if (this.autoYes && options.value !== undefined) {
-      return options.value;
+    if (this.autoYes) {
+      if (options.value !== undefined) {
+        return options.value;
+      }
+      // No default to fall back on. A piped line can still answer (`echo $TOKEN |
+      // b6p --yes auth set` relies on it), so --yes refuses only a prompt that
+      // would WAIT: a TTY refuses at once, and a silent open pipe refuses after
+      // a short grace — blocking indefinitely is what made `b6p --yes script
+      // push` sit on a prompt until the CI job timed out. stdin ending with
+      // nothing piped refuses with the same message.
+      const refusal = (): NonInteractiveError =>
+        new NonInteractiveError(
+          `Cannot prompt for "${options.prompt}" with --yes and no default. ` +
+            `Supply the value on the command line, pipe it in, or drop --yes to answer interactively.`
+        );
+      if (this.input.isTTY && this.queue.length === 0) {
+        throw refusal();
+      }
+      const answer = await this.aroundIO(() => this.askWithGrace(`${options.prompt}: `, options.password, refusal));
+      return answer || undefined;
     }
     const query = `${options.prompt}: `;
     if (options.password) {
@@ -212,8 +317,8 @@ export class CliPrompt implements Prompt {
    *
    * Requires a TTY with raw-mode support; when stdin is not a TTY (e.g. piped
    * input) masking is impossible, so it falls back to the standard readline
-   * question, which echoes. Handles Enter/Ctrl-D (submit), Ctrl-C (re-raise
-   * SIGINT) and Backspace.
+   * question, which echoes. Handles Enter/Ctrl-D (submit), Ctrl-C (rejects with
+   * {@link PromptCancelledError}) and Backspace.
    *
    * @param query The fully-formatted prompt to display (e.g. `"Password: "`).
    * @returns The entered string, or `undefined` if the input was empty.
@@ -240,8 +345,8 @@ export class CliPrompt implements Prompt {
       let value = "";
       let done = false;
 
-      // A readline interface created earlier (e.g. by the username prompt)
-      // stays attached to stdin and echoes every keystroke via its own
+      // A readline interface created earlier (e.g. by a preceding unmasked
+      // prompt) stays attached to stdin and echoes every keystroke via its own
       // `keypress` handler. Merely pausing it is not enough: resuming stdin for
       // the raw read re-enables that echo, printing the real character next to
       // each masking `*`. Close it and strip the `keypress` listeners so our
@@ -250,8 +355,9 @@ export class CliPrompt implements Prompt {
       // `data`→`keypress` decoder there, and removing it would prevent any
       // later readline prompt (recreated lazily by getRL()) from receiving
       // input at all.
-      // discardRL() rather than close(): this teardown is deliberate and must
-      // NOT be recorded as stdin ending.
+      // discardRL(), not close(): this teardown is deliberate and must NOT be
+      // recorded as stdin ending, or every prompt after a password read would
+      // wrongly report end-of-input.
       this.discardRL();
       input.removeAllListeners("keypress");
 
@@ -288,8 +394,11 @@ export class CliPrompt implements Prompt {
             case "\u0003": // Ctrl-C (ETX)
               output.write("\n");
               cleanup();
-              process.kill(process.pid, "SIGINT");
-              reject(new Error("Cancelled"));
+              // Reject rather than re-raising SIGINT at ourselves: the default
+              // signal disposition terminates the process immediately, racing
+              // teardown and any pending stdout flush. The top level maps this
+              // to EXIT_SIGINT.
+              reject(new PromptCancelledError());
               return;
             case "\u007f": // Backspace (DEL)
             case "\b":
@@ -384,7 +493,15 @@ export class CliPrompt implements Prompt {
     this.pauser?.resume();
   }
 
+  /**
+   * Report a failed operation. This is the channel that decides the exit code —
+   * see {@link FailureTracker} for why this one counts and `Logger.error` does not.
+   * @lastreviewed null
+   */
   error(message: string): void {
+    // Record before writing: the count must not depend on output mode or on the
+    // write succeeding, since it is what the shell sees as the exit code.
+    this.failures?.record(message);
     this.pauser?.pause();
     this.output.write(`ERROR: ${message}\n`);
     this.pauser?.resume();

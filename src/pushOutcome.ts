@@ -25,10 +25,11 @@ export type PushJson = PushResult & {
  * reason stays explicit. A snapshot that shipped with type-check diagnostics also fails: the
  * platform runs the emitted JS un-type-checked, so the push was the only gate.
  *
- * Not failures: `null` (the user cancelled at the target-URL prompt), `liveVerified: null` (a copy
- * came back without a content hash and could not be compared; core warns on stderr, and failing
- * here would block every push if the platform's ETag format changed), and `typeCheckDiagnostics`
- * `null` (no compile ran) or `0`.
+ * Not failures: `liveVerified: null` (a copy came back without a content hash and could not be
+ * compared; core warns on stderr, and failing here would block every push if the platform's ETag
+ * format changed), and `typeCheckDiagnostics` `null` (no compile ran) or `0`. A `null` result (the
+ * target-URL prompt got no URL) returns `0` HERE to avoid double-counting: core already reported
+ * that through `Prompt.error`, which sets the exit code to `1` on its own.
  * @param result What core's push returned
  * @returns `1` when the push must read as failed, `0` otherwise
  * @lastreviewed null

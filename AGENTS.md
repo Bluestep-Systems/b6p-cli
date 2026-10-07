@@ -36,12 +36,35 @@ point [src/index.ts](src/index.ts); terminal adapters for core's provider interf
   not a TTY and ends at once, so [CliPrompt](src/providers/CliPrompt.ts) keeps one `line` listener
   and queues lines: one line answers one prompt, however they arrive, and end of input with the
   queue empty throws `NonInteractiveInputError`. Don't go back to `question()` per prompt: it drops
-  a line that arrives with no question pending and never settles at end of input.
+  a line that arrives with no question pending and never settles at end of input. Under `--yes` a
+  no-default prompt still takes a piped line (CI pipes tokens in); it refuses only when nothing can
+  answer — a TTY at once, a silent open pipe after a short grace, EOF with the queue empty.
 - **`push`'s exit code and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**, as
   pure functions with their own tests. `--json` is one shape for every push outcome (core's
   `PushResult` plus `declinedOverwrites`); add fields there, never a second shape. Core says what
   happened and why; the "how to go on" lines (the `--overwrite` and delete commands) are the CLI's,
   quoted per `ShellDialect` (POSIX, or PowerShell on Windows without `MSYSTEM`/`SHELL`).
+
+- **The command tree is noun-first: `b6p <subsystem> <verb>`.** The top level is a namespace of platform
+  subsystems (`script`, `component`, `auth`, `sessions`, `config`), each owning its verbs. **Never add
+  a top-level verb for platform work** — that slot is reserved for subsystems, and reintroducing
+  `b6p <verb>` re-creates exactly the collision the noun-first restructure removed. `report` and `check-updates` are the
+  two grandfathered exceptions: they act on this installation, not on the platform. A new command that
+  touches the platform belongs under a noun, full stop. Add a command by writing `src/commands/<noun>.ts` exporting
+  `register<Noun>Commands(program)` and adding one line to `registerCommands` in
+  [src/commands/index.ts](src/commands/index.ts).
+- **Command actions run inside `withCore`** ([src/context.ts](src/context.ts)). It owns SDK construction
+  and the `finally` that stops the spinner and closes readline; an action that builds its own providers
+  or skips that teardown leaks an stdin handle and hangs the process. Emit machine-readable output with
+  `ctx.emitJson(...)`, not a hand-rolled `--json` check.
+- **A command that fails must exit non-zero.** Core reports most failures through `Prompt.error` and
+  returns normally instead of throwing, so a `FailureTracker` ([src/exit.ts](src/exit.ts)) counts that
+  channel and sets `process.exitCode`. When adding a command: report a genuine failure with
+  `ctx.fail(...)`, and report a *negative answer* with `prompt.info` — `b6p auth status` with no token
+  stored is a success, not a failure. **Never count `Logger.error`**: it is diagnostic, core logs
+  recoverable conditions to it, and counting it once made a successful first `script pull` exit `1`.
+  Never make the exit code depend on `--json` / `--quiet` / `--verbose`, and prefer `process.exitCode`
+  to `process.exit()`, which can truncate an in-flight stdout write.
 
 ## Commands
 

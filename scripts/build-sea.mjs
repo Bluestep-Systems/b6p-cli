@@ -149,7 +149,11 @@ function smokeTest(out) {
 
   console.error(`$ ${out} --help`);
   const help = exec(["--help"]);
-  if (!/\bpush\b/.test(help)) {
+  // Sentinel must be a command that appears in TOP-LEVEL help. `push` used to be
+  // one; it moved under `b6p script` (the old spelling now fails with a pointer),
+  // so asserting on it would fail every SEA build while the CLI worked perfectly.
+  // `script` is the namespace itself and cannot be hidden.
+  if (!/\bscript\b/.test(help)) {
     throw new Error("Smoke test failed: --help did not list expected subcommands.");
   }
 }

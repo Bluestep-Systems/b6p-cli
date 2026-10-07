@@ -5,6 +5,43 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed (breaking, user-visible)
+
+- **The command tree is noun-first: `b6p script push`, `b6p auth set`.** The top level is a
+  namespace of platform subsystems (`script`, `component`, `auth`, `sessions`, `config`); `report`
+  and `check-updates` stay top-level as machine-local commands. **The old top-level verbs fail**
+  with the new spelling (`` `b6p push` has moved: run `b6p script push` with the same arguments ``)
+  instead of aliasing it, so a pipeline or an agent corrects itself on the first failure; the
+  failing stubs will be removed in a later release. Flags are unchanged under the new names.
+- **A command that fails exits non-zero.** Failures core reports without throwing (via
+  `Prompt.error`) now set exit code `1`; `--json` runs print a machine-readable
+  `{ error, errors }` object when a command fails with no result on stdout (thrown errors and the
+  moved-verb message included). Ctrl-C at a prompt exits `130`. This also covers paths that used
+  to exit `0` quietly: an empty answer at `script push`'s target-URL prompt, and a `script audit`
+  or `script setup` whose prompt got no answer.
+
+### Added
+
+- **`b6p component build | status | publish` — BlueStep One custom components** (CU-86bcd80mx).
+  `build` submits a platform build of the component's source (default: the `draft` branch, `--ref`
+  for another, `--no-wait` to return after queuing) and reports the result with the builder's own
+  diagnostics; `status` reports the newest build, or the newest build of `--sha <commit>`;
+  `publish` publishes the current draft — the platform requires a SUCCEEDED build of exactly that
+  commit and the refusal says what to run. The component is addressed by its git repo URL
+  (`https://<host>/git/component/<name>.git`), read from the clone's `origin` when omitted.
+  Requires b6p-core with `ComponentService` (`core.component`).
+- **`b6p auth status`** reports whether a token is stored without ever prompting.
+
+### Fixed
+
+- **`b6p check-updates` actually checks.** The update service was never configured, so every run
+  printed "Update service is not configured"; it now consults the CLI's own GitHub releases.
+- **The first-use token question asks once**, prints the `b6pt_` hint first, and accepts a piped
+  answer under `--yes` (`echo "$B6P_TOKEN" | b6p --yes auth set`); a `--yes` prompt that nothing
+  answers fails after a short grace instead of holding an unattended run open.
+
 ## [0.8.1] — 2026-09-29
 
 ### Fixed

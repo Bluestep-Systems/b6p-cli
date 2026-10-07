@@ -34,6 +34,15 @@ export class CliLogger implements Logger {
     this.write(`[WARN] ${args.map(String).join(" ")}\n`);
   }
 
+  /**
+   * Diagnostic only — deliberately NOT counted toward the exit code.
+   *
+   * Core writes recoverable conditions here: `ScriptRoot.modifyGitIgnore` reports
+   * a missing `.gitignore` through this method and then creates the file and
+   * carries on. Counting it made a successful first pull exit 1. See
+   * {@link FailureTracker}; `Prompt.error` is the channel that decides failure.
+   * @lastreviewed null
+   */
   error(...args: unknown[]): void {
     const line = args.map(String).join(" ");
     this.errorLines.push(line);
