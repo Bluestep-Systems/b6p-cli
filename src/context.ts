@@ -33,6 +33,8 @@ export type GlobalOpts = {
 export interface CliContext {
   core: B6PCore;
   prompt: CliPrompt;
+  /** For {@link CliLogger.hasReported}: whether core already printed an error's details. */
+  logger: CliLogger;
   spinner: Spinner;
   globalOpts: GlobalOpts;
   /**
@@ -148,6 +150,7 @@ export async function withCore<T>(
   const ctx: CliContext = {
     core,
     prompt,
+    logger,
     spinner,
     globalOpts,
     emitJson(payload: unknown): void {

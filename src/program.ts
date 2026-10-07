@@ -14,7 +14,11 @@ export function buildProgram(version: string): Command {
   const program = new Command("b6p")
     .description("BlueStep platform CLI")
     .version(version)
-    .option("--yes", "Skip confirmation prompts")
+    .option(
+      "--yes",
+      "Answer every confirmation with its default and print what it answered. Overwrite and delete " +
+        "questions default to Cancel/No, so --yes never overwrites or deletes platform files (see script push --overwrite)"
+    )
     .option("--json", "Machine-readable JSON output")
     .option("--verbose", "Verbose logging")
     .option("--quiet", "Suppress progress output");
