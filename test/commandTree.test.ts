@@ -59,7 +59,15 @@ test("the advertised top level is exactly the documented set", () => {
   // subsystems; they are the acknowledged exceptions to the noun rule (see
   // AGENTS.md). Pinning the whole list means adding anything new is a deliberate
   // decision rather than a drift.
-  assert.deepEqual(visibleTopLevel(), ["script", "auth", "sessions", "config", "report", "check-updates"]);
+  assert.deepEqual(visibleTopLevel(), ["script", "component", "auth", "sessions", "config", "report", "check-updates"]);
+});
+
+test("component owns the build/status/publish verbs", () => {
+  const component = child(program(), "component");
+  assert.deepEqual(
+    component.commands.map((c) => c.name()).filter((n) => n !== "help"),
+    ["build", "status", "publish"]
+  );
 });
 
 test("script owns every script-tree verb", () => {
@@ -70,42 +78,17 @@ test("script owns every script-tree verb", () => {
   );
 });
 
-test("deprecated top-level aliases are still registered and reachable", () => {
-  const names = program().commands.map((c) => c.name());
+test("the old top-level verbs still resolve — to a stub that names the move", () => {
+  // Not aliases: running `b6p push` must FAIL with the new spelling, so an agent
+  // or a pipeline learns the fix from the error itself. The stub swallows
+  // arguments (allowUnknownOption) so the message, not commander's option
+  // parsing, is always what comes back.
+  const root = program();
+  const names = root.commands.map((c) => c.name());
   for (const verb of DEPRECATED_ALIASES) {
     assert.ok(names.includes(verb), `\`b6p ${verb}\` should still resolve`);
-  }
-});
-
-test("each alias accepts exactly what its namespaced form accepts", () => {
-  const root = program();
-  const script = child(root, "script");
-  for (const verb of DEPRECATED_ALIASES) {
-    const alias = child(root, verb);
-    const namespaced = child(script, verb);
-    assert.deepEqual(
-      alias.options.map((o) => o.flags),
-      namespaced.options.map((o) => o.flags),
-      `${verb}: options drifted`
-    );
-    assert.equal(alias.usage(), namespaced.usage(), `${verb}: arguments drifted`);
-  }
-});
-
-test("the alias description carries the deprecation notice", () => {
-  // This is the ONLY notice on the paths that never run an action — `b6p push
-  // --help`, `b6p help push`, and any argument-validation failure — because the
-  // preAction hook does not fire there.
-  const root = program();
-  const script = child(root, "script");
-  for (const verb of DEPRECATED_ALIASES) {
-    const alias = child(root, verb);
-    assert.ok(
-      alias.description().startsWith(child(script, verb).description()),
-      `${verb}: alias description should extend the namespaced one`
-    );
-    assert.match(alias.description(), new RegExp(`deprecated: use \`b6p script ${verb}\``));
-    assert.match(alias.helpInformation(), /deprecated/, `${verb}: --help must show the notice`);
+    const stub = child(root, verb);
+    assert.match(stub.description(), new RegExp(`use \`b6p script ${verb}\``));
   }
 });
 

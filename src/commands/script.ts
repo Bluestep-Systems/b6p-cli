@@ -35,19 +35,15 @@ Exit codes:
 `;
 
 /**
- * Registers one script operation onto `parent`.
- *
- * The same registrar serves two parents — the `script` namespace and, with
- * `hidden` set, the deprecated top-level alias — so the flags and behaviour of
- * `b6p push` and `b6p script push` cannot drift apart. Returns the created
- * command so the caller can attach the deprecation hook.
+ * Registers one script operation onto `parent`. Returns the created command so
+ * the caller can read its name when mounting the matching failing stub.
  * @lastreviewed null
  */
-type Registrar = (parent: Command, globals: () => GlobalOpts, hidden: boolean) => Command;
+type Registrar = (parent: Command, globals: () => GlobalOpts) => Command;
 
-const addPush: Registrar = (parent, globals, hidden) =>
+const addPush: Registrar = (parent, globals) =>
   parent
-    .command("push [target-url]", { hidden })
+    .command("push [target-url]")
     .description("Push a script to a WebDAV target")
     .option("--file <path>", "Derive target from local file metadata")
     .option("--root <path>", "Script root folder")
@@ -125,9 +121,9 @@ const addPush: Registrar = (parent, globals, hidden) =>
       }
     );
 
-const addPull: Registrar = (parent, globals, hidden) =>
+const addPull: Registrar = (parent, globals) =>
   parent
-    .command("pull [formula-url]", { hidden })
+    .command("pull [formula-url]")
     .description("Pull a script from a WebDAV location")
     .option("--file <path>", "Derive source from local file metadata")
     .option("--workspace <path>", "Target workspace folder (default: cwd)")
@@ -158,9 +154,9 @@ const addPull: Registrar = (parent, globals, hidden) =>
       });
     });
 
-const addAudit: Registrar = (parent, globals, hidden) =>
+const addAudit: Registrar = (parent, globals) =>
   parent
-    .command("audit", { hidden })
+    .command("audit")
     .description("Compare local script against server state")
     .option("--file <path>", "File within the script to audit (default: cwd)")
     .option("--pull", "Pull if differences are detected")
@@ -189,9 +185,9 @@ const addAudit: Registrar = (parent, globals, hidden) =>
       });
     });
 
-const addDeploy: Registrar = (parent, globals, hidden) =>
+const addDeploy: Registrar = (parent, globals) =>
   parent
-    .command("deploy <config-file>", { hidden })
+    .command("deploy <config-file>")
     .description("Quick deploy from a config file to multiple targets")
     .action(async (configFile: string) => {
       await withCore(globals(), async ({ core }) => {
@@ -199,9 +195,9 @@ const addDeploy: Registrar = (parent, globals, hidden) =>
       });
     });
 
-const addSetup: Registrar = (parent, globals, hidden) =>
+const addSetup: Registrar = (parent, globals) =>
   parent
-    .command("setup", { hidden })
+    .command("setup")
     .description("Print the web-UI setup URL for a script")
     .requiredOption("--file <path>", "File within the script")
     .action(async (opts: { file: string }) => {
@@ -224,13 +220,9 @@ const addSetup: Registrar = (parent, globals, hidden) =>
 const REGISTRARS: Registrar[] = [addPush, addPull, addAudit, addDeploy, addSetup];
 
 /**
- * Mount the script subsystem at `b6p script <verb>`, plus hidden top-level
- * aliases for the pre-0.5.0 spellings.
- *
- * The aliases exist because `b6p push` / `b6p pull` are already embedded in CI
- * pipelines that a global `npm i -g` upgrade would silently break. They are
- * hidden from `--help`, warn on stderr, and are scheduled for removal in 0.6.0 —
- * at which point the top-level slot is a pure noun namespace.
+ * Mount the script subsystem at `b6p script <verb>`, plus a hidden failing stub
+ * for each old top-level spelling (`b6p push`, `b6p pull`, …) that names the new
+ * one and exits `1`.
  * @lastreviewed null
  */
 export function registerScriptCommands(program: Command): void {
@@ -238,21 +230,23 @@ export function registerScriptCommands(program: Command): void {
   const script = program.command("script").description("Manage script trees on the platform");
 
   for (const register of REGISTRARS) {
-    const namespaced = register(script, globals, false);
+    const namespaced = register(script, globals);
 
-    const alias = register(program, globals, true);
-    // The preAction hook below only fires when the action runs. `b6p push --help`,
-    // `b6p help push` and any argument-validation failure short-circuit before
-    // that, so the description carries the notice too — it is the one thing shown
-    // on every one of those paths.
-    alias.description(`${namespaced.description()} (deprecated: use \`b6p script ${alias.name()}\`)`);
-    // preAction fires before the shared action body, so the warning lands ahead of
-    // any output the command itself produces. stderr keeps `--json` stdout clean.
-    alias.hook("preAction", () => {
-      process.stderr.write(
-        `warning: \`b6p ${alias.name()}\` is deprecated and will be removed in 0.6.0 — ` +
-          `use \`b6p script ${alias.name()}\` instead.\n`
-      );
-    });
+    // The old top-level spelling fails with the new one rather than aliasing it:
+    // an agent (or a pipeline) that runs `b6p push` learns the fix from the error
+    // itself, immediately, instead of depending on a deprecation warning it may
+    // never read. The stub swallows its arguments so the message — not
+    // commander's option parsing — is always what comes back; it is scheduled
+    // for removal once the fleet has moved.
+    const verb = namespaced.name();
+    program
+      .command(`${verb} [args...]`, { hidden: true })
+      .description(`(moved) use \`b6p script ${verb}\``)
+      .allowUnknownOption(true)
+      .helpOption(false)
+      .action(() => {
+        process.stderr.write(`\`b6p ${verb}\` has moved: run \`b6p script ${verb}\` with the same arguments.\n`);
+        process.exitCode = 1;
+      });
   }
 }

@@ -96,9 +96,27 @@ platform; the verbs beneath it act on that part.
 | `b6p script deploy <config.json>` | Multi-target deploy from a config file |
 | `b6p script setup --file <path>` | Print the web-UI setup URL for a script |
 
-> **Moved.** These were previously top-level (`b6p push`, `b6p pull`, …). The old
-> spellings still work but are deprecated, warn on use, and are scheduled for removal —
-> the top level is being kept free for other platform subsystems.
+> **Moved.** These were previously top-level (`b6p push`, `b6p pull`, …). The old spelling now
+> fails with the new one (`` `b6p push` has moved: run `b6p script push` with the same
+> arguments ``) so a pipeline or an agent corrects itself on the first failure — the top level is
+> kept free for other platform subsystems.
+
+### `b6p component` — BlueStep One custom components
+
+| Command | Purpose |
+|---|---|
+| `b6p component build [repo-url]` | Build the component's source (default: the `draft` branch) and wait for the result |
+| `b6p component build [repo-url] --ref <branch>` | Build another branch |
+| `b6p component build [repo-url] --no-wait` | Return right after the build is queued |
+| `b6p component status [repo-url]` | Report the newest build (`--sha <sha>` for an exact commit) |
+| `b6p component publish [repo-url]` | Publish the current draft (needs a SUCCEEDED build of exactly that commit) |
+
+`repo-url` is the component's git URL (`https://<host>/git/component/<name>.git`). Inside a clone
+it can be omitted — it is read from the clone's `origin`. Builds run on the platform: `build`
+submits and polls, the diagnostics and the builder's log come back as the platform reports them,
+and `publish` never builds (the platform refuses a publish without a finished build of the draft's
+current commit, and the error says what to run). A failed build exits `1`; `--json` prints the
+platform's build status object.
 
 ### `b6p auth` — credentials
 
@@ -117,7 +135,6 @@ platform; the verbs beneath it act on that part.
 | `b6p config reset` | Reset all settings to defaults |
 | `b6p report` | Report cached state |
 | `b6p check-updates` | Check for CLI updates |
->>>>>>> f07d0c4 (feat!: noun-first command tree — move script ops under `b6p script`)
 
 Most commands accept `--json` for machine-readable output and `--yes` to answer every question with
 its default (and print what it answered). Run `b6p <command> --help` for full options.

@@ -209,17 +209,23 @@ test("a closed stdin fails rather than silently exiting 0", () => {
   assert.equal(run.status, EXIT_FAILURE);
 });
 
-test("the deprecated aliases carry the same exit code as the namespaced form", () => {
+test("an old top-level verb fails and names the new spelling", () => {
+  // Not an alias: `b6p deploy` must do nothing, exit 1, and say exactly how to
+  // fix the call, so an agent corrects itself on the first failure.
   const run = runCli(["--json", "--yes", "deploy", "/nonexistent-b6p-config.json"]);
   assert.equal(run.status, EXIT_FAILURE);
-  assert.match(run.stderr, /deprecated/, "the alias should still warn");
+  assert.match(run.stderr, /`b6p deploy` has moved: run `b6p script deploy` with the same arguments/);
 });
 
-test("the deprecation notice reaches paths that never run an action", () => {
-  // `--help` and argument-validation failures short-circuit before the preAction
-  // hook, so the description is the only carrier there.
-  assert.match(runCli(["push", "--help"]).stdout, /deprecated: use `b6p script push`/);
-  assert.match(runCli(["help", "push"]).stdout, /deprecated: use `b6p script push`/);
+test("the old verbs fail with the message whatever the arguments", () => {
+  // The stub swallows options (allowUnknownOption, helpOption off), so even
+  // spellings that would trip commander's parsing come back with the move
+  // message rather than an option error.
+  for (const argv of [["push"], ["push", "--file", "x.ts"], ["pull", "--bogus-flag"]]) {
+    const run = runCli(argv);
+    assert.equal(run.status, EXIT_FAILURE, `${argv.join(" ")} should exit 1`);
+    assert.match(run.stderr, /has moved: run `b6p script /, `${argv.join(" ")} should name the move`);
+  }
 });
 
 test("usage errors exit non-zero", () => {

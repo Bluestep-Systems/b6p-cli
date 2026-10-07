@@ -5,6 +5,34 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed (breaking, user-visible)
+
+- **The command tree is noun-first: `b6p script push`, `b6p auth set`.** The top level is a
+  namespace of platform subsystems (`script`, `component`, `auth`, `sessions`, `config`); `report`
+  and `check-updates` stay top-level as machine-local commands. **The old top-level verbs fail**
+  with the new spelling (`` `b6p push` has moved: run `b6p script push` with the same arguments ``)
+  instead of aliasing it, so a pipeline or an agent corrects itself on the first failure; the
+  failing stubs will be removed in a later release. Flags are unchanged under the new names.
+- **A command that fails exits non-zero.** Failures core reports without throwing (via
+  `Prompt.error`) now set exit code `1`; `--json` runs print a machine-readable
+  `{ error, errors }` object when a command fails with no result on stdout. Ctrl-C at a prompt
+  exits `130`.
+
+### Added
+
+- **`b6p component build | status | publish` — BlueStep One custom components** (CU-86bcd80mx).
+  `build` submits a platform build of the component's source (default: the `draft` branch, `--ref`
+  for another, `--no-wait` to return after queuing) and reports the result with the builder's own
+  diagnostics; `status` reports the newest build, or the newest build of `--sha <commit>`;
+  `publish` publishes the current draft — the platform requires a SUCCEEDED build of exactly that
+  commit and the refusal says what to run. The component is addressed by its git repo URL
+  (`https://<host>/git/component/<name>.git`), read from the clone's `origin` when omitted.
+  Requires b6p-core with `ComponentService` (`core.component`).
+- **`b6p auth status`** reports whether a token is stored without ever prompting, and
+  **`b6p config reset`** replaces the old `config clear`.
+
 ## [0.8.1] — 2026-09-29
 
 ### Fixed
@@ -186,108 +214,26 @@ behaviour changes; the CLI's role is to surface them.
 
 ## [0.5.0] — 2026-08-12
 
-### Added
-
-- **`b6p script <verb>`** — script-tree operations now live under a `script` namespace:
-  `b6p script push`, `pull`, `audit`, `deploy`, `setup`. This is the first step in growing `b6p` from a
-  script-only tool into a general platform CLI: the top level is now a namespace of **nouns** (one per
-  platform subsystem), so a future `b6p forms pull` can be added without colliding with an existing
-  verb. It mirrors `B6PCore`, where each subsystem hangs off the composition root as its own service.
-- **`b6p auth status`** — reports whether an access token is stored, as `{"authenticated": bool}` under
-  `--json`. It never prompts, so unattended scripts can check for credentials without risking a hang.
-  Note it validates only that a well-formed token is *stored*, not that the server still accepts it.
-- **Machine-readable failures.** Under `--json`, a failed command now writes
-  `{"error": "…", "errors": ["…"]}` to stdout instead of leaving stdout empty and the only explanation
-  in an English sentence on stderr.
-- `130` is now the exit code when a prompt is interrupted with Ctrl-C.
-
 ### Changed
 
-- **Breaking.** The top-level verbs `push`, `pull`, `audit`, `deploy` and `setup` moved to
-  `b6p script <verb>`. The old spellings still work — they are registered from the same definition, so
-  their flags and behaviour cannot drift — but they are hidden from `--help`, print a deprecation
-  warning to stderr, carry the notice in their own `--help` text, and **will be removed in 0.6.0**:
-
-  ```diff
-  - b6p push --file ./src/app.ts --snapshot
-  + b6p script push --file ./src/app.ts --snapshot
-  ```
-
-- **Breaking: `--yes` now fails instead of blocking.** It previously had no effect on prompts that
-  needed a value, because it only substituted a default that core never supplies — so `b6p --yes script
-  push` with no target sat on a prompt until the job timed out. It now raises an error naming the
-  prompt it cannot answer.
-- **Authentication is now a bearer token, not a username/password.** Core 0.5.0 replaced basic auth with
-  `BearerAuthProvider`, which stores under a different secret key — so the first command run after
-  upgrading finds no token and prompts for one. Paste the whole platform access token, including its
-  `b6pt_` prefix. `b6p auth set` states that format up front, since core treats the token as opaque.
-- `b6p auth set` is now scriptable: `echo "$B6P_TOKEN" | b6p auth set`. It previously ran core's
-  `update()` unconditionally, which prompts twice on a fresh install — storing the token and *then*
-  failing when the second prompt hit end-of-input.
-- Reorganised `src/` around the command tree: `src/commands/` holds one module per noun,
-  `src/context.ts` owns SDK construction plus the `withCore` wrapper that every action runs inside, and
-  `src/program.ts` builds the root command. [src/index.ts](src/index.ts) is now only version injection
-  and `parseAsync`.
-- Bumped `@bluestep-systems/b6p-core` `^0.4.0` → `^0.5.0` and migrated to its reshaped surface.
+- **Breaking (internal API only — no user-visible CLI change).** Bumped `@bluestep-systems/b6p-core`
+  `^0.4.0` → `^0.5.0` and migrated to its reshaped surface. Every command, flag, argument, and output
+  format is unchanged; this release is a re-addressing of the same operations.
   - Script-tree operations moved off `B6PCore` onto a `ScriptService` reached as `core.script`:
     `push`, `pushCurrent`, `pull`, `pullCurrent`, `audit`, `auditPull`, `deploy`, `deriveWorkspacePath`
     and `getSetupUrl` are now `core.script.*`. Signatures are byte-identical. Account-level operations
     (`updateCredentials`, `report`, `setConfig`, `checkForUpdates`) stay on `core`.
   - Core's provider interfaces dropped their Hungarian `I` prefix: `IFileSystem` → `FileSystem`,
     `IPersistence` → `Persistence`, `IPrompt` → `Prompt`, `ILogger` → `Logger`, `IProgress` → `Progress`,
-    `ILockDiagnoser` → `LockDiagnoser`.
+    `ILockDiagnoser` → `LockDiagnoser`. The five providers in [src/providers/](src/providers/) and
+    `WindowsRestartManagerLockDiagnoser` were updated to match.
 - Upgraded the type-checker to **TypeScript 7** (`^5.9.2` → `^7.0.2`), and set `types: ["node"]`
-  explicitly in `tsconfig.base.json` — TS 7 no longer pulls every `node_modules/@types` package into
-  global scope, so `process`, `__dirname` and the `node:` builtins must be requested by name.
+  explicitly in `tsconfig.json` — TS 7 no longer pulls every `node_modules/@types` package into global
+  scope, so `process`, `__dirname` and the `node:` builtins must be requested by name.
 - Bumped `prettier` → `^3.9.6` and `@types/node` → `^22.20.1`.
 
 ### Fixed
 
-- **Failing commands now exit non-zero.** This is the headline fix for unattended use: the CLI
-  previously reported success to the shell from commands that plainly did not work.
-
-  ```console
-  $ b6p script deploy missing.json; echo "exit=$?"
-  ERROR: Config file not found: missing.json
-  exit=0     # ← before
-  exit=1     # ← after
-  ```
-
-  Core almost never throws — it reports a failure through `Prompt.error` and then returns normally — so
-  an exit code derived from "did the action resolve?" was always `0`. `CliPrompt` now counts what
-  crosses its error channel ([src/exit.ts](src/exit.ts)) and sets `process.exitCode`.
-
-  `Logger.error` is deliberately **not** counted. It is a diagnostic channel and core writes recoverable
-  conditions to it — `ScriptRoot` reports a missing `.gitignore` that way, then creates the file and
-  continues — so counting it made the *first* pull of any script exit `1` while the second exited `0`.
-  Reporting a value is still success: `b6p auth status` with no token stored exits `0`.
-
-  **Known gap:** `ScriptService.deploy` catches each target's failure into `logger.error` and prints
-  "Deploy complete!", so a partly-failed deploy still exits `0`. That needs a fix in core.
-- **A closed stdin no longer hangs or silently succeeds.** `readline`'s `question()` never settles when
-  its stream closes, so `b6p script push < /dev/null` left the action promise pending, skipped teardown
-  entirely, and exited `0` from a command that did nothing.
-- **`b6p check-updates` works.** The CLI never passed `updateServiceConfig` to `B6PCore`, so the command
-  could only ever report "Update service is not configured". It is now wired to this repository's own
-  releases — the CLI you installed, not `b6p-core`.
-- **`b6p script audit` outside a script tree fails instead of printing `null`.** Core returns `null`
-  without reporting an error, so `--json` emitted a literal `null` at exit `0` and a caller doing
-  `jq '.changedFiles | length'` read `0` and concluded "in sync" from a command that never reached the
-  server.
-- **The standalone-binary build no longer fails.** [scripts/build-sea.mjs](scripts/build-sea.mjs)
-  smoke-tested the binary by asserting that top-level `--help` lists `push`; hiding that command would
-  have broken every SEA build — and therefore attached **zero** binaries to a published GitHub Release,
-  since `release.yml` runs only after the Release is public. The sentinel is now `script`.
-- The deprecation notice now reaches `b6p push --help`, `b6p help push`, and argument-validation
-  failures. Those paths never run an action, so the `preAction` hook alone left them silent.
-- The CLI never called `B6PCore.dispose()`, leaking core's session-cleanup timer and org cache for the
-  life of the process.
-- Fatal errors set `process.exitCode` instead of calling `process.exit()`, which could truncate an
-  in-flight `--json` write to stdout. A closed stdout pipe (`b6p --json report | head -1`) is now a
-  clean exit rather than an unhandled `EPIPE`.
-- `npm run format-check` and `npm test` are now actually enforced — CI ran neither `format-check` nor,
-  on the publish path, any test at all, so unformatted or untested code could ship.
-- `package-lock.json` still declared version `0.4.0`.
 - `esbuild.js`'s `copy-ts-libs` plugin now resolves `typescript` **from b6p-core's directory** instead of
   the repo root, so the `lib.*.d.ts` shipped to `dist/lib/` always match the compiler that reads them.
   Core pins `typescript` at exactly `5.9.2` as a runtime dependency (its `ScriptTranspiler` compiles
@@ -296,11 +242,6 @@ behaviour changes; the CLI's role is to surface them.
   have broken the build outright: TS 7 ships **no** `lib.*.d.ts` files at all (the Go port embeds them),
   so the old root-resolved lookup would have found zero libs and thrown `copy-ts-libs: no lib.*.d.ts
   found`. `scripts/build-sea.mjs` reads `dist/lib/` and inherits the fix.
-- The test build ([esbuild.test.js](esbuild.test.js)) now shares the real build's `external` list, exported
-  from [esbuild.js](esbuild.js) as `NODE_EXTERNALS`. `platform: "node"` does not externalise the bare
-  subpath spelling `readline/promises`, so any test importing `CliPrompt` previously failed to bundle.
-- `b6p check-updates` described itself as checking for "extension" updates, a leftover from the shared
-  VS Code core.
 
 ### Removed
 
@@ -308,8 +249,8 @@ behaviour changes; the CLI's role is to surface them.
   lint steps in [ci.yml](.github/workflows/ci.yml) / [publish.yml](.github/workflows/publish.yml).
   `typescript-eslint` 8.67 (current stable) declares `typescript: ">=4.8.4 <6.1.0"`, so it cannot run
   against TypeScript 7. `npm run check-types`, `npm run format-check` and `npm test` are now the static
-  gates, and all three run in CI. Note that the project's no-`any` rule is consequently no longer
-  machine-enforced — see [AGENTS.md](AGENTS.md).
+  gates. Note that the project's no-`any` rule is consequently no longer machine-enforced — see
+  [AGENTS.md](AGENTS.md). Linting should be restored when `typescript-eslint` supports TS 7.
 
 ## [0.4.0] — 2026-07-23
 
