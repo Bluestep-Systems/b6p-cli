@@ -21,7 +21,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import { PassThrough } from "node:stream";
-import { CliPrompt, NonInteractiveError } from "../src/providers/CliPrompt";
+import { CliPrompt, NonInteractiveError, NonInteractiveInputError } from "../src/providers/CliPrompt";
 
 /** A stdin stand-in: not a TTY, so the masked read falls back to the line read. */
 function makeInput(lines: string[], opts: { keepOpen?: boolean } = {}): PassThrough {
@@ -68,7 +68,7 @@ describe("CliPrompt end-of-input handling", () => {
       (e: unknown) => {
         assert.ok(e instanceof NonInteractiveError, `expected NonInteractiveError, got ${String(e)}`);
         assert.match(e.message, /Enter your access token/);
-        assert.match(e.message, /stdin closed/);
+        assert.match(e.message, /end of input/);
         return true;
       }
     );

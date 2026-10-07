@@ -3,36 +3,45 @@ import type { Readable, Writable } from "node:stream";
 import type { ConfirmOptions, Prompt } from "@bluestep-systems/b6p-core";
 import type { FailureTracker } from "../exit";
 
-/**
- * CLI implementation of the prompt provider.
- *
- * When `autoYes` is true, confirmations return their default (the first option,
- * or the safe one on a destructive prompt) and print the question and the answer
- * taken, and input boxes return their default value when they have one. An input box
- * with no default still needs a real answer: it is read from stdin, and if stdin
- * has nothing to give, {@link NonInteractiveInputError} is thrown rather than
- * hanging on a promise that can never settle.
- * @lastreviewed null
- */
 export interface ActivityPauser {
   pause(): void;
   resume(): void;
 }
 
 /**
- * Thrown when input is required but cannot be obtained: `--yes` was passed, or
- * stdin reached end-of-file.
- *
- * The EOF case matters more than it looks. `readline`'s `question()` never
- * settles when the stream closes underneath it — the promise is simply abandoned
- * — so without this the whole action promise hangs, the command's `finally` never
- * runs, and Node drains and exits **0** from a command that did nothing.
+ * Thrown when input is required but cannot be obtained non-interactively:
+ * `--yes` was passed and the prompt has no default to take, or stdin cannot
+ * supply an answer ({@link NonInteractiveInputError}, the EOF case).
  * @lastreviewed null
  */
 export class NonInteractiveError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "NonInteractiveError";
+  }
+}
+
+/**
+ * Thrown when the core asks for input that stdin cannot supply - piped input
+ * that ran out, or a closed/absent stdin.
+ *
+ * This exists because the alternative is silent success. readline's question()
+ * promise never settles once stdin has ended: the event loop drains, node exits
+ * **0**, and a command that did nothing reports success to the shell. Every
+ * non-interactive b6p run without stored credentials hit exactly that
+ * (Enter your access token: then exit 0, nothing pulled), as does any push that
+ * reaches a second overwrite prompt with only one piped answer. Failing loudly
+ * is the point; do not soften this into a return value.
+ * @lastreviewed null
+ */
+export class NonInteractiveInputError extends NonInteractiveError {
+  constructor(query: string) {
+    super(
+      `No input available for prompt: "${query.trim()}". stdin reached end of input, so this ` +
+        `value cannot be asked for interactively. Run the command in a terminal, pipe an answer, ` +
+        `or configure the value up front (for credentials: \`b6p auth set\`).`
+    );
+    this.name = "NonInteractiveInputError";
   }
 }
 
@@ -83,7 +92,6 @@ export class CliPrompt implements Prompt {
    * @lastreviewed null
    */
   private waiter: { query: string; resolve: (line: string) => void; reject: (error: Error) => void } | null = null;
-  private failures: FailureTracker | null = null;
 
   constructor(opts: { autoYes?: boolean; json?: boolean; input?: InputStream; output?: Writable } = {}) {
     this.autoYes = opts.autoYes ?? false;
@@ -231,60 +239,9 @@ export class CliPrompt implements Prompt {
     if (options.password) {
       return this.aroundIO(() => this.readMasked(query));
     }
-    return this.aroundIO(() => this.ask(query));
-  }
-
-  /**
-   * `readline.question`, but rejecting instead of hanging when stdin closes.
-   *
-   * `question()` returns a promise that is never settled if the interface closes
-   * before an answer arrives — which is exactly what happens with stdin at EOF
-   * (`b6p … < /dev/null`, or any pipe that has ended). Racing it against the
-   * interface's `close` event converts that silent hang into an error the command
-   * can report.
-   * @lastreviewed null
-   */
-  /** The one wording for 'stdin cannot answer this', used by both paths below. */
-  private noInputMessage(query: string): string {
-    return `No input available for "${query.trim()}" (stdin closed).`;
-  }
-
-  private ask(query: string): Promise<string | undefined> {
-    if (this.stdinExhausted) {
-      return Promise.reject(new NonInteractiveError(this.noInputMessage(query)));
-    }
-    const rl = this.getRL();
-    return new Promise<string | undefined>((resolve, reject) => {
-      let settled = false;
-      // `close` routinely fires in the SAME turn the answer is delivered:
-      // piped input ends right after its bytes, and readline flushes the final
-      // line before closing. Rejecting straight from the event therefore threw
-      // away answers that HAD arrived, which broke piping an answer at all
-      // (echo Overwrite | b6p ...) - the very workaround the error suggests.
-      // Deferring one macrotask lets question()'s microtask settle first; a
-      // genuine EOF has nothing pending and still rejects.
-      const onClose = (): void => {
-        setImmediate(() => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          reject(new NonInteractiveError(this.noInputMessage(query)));
-        });
-      };
-      rl.once("close", onClose);
-      const done = (fn: () => void): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        rl.off("close", onClose);
-        fn();
-      };
-      rl.question(query).then(
-        (answer) => done(() => resolve(answer || undefined)),
-        (err: unknown) => done(() => reject(err))
-      );
+    return this.aroundIO(async () => {
+      const answer = await this.ask(query);
+      return answer || undefined;
     });
   }
 
