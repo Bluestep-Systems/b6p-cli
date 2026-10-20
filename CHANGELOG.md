@@ -5,6 +5,19 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] — 2026-10-20
+
+### Fixed
+
+- **`b6p pull` no longer stops part-way with `Could not parse upstairs etag`**
+  ([#35](https://github.com/Bluestep-Systems/b6p-cli/issues/35)). Files last saved on the platform
+  before about May 2026 come back with a weak numeric ETag (`W/"<ms>-<id>"`) that the pull didn't
+  recognise, so it stopped at the first such file, exited `1`, and never refreshed `declarations/`.
+  It now treats those files like other files that carry no content hash: it skips the integrity
+  check and keeps going, and the file keeps its push/pull record. Comes from
+  [b6p-core 0.8.1](https://github.com/Bluestep-Systems/b6p-core/releases/tag/v0.8.1), now bundled.
+  If you used the `.gitignore` workaround from the issue, take the entries out and pull again.
+
 ## [0.8.1] — 2026-09-29
 
 ### Fixed
