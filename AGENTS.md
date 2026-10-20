@@ -96,9 +96,14 @@ case and this repo does not.
   reference the task as `(CU-<taskid>)`. AI-authored commits carry their `Co-Authored-By` trailer.
 - **PRs** target `master` and must pass CI; address automated review rounds as follow-up commits on
   the same branch.
-- **Feedback-pipeline lifecycle**: when a fix has actually shipped, comment on the reporting ClickUp
-  task and move it to **"check on 20"**. **Never close tasks directly** — a pass closes via the
-  resolution-note email flow, a fail returns on the "rejected fix" lane with the failing check cited.
+- **Feedback-pipeline lifecycle**: once a fix has shipped (see below) and you have checked it against
+  the published release, close the reporting ClickUp task, in this order: post a task comment with
+  the versions, PRs and what you verified (and what you could not); set `resolution` to `shipped` and
+  write the `resolution-note` for the reporter (plain words: what was wrong, what changed, which
+  version has it, how to get it — no paths, ids or hashes); only then set the status to `Closed`,
+  because the close webhook emails the note verbatim. Then close the linked GitHub issue as
+  completed. **Don't use "check on 20"** — that status is only for tasks waiting on an eb release. A
+  fix that fails its check goes to "rejected fix" with the failing check cited.
 - **"Shipped" means the consumer release is published** (npm publish on a version tag, binaries on
   the GitHub Release) — a fix in core reaches users only when this CLI or the extension releases with
   the bumped core, not when a PR merges upstream.
