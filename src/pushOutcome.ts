@@ -150,3 +150,30 @@ export function deleteCommand(args: string[], dialect: ShellDialect): string {
   const push = ["b6p", ...kept.map((a) => shellQuote(a, dialect))].join(" ");
   return dialect === "posix" ? `printf 'Yes\\n' | ${push}` : `'Yes' | ${push}`;
 }
+
+/**
+ * The CLI's own one-line error for a push that finished without success, or `null` when none is due.
+ *
+ * Core reports most push failures itself (through `Prompt.error`) before it returns, so a second
+ * line from the CLI would print the same failure twice. The CLI speaks only when core said nothing;
+ * the exit code does not depend on this (see {@link pushExitCode}).
+ * @param result What core's push returned (not null)
+ * @param alreadyReported Whether a failure was already reported during this invocation
+ * @returns The message to report, or `null`
+ * @lastreviewed null
+ */
+export function pushFailureNotice(result: PushResult, alreadyReported: boolean): string | null {
+  if (alreadyReported) {
+    return null;
+  }
+  if (!result.pushed) {
+    return "Nothing was pushed. Check that the target has a draft/ folder with files in it.";
+  }
+  if (!result.historyRecorded) {
+    return (
+      "Snapshot files were uploaded, but the snapshot history entry was NOT recorded - " +
+      "the browser IDE has no restore point for this snapshot. Run the snapshot push again."
+    );
+  }
+  return null;
+}

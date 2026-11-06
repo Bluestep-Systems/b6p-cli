@@ -7,6 +7,7 @@ import {
   detectShellDialect,
   overwriteCommand,
   pushExitCode,
+  pushFailureNotice,
   toPushJson,
 } from "../pushOutcome";
 
@@ -64,7 +65,7 @@ const addPush: Registrar = (parent, globals, hidden) =>
         targetUrl: string | undefined,
         opts: { file?: string; root?: string; snapshot?: boolean; message?: string; overwrite?: string[] }
       ) => {
-        await withCore(globals(), async ({ core, prompt, logger, spinner, emitJson, fail }) => {
+        await withCore(globals(), async ({ core, prompt, logger, spinner, emitJson, fail, hasFailed }) => {
           const isSnapshot = opts.snapshot || opts.message !== undefined;
           // The user's own arguments, to print commands that repeat this push with a confirmation added.
           const args = process.argv.slice(2);
@@ -97,15 +98,11 @@ const addPush: Registrar = (parent, globals, hidden) =>
                   `again without --yes and answer Yes to the delete question:\n  ${deleteCommand(args, dialect)}`
               );
             }
-            if (!result.pushed) {
-              // A push that uploaded nothing is not a success: a typo'd --root printed an error and
-              // still exited 0, which could mark a CI deploy green having shipped nothing.
-              fail(`Nothing was pushed. Check that the target has a draft/ folder with files in it.`);
-            } else if (!result.historyRecorded) {
-              fail(
-                `Snapshot files were uploaded, but the snapshot history entry was NOT recorded - ` +
-                  `the browser IDE has no restore point for this snapshot. Run the snapshot push again.`
-              );
+            // Core usually reports a failed push itself; the CLI adds its line only when it did not,
+            // so a failed push prints one error. The exit code below does not depend on it.
+            const notice = pushFailureNotice(result, hasFailed());
+            if (notice !== null) {
+              fail(notice);
             }
             // The rule for every outcome (live copy wrong, type-check diagnostics, ...) is in pushOutcome.ts.
             // `exitCode` rather than `exit()` so an in-flight --json write still flushes.
