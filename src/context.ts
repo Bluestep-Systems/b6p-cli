@@ -33,6 +33,7 @@ export type GlobalOpts = {
 export interface CliContext {
   core: B6PCore;
   prompt: CliPrompt;
+  logger: CliLogger;
   spinner: Spinner;
   globalOpts: GlobalOpts;
   /**
@@ -148,6 +149,7 @@ export async function withCore<T>(
   const ctx: CliContext = {
     core,
     prompt,
+    logger,
     spinner,
     globalOpts,
     emitJson(payload: unknown): void {

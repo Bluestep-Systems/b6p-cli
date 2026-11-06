@@ -192,13 +192,12 @@ test("`script audit` outside a script tree fails instead of printing null", () =
   assert.notEqual(run.stdout.trim(), "null");
 });
 
-test("--yes refuses to block on a prompt it cannot answer", () => {
-  // Regression: --yes did not suppress core's input prompts, so this blocked on
-  // stdin until the CI job timed out. stdin is held open (not EOF) to prove the
-  // refusal comes from --yes rather than from the stream closing.
+test("--yes still fails fast on a prompt it cannot answer", () => {
+  // An input box with no default is read from stdin even under --yes; with nothing to read, the run
+  // must fail with a diagnosis rather than block until the job times out.
   const run = runCli(["--yes", "script", "push"], "");
   assert.equal(run.status, EXIT_FAILURE);
-  assert.match(run.stderr, /--yes/, "should explain that --yes cannot answer the prompt");
+  assert.match(run.stderr, /No input available/, "should say stdin could not answer the prompt");
 });
 
 test("a closed stdin fails rather than silently exiting 0", () => {

@@ -14,14 +14,14 @@
 //     cached interface had already closed at EOF), after uploading some files.
 //
 // THE FIX: `ask()` races `question()` against the interface's `close` event and
-// throws NonInteractiveError instead, and stdin ending is remembered so a
+// throws NonInteractiveInputError instead, and stdin ending is remembered so a
 // later prompt fails fast with the same actionable message rather than
 // readline's internal error. The CLI's top-level catch turns that into a
 // message on stderr and exit 1.
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import { PassThrough } from "node:stream";
-import { CliPrompt, NonInteractiveError } from "../src/providers/CliPrompt";
+import { CliPrompt, NonInteractiveInputError } from "../src/providers/CliPrompt";
 
 /** A stdin stand-in: not a TTY, so the masked read falls back to the line read. */
 function makeInput(lines: string[], opts: { keepOpen?: boolean } = {}): PassThrough {
@@ -66,9 +66,9 @@ describe("CliPrompt end-of-input handling", () => {
     await assert.rejects(
       () => withTimeout(prompt.inputBox({ prompt: "Enter your access token" }), "inputBox"),
       (e: unknown) => {
-        assert.ok(e instanceof NonInteractiveError, `expected NonInteractiveError, got ${String(e)}`);
+        assert.ok(e instanceof NonInteractiveInputError, `expected NonInteractiveInputError, got ${String(e)}`);
         assert.match(e.message, /Enter your access token/);
-        assert.match(e.message, /stdin closed/);
+        assert.match(e.message, /b6p auth set/);
         return true;
       }
     );
@@ -82,7 +82,7 @@ describe("CliPrompt end-of-input handling", () => {
       () => withTimeout(prompt.confirm("overwrite file 2?", ["Overwrite", "Cancel"]), "confirm 2"),
       (e: unknown) => {
         // Must be our actionable error, NOT readline's "readline was closed".
-        assert.ok(e instanceof NonInteractiveError, `expected NonInteractiveError, got ${String(e)}`);
+        assert.ok(e instanceof NonInteractiveInputError, `expected NonInteractiveInputError, got ${String(e)}`);
         assert.doesNotMatch(e.message, /readline was closed/);
         return true;
       }
@@ -90,12 +90,10 @@ describe("CliPrompt end-of-input handling", () => {
   });
 
   it("throws rather than hanging on a masked (password) read at EOF", async () => {
-    // Non-TTY, so the masked read falls back to the line read - which must
-    // still diagnose EOF rather than hang.
     const prompt = new CliPrompt({ input: makeInput([]), output: makeOutput() });
     await assert.rejects(
       () => withTimeout(prompt.inputBox({ prompt: "Password", password: true }), "masked inputBox"),
-      NonInteractiveError
+      NonInteractiveInputError
     );
   });
 
@@ -113,26 +111,8 @@ describe("CliPrompt end-of-input handling", () => {
     assert.strictEqual(answer, "/tmp/ws");
   });
 
-  it("refuses an input box with no default under --yes, without reading stdin", async () => {
-    // Deliberate: blocking here is what let `--yes` runs stall until a CI job
-    // timed out. stdin is left open, so a read would trip the watchdog.
-    const prompt = new CliPrompt({ autoYes: true, input: makeInput([], { keepOpen: true }), output: makeOutput() });
-    await assert.rejects(
-      () => withTimeout(prompt.inputBox({ prompt: "Enter your access token" }), "inputBox"),
-      (e: unknown) => {
-        assert.ok(e instanceof NonInteractiveError, `expected NonInteractiveError, got ${String(e)}`);
-        assert.match(e.message, /Enter your access token/);
-        assert.match(e.message, /--yes/);
-        return true;
-      }
-    );
-  });
-
   it("matches a confirm answer case-insensitively, and empty input takes the default", async () => {
-    // Each answer is delivered AFTER its question is registered. readline emits
-    // a `line` event for every buffered line as soon as the bytes arrive, so
-    // pre-writing two answers loses the second — a property of readline, not of
-    // this provider, and the reason a multi-prompt run needs a real responder.
+    // Each answer is delivered AFTER its question is registered, as a person typing would.
     const input = makeInput([], { keepOpen: true });
     const prompt = new CliPrompt({ input, output: makeOutput() });
     const first = prompt.confirm("q1", ["Cancel", "Sync"]);
@@ -141,6 +121,54 @@ describe("CliPrompt end-of-input handling", () => {
     const second = prompt.confirm("q2", ["Cancel", "Sync"]);
     input.write("\n");
     assert.strictEqual(await withTimeout(second, "confirm 2"), "Cancel", "empty answer takes the first option");
+  });
+
+  it("answers one prompt per line when every line arrives at once (printf 'A\\nB\\n' | b6p …)", async () => {
+    // readline emits a `line` for every buffered line as soon as the bytes arrive. The second
+    // line used to arrive with no question pending and was dropped, so the second prompt threw
+    // NonInteractiveInputError (b6p-core close-wave verification, row 13).
+    const input = makeInput(["Overwrite all", "Yes"], { keepOpen: true });
+    const prompt = new CliPrompt({ input, output: makeOutput() });
+    const first = await withTimeout(prompt.confirm("overwrite?", ["Cancel", "Overwrite all"]), "confirm 1");
+    const second = await withTimeout(prompt.confirm("delete?", ["No", "Yes"]), "confirm 2");
+    assert.strictEqual(first, "Overwrite all");
+    assert.strictEqual(second, "Yes");
+  });
+
+  it("reads an ended stream line by line, like `< answers.txt`, then fails at the end", async () => {
+    // The stream ends before the first prompt is even asked: every line is already queued.
+    const prompt = new CliPrompt({ input: makeInput(["Overwrite all", "Yes", "a-token"]), output: makeOutput() });
+    assert.strictEqual(
+      await withTimeout(prompt.confirm("q1", ["Cancel", "Overwrite all"]), "confirm 1"),
+      "Overwrite all"
+    );
+    assert.strictEqual(await withTimeout(prompt.confirm("q2", ["No", "Yes"]), "confirm 2"), "Yes");
+    assert.strictEqual(await withTimeout(prompt.inputBox({ prompt: "Token", password: true }), "inputBox"), "a-token");
+    await assert.rejects(() => withTimeout(prompt.confirm("q4", ["No", "Yes"]), "confirm 4"), NonInteractiveInputError);
+  });
+
+  it("still answers a prompt from a line that arrived while none was waiting", async () => {
+    const input = makeInput([], { keepOpen: true });
+    const prompt = new CliPrompt({ input, output: makeOutput() });
+    const first = prompt.confirm("q1", ["No", "Yes"]);
+    input.write("Yes\nNo\n"); // the second line arrives before the second prompt exists
+    assert.strictEqual(await withTimeout(first, "confirm 1"), "Yes");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(await withTimeout(prompt.confirm("q2", ["No", "Yes"]), "confirm 2"), "No");
+  });
+
+  it("writes a piped answer after its prompt, but never a secret", async () => {
+    const output = new PassThrough();
+    let written = "";
+    output.on("data", (chunk: Buffer) => {
+      written += chunk.toString("utf8");
+    });
+    const prompt = new CliPrompt({ input: makeInput(["Yes", "s3cret-token"]), output });
+    await withTimeout(prompt.confirm("Delete them?", ["No", "Yes"]), "confirm");
+    await withTimeout(prompt.inputBox({ prompt: "Enter your access token", password: true }), "inputBox");
+    assert.match(written, /Delete them\?\n\[No\] \/ Yes: Yes\n/);
+    assert.match(written, /Enter your access token: \n/);
+    assert.doesNotMatch(written, /s3cret-token/);
   });
 
   it("writes prompts and messages to the injected output, never stdout", async () => {
@@ -156,5 +184,102 @@ describe("CliPrompt end-of-input handling", () => {
     assert.match(written, /Question/);
     assert.match(written, /WARNING: careful/);
     assert.match(written, /ERROR: broken/);
+  });
+});
+
+/** An output stream that records what was written to it. */
+function recordingOutput(): { output: PassThrough; text: () => string } {
+  const output = new PassThrough();
+  let written = "";
+  output.on("data", (chunk: Buffer) => {
+    written += chunk.toString("utf8");
+  });
+  return { output, text: () => written };
+}
+
+// ClickUp 86bc2h3ef. Core 0.8.0 puts the safe answer first in every prompt that overwrites or
+// deletes, and --yes answers the first option, so --yes declines. But --yes used to answer without
+// printing anything, so an agent (no TTY) never saw which files it had declined.
+describe("CliPrompt confirmations: --yes shows what it answered", () => {
+  const overwrite = "2 file(s) would overwrite a platform version nobody here has seen:\n\nscripts/app.ts\nREADME.md";
+
+  it("prints the question, the options and the safe answer on a destructive prompt", async () => {
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({ autoYes: true, input: makeInput([], { keepOpen: true }), output: rec.output });
+    const answer = await withTimeout(
+      prompt.confirm(overwrite, ["Cancel", "Overwrite all"], { destructive: true, safeOption: "Cancel" }),
+      "confirm"
+    );
+    assert.strictEqual(answer, "Cancel");
+    assert.match(rec.text(), /scripts\/app\.ts\nREADME\.md\n\[Cancel\] \/ Overwrite all: Cancel/);
+    assert.match(rec.text(), /answered by --yes: the safe choice; --yes never confirms an overwrite or a delete/);
+  });
+
+  it("prints it under --json too: stderr is where an agent reads it", async () => {
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({
+      autoYes: true,
+      json: true,
+      input: makeInput([], { keepOpen: true }),
+      output: rec.output,
+    });
+    await withTimeout(
+      prompt.confirm("Delete them?", ["No", "Yes"], { destructive: true, safeOption: "No" }),
+      "confirm"
+    );
+    assert.match(rec.text(), /Delete them\?\n\[No\] \/ Yes: No  \(answered by --yes/);
+  });
+
+  it("says 'the default' on a prompt that destroys nothing", async () => {
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({ autoYes: true, input: makeInput([], { keepOpen: true }), output: rec.output });
+    assert.strictEqual(await withTimeout(prompt.confirm("Continue?", ["Yes", "No"]), "confirm"), "Yes");
+    assert.match(rec.text(), /Continue\?\n\[Yes\] \/ No: Yes  \(answered by --yes: the default\)/);
+  });
+
+  it("takes the named safe option even if a destructive prompt lists it second", async () => {
+    // Core's contract puts it first; this keeps --yes safe if that ever slips.
+    const prompt = new CliPrompt({ autoYes: true, input: makeInput([], { keepOpen: true }), output: makeOutput() });
+    const answer = await withTimeout(
+      prompt.confirm("Delete them?", ["Yes", "No"], { destructive: true, safeOption: "No" }),
+      "confirm"
+    );
+    assert.strictEqual(answer, "No");
+  });
+
+  it("an empty answer also takes the named safe option", async () => {
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({ input: makeInput([""]), output: rec.output });
+    const answer = await withTimeout(
+      prompt.confirm("Delete them?", ["Yes", "No"], { destructive: true, safeOption: "No" }),
+      "confirm"
+    );
+    assert.strictEqual(answer, "No");
+    assert.match(rec.text(), /Yes \/ \[No\]: /, "the default shown in brackets is the one taken");
+  });
+
+  it("says so when an answer matches no option, and returns undefined", async () => {
+    // The old per-file label: piping "Overwrite" to the batch prompt used to decline silently.
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({ input: makeInput(["Overwrite"]), output: rec.output });
+    const answer = await withTimeout(
+      prompt.confirm(overwrite, ["Cancel", "Overwrite all"], { destructive: true, safeOption: "Cancel" }),
+      "confirm"
+    );
+    assert.strictEqual(answer, undefined);
+    assert.match(rec.text(), /"Overwrite" is not one of the answers \(Cancel, Overwrite all\), so none was chosen\./);
+  });
+
+  it("notice and warn reach the output under --json; info does not", () => {
+    // Core's liveVerified: null and kept-files messages are warnings; the CLI's next-step lines are
+    // notices. Both must reach a --json caller on stderr.
+    const rec = recordingOutput();
+    const prompt = new CliPrompt({ json: true, input: makeInput([]), output: rec.output });
+    prompt.info("chatty");
+    prompt.warn("Could not verify the live copy of 1 file(s)");
+    prompt.notice("To overwrite them, run: b6p push --overwrite x");
+    assert.doesNotMatch(rec.text(), /chatty/);
+    assert.match(rec.text(), /WARNING: Could not verify the live copy/);
+    assert.match(rec.text(), /^To overwrite them, run: b6p push --overwrite x$/m);
   });
 });

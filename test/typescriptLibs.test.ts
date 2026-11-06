@@ -61,19 +61,14 @@ interface TsLike {
 const ts: TsLike = req(CORE_TS_ENTRY);
 
 test("the compiler that gets bundled is core's, not the root devDependency", () => {
-  const rootVersion: string = req(path.join(REPO, "node_modules", "typescript", "package.json")).version;
   assert.equal(ts.version, CORE_TS_VERSION);
-  assert.notEqual(
-    ts.version,
-    rootVersion,
-    "core and root TypeScript are the same version — this spec's premise no longer holds, re-check esbuild.js"
-  );
+  // Root and core share one TypeScript (5.9.2, deduped by npm; ADR 0002), so there is no separate
+  // root compiler to rule out - only that the bundle embeds core's.
   // The bundled compiler embeds its own version string. If dist/cli.js carried
   // the ROOT version, esbuild would be bundling the wrong compiler and dist/lib
   // would be the wrong standard library for it.
   const bundle = fs.readFileSync(path.join(REPO, "dist", "cli.js"), "utf8");
   assert.ok(bundle.includes(`"${CORE_TS_VERSION}"`), `dist/cli.js should embed TypeScript ${CORE_TS_VERSION}`);
-  assert.ok(!bundle.includes(`"${rootVersion}"`), `dist/cli.js must not embed the root TypeScript ${rootVersion}`);
 });
 
 test("dist/lib carries exactly the lib set of the bundled compiler", () => {

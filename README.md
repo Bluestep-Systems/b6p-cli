@@ -61,6 +61,22 @@ clear it with `xattr -d com.apple.quarantine ~/.bluestep/bin/b6p` and make it ex
 
 The npm install above is unchanged and remains the recommended path wherever Node is available.
 
+## Signing in
+
+`b6p` signs in with your BlueStep platform access token, which starts with `b6pt_`. It is the same
+token the BlueStep AI tools use for the gateway MCP (`B6PT_TOKEN`), so if you already have one, use it
+here too. To make one: **Tools → Organization Admin → Super → Global Users → Access Tokens → Create
+New Token**.
+
+Store it with:
+
+```bash
+b6p auth set
+```
+
+If no token is stored, the first command you run asks for it. A `401` with a `b6pt_` token usually
+means the token expired or its account lost access, not that it is the wrong kind of token.
+
 ## Commands
 
 `b6p` is organised as `b6p <subsystem> <verb>`. Each top-level name is a part of the
@@ -74,13 +90,14 @@ platform; the verbs beneath it act on that part.
 | `b6p script pull --file <path>` | Pull using metadata stored with a local file |
 | `b6p script push --file <path>` | Push local files to the platform |
 | `b6p script push --file <path> --snapshot --message "…"` | Push and record a versioned snapshot |
+| `b6p script push --file <path> --overwrite <file>` | Push, overwriting a file that changed on the platform |
 | `b6p script audit --file <path>` | Diff local vs. server |
 | `b6p script audit --file <path> --pull` | Audit and pull if differences found |
 | `b6p script deploy <config.json>` | Multi-target deploy from a config file |
 | `b6p script setup --file <path>` | Print the web-UI setup URL for a script |
 
-> **Moved in 0.5.0.** These were previously top-level (`b6p push`, `b6p pull`, …). The old
-> spellings still work but are deprecated, warn on use, and **will be removed in 0.6.0** —
+> **Moved.** These were previously top-level (`b6p push`, `b6p pull`, …). The old
+> spellings still work but are deprecated, warn on use, and **will be removed in a future release** —
 > the top level is being kept free for other platform subsystems.
 
 ### `b6p auth` — credentials
@@ -101,8 +118,43 @@ platform; the verbs beneath it act on that part.
 | `b6p report` | Report cached state |
 | `b6p check-updates` | Check for CLI updates |
 
-Most commands accept `--json` for machine-readable output and `--yes` to skip
-interactive prompts. Run `b6p <command> --help` for full options.
+Most commands accept `--json` for machine-readable output and `--yes` to answer every question with
+its default (and print what it answered). Run `b6p <command> --help` for full options.
+
+## Pushing
+
+A push can ask two questions. Both default to the safe answer, which `--yes` and an empty answer
+take, so `--yes` never overwrites or deletes anything on the platform:
+
+1. **Before uploading anything**, when files would overwrite a platform version nobody here has seen
+   (it changed on the platform since your last push or pull, or this machine never synced it):
+   `[Cancel] / Overwrite all`. One question lists every such file; Cancel stops the push with nothing
+   uploaded (exit `1`). New files and files already equal to the platform copy never ask.
+2. **After uploading**, when the platform has files your draft doesn't: `[No] / Yes` to delete them.
+   No keeps them (exit `0`).
+
+When question 1 is declined, the CLI prints the command that confirms it. After checking the
+platform versions (`b6p script audit`), confirm specific files up front with `--overwrite`, once per file,
+using the path the question listed:
+
+```bash
+b6p --yes script push --file <path> --snapshot --overwrite scripts/app.ts --overwrite README.md
+```
+
+Question 2 has no flag: run without `--yes` and answer `Yes`. Answers can be piped, one line per
+question, in order (`printf 'Overwrite all\nYes\n' | b6p script push --file <path>`, or `< answers.txt`;
+in PowerShell, `'Overwrite all', 'Yes' | b6p script push --file <path>`). The commands the CLI prints are
+written for your shell: POSIX, or PowerShell on Windows outside Git Bash.
+
+**Exit codes:** `0` when the push went through (keeping platform-only files is still `0`); `1` when
+nothing was uploaded, an overwrite was not confirmed, an upload was refused, or, on a snapshot, a
+live copy is still wrong after one re-send, the history entry wasn't recorded, or type-check
+diagnostics were reported.
+
+**`--json`** prints one object on stdout: `pushed`, `historyRecorded`, `typeCheckDiagnostics`,
+`liveVerified`, `liveMismatches`, `keptPlatformOnly`, `declinedOverwrites`. A declined overwrite
+prints `pushed: false` with the files in `declinedOverwrites`. Questions, warnings and next steps
+go to stderr.
 
 ## Exit codes
 
@@ -156,15 +208,9 @@ instead of stalling until the job times out.
 
 ## Authentication
 
-`b6p` authenticates with a platform **access token**, which begins with `b6pt_`. Set one with:
-
-```bash
-b6p auth set
-```
-
-The token is stored in encrypted secret storage under `~/.b6p/`. Any command that needs
-credentials prompts for a token if none is stored, so `b6p auth set` is optional — but it is
-the only way to *replace* a token without clearing it first.
+The token from [Signing in](#signing-in) is stored in encrypted secret storage under `~/.b6p/`.
+Any command that needs credentials prompts for a token if none is stored, so `b6p auth set` is
+optional — but it is the only way to *replace* a token without clearing it first.
 
 For unattended use, check for credentials before running anything that might prompt:
 
