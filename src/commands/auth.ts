@@ -1,5 +1,9 @@
 import type { Command } from "commander";
-import { withCore, type GlobalOpts } from "../context";
+import { Err, type GatewayMintedToken } from "@bluestep-systems/b6p-core";
+import { withCore, type CliContext, type GlobalOpts } from "../context";
+import { describeGatewayError } from "../gatewayErrors";
+import { formatTable, printResult, runGateway } from "../gatewayRun";
+import { confirmNeverExpires, parseExpires } from "../tokenExpiry";
 
 /**
  * Shown before delegating to the core credential prompt.
@@ -67,5 +71,167 @@ export function registerAuthCommands(program: Command): void {
       await withCore(globals(), async ({ core }) => {
         await core.auth.clear();
       });
+    });
+
+  registerTokenCommands(auth, globals);
+}
+
+/**
+ * Show a freshly minted secret exactly once. The secret goes to stdout alone, so
+ * `TOKEN=$(b6p auth token create ...)` captures it; everything else goes to stderr. Under `--json`
+ * the caller emits it as a field instead. Never logged.
+ */
+function printSecret(ctx: CliContext, minted: GatewayMintedToken): void {
+  if (!ctx.globalOpts.json) {
+    process.stdout.write(`${minted.token}\n`);
+  }
+}
+
+const STORE_NOW = "Store this token now: it is shown only this once and cannot be read back.";
+
+/**
+ * Mount the caller's own tokens at `b6p auth token <verb>`. Needs the `tokens:self` scope on the
+ * stored token. Nothing here addresses another user's tokens.
+ */
+function registerTokenCommands(auth: Command, globals: () => GlobalOpts): void {
+  const token = auth
+    .command("token")
+    .description("Manage your own gateway access tokens (needs the tokens:self scope)");
+
+  token
+    .command("list")
+    .description("List your tokens (the secret is never shown); * marks the one b6p is using")
+    .action(async () => {
+      await withCore(
+        globals(),
+        async (ctx) => {
+          await runGateway(ctx, async () => {
+            const tokens = await ctx.core.gateway.tokens.list();
+            const human =
+              tokens.length === 0
+                ? "No tokens."
+                : formatTable(
+                    ["", "ALIAS", "ID", "SCOPES", "EXPIRES", "LAST USED"],
+                    tokens.map((t) => [
+                      t.current ? "*" : "",
+                      t.alias,
+                      t.id,
+                      t.scopes.join(","),
+                      t.expiresAt ?? "never",
+                      t.lastUsedAt ?? "-",
+                    ])
+                  );
+            printResult(ctx, human, { tokens });
+          });
+        },
+        "Listing tokens…"
+      );
+    });
+
+  token
+    .command("create")
+    .description("Mint a token; the secret is printed once")
+    .requiredOption("--alias <alias>", "A name for the token, unique among yours")
+    .requiredOption(
+      "--scopes <scopes>",
+      "Comma-separated scopes (e.g. kb:read,kb:push,registry:read); at most your own"
+    )
+    .option("--expires <when>", "90d (default), another number of days like 30d, an ISO date, or never")
+    .action(async (opts: { alias: string; scopes: string; expires?: string }) => {
+      await withCore(
+        globals(),
+        async (ctx) => {
+          const expires = parseExpires(opts.expires);
+          if (expires.kind === "invalid") {
+            ctx.fail(expires.message);
+            return;
+          }
+          const scopes = opts.scopes
+            .split(",")
+            .map((x) => x.trim())
+            .filter((x) => x !== "");
+          if (expires.kind === "never" && !(await confirmNeverExpires(ctx.prompt, ctx.globalOpts.yes))) {
+            ctx.fail("Cancelled: no token was created.");
+            return;
+          }
+          await runGateway(ctx, async () => {
+            const minted = await ctx.core.gateway.tokens.create({
+              alias: opts.alias,
+              scopes,
+              ...(expires.kind === "never"
+                ? { expiresAt: null }
+                : expires.kind === "at"
+                  ? { expiresAt: expires.iso }
+                  : {}),
+            });
+            printSecret(ctx, minted);
+            ctx.prompt.info(
+              `Created token "${minted.alias}" (id ${minted.id}) with scopes ${minted.scopes.join(", ")}, ` +
+                (minted.neverExpires ? "never expiring." : `expiring ${minted.expiresAt}.`)
+            );
+            ctx.prompt.warn(STORE_NOW);
+            ctx.emitJson(minted);
+          });
+        },
+        "Creating token…"
+      );
+    });
+
+  token
+    .command("revoke")
+    .description("Revoke one of your tokens at once")
+    .requiredOption("--tokenid <alias|id>", "The token's alias or id (see `b6p auth token list`)")
+    .action(async (opts: { tokenid: string }) => {
+      await withCore(
+        globals(),
+        async (ctx) => {
+          await runGateway(ctx, async () => {
+            const r = await ctx.core.gateway.tokens.revoke(opts.tokenid);
+            printResult(ctx, `Revoked token "${r.alias}" (id ${r.id}).`, r);
+            if (r.revokedCurrent) {
+              ctx.prompt.warn(
+                "That was the token b6p is using, so b6p now holds a dead token. Store another with `b6p auth set`."
+              );
+            }
+          });
+        },
+        "Revoking token…"
+      );
+    });
+
+  token
+    .command("rotate")
+    .description("Replace a token with a new secret (same alias, scopes and lifetime); the old one is revoked at once")
+    .requiredOption("--tokenid <alias|id>", "The token's alias or id (see `b6p auth token list`)")
+    .action(async (opts: { tokenid: string }) => {
+      await withCore(
+        globals(),
+        async (ctx) => {
+          try {
+            await runGateway(ctx, async () => {
+              const r = await ctx.core.gateway.tokens.rotate(opts.tokenid);
+              printSecret(ctx, r.token);
+              ctx.prompt.info(
+                `Rotated token "${r.replaced.alias}": the old secret (id ${r.replaced.id}) is revoked; the new id is ${r.token.id}.`
+              );
+              if (r.rotatedCurrent) {
+                ctx.prompt.info("That was the token b6p is using; the new secret has been stored for b6p.");
+              }
+              ctx.prompt.warn(STORE_NOW);
+              ctx.emitJson(r);
+            });
+          } catch (err) {
+            if (!(err instanceof Err.GatewayTokenStoreError)) {
+              throw err;
+            }
+            // The old token is already dead and the new secret exists only here: print it, then fail.
+            const replacement = err.replacement;
+            printSecret(ctx, replacement);
+            ctx.emitJson({ error: describeGatewayError(err), replacement });
+            ctx.fail(describeGatewayError(err) ?? err.message);
+          }
+        },
+        "Rotating token…"
+      );
     });
 }

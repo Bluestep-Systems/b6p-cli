@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`b6p kb list|pull|push`** - browse, clone and push the knowledge bases (global and tenant) the stored
+  `b6pt_` token may reach, through the BlueStep gateway. Pulls fast-forward an existing clone and never
+  overwrite local changes; pushes are fast-forward only, to the live branch.
+- **`b6p marketplace list|pull`** - list marketplace repositories and clone one (optionally at a tag or
+  branch with `--ref`) into a folder.
+- **`b6p auth token list|create|revoke|rotate`** - manage your own gateway tokens. `create` and `rotate`
+  print the secret once on stdout; `--expires` takes `90d` (default), another day count, an ISO date or
+  `never` (asks first). Needs the `tokens:self` scope.
+- Gateway errors come with the fix: the scope to mint, `b6p auth set`, the dirty paths, "pull first",
+  "choose another folder", "switch to the live branch".
+
 - **`b6p script <verb>`** - script-tree operations now live under a `script` namespace:
   `b6p script push`, `pull`, `audit`, `deploy`, `setup`. The top level of `b6p` is becoming a namespace of
   platform subsystems (nouns), so later commands such as `b6p kb ...` can be added without colliding with
