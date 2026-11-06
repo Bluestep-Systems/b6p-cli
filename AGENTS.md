@@ -86,7 +86,7 @@ the whole CI Node matrix.
 
 ## Build and distribution
 
-- ES2022 / Node16, `strict`. Base options in `tsconfig.base.json`, `noEmit: true` in `tsconfig.json`
+- Node **>=24** (`engines`; CI matrix 24 and 26, publish/release build on 24; `@types/node` stays on ^24 so no newer APIs creep in). ES2022 / Node16, `strict`. Base options in `tsconfig.base.json`, `noEmit: true` in `tsconfig.json`
   — esbuild produces the artifact, not the compiler. `types: ["node"]` is set deliberately.
 - **`typescript` is exact-pinned at 5.9.2**, matching the version core bundles, so npm dedupes to one
   copy. Do not float it to a range or a newer major without reading

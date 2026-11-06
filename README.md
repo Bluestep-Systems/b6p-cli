@@ -14,7 +14,7 @@ terminals, CI pipelines, and scripts.
 ## Installation
 
 This package is published to the public [npm registry](https://www.npmjs.com/), so no authentication is
-required to install it.
+required to install it. Requires **Node.js 24 or newer** (the standalone binaries below bundle their own).
 
 1. Install globally:
 

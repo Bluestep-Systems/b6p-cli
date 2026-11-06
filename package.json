@@ -12,7 +12,7 @@
     "url": "git+https://github.com/Bluestep-Systems/b6p-cli.git"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "bin": {
     "b6p": "dist/cli.js"
@@ -39,7 +39,7 @@
   },
   "devDependencies": {
     "@bluestep-systems/b6p-core": "^0.8.1",
-    "@types/node": "^22.20.1",
+    "@types/node": "^24.19.2",
     "commander": "^14.0.3",
     "esbuild": "^0.27.4",
     "prettier": "^3.9.6",

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- **Node.js 24 or newer is required** (`engines.node` is `>=24`); Node 18 to 22 are no longer supported.
+  CI tests Node 24 and 26, the publish and release builds run on Node 24, and `@types/node` is `^24`.
+  The standalone binaries bundle their own Node and are unaffected.
+
 ### Added
 
 - **`b6p script <verb>`** - script-tree operations now live under a `script` namespace:
@@ -52,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fatal errors set `process.exitCode` instead of calling `process.exit()`, which could truncate a `--json`
   write. A closed stdout pipe (`b6p --json report | head -1`) is a clean exit rather than an `EPIPE`.
 - The standalone-binary build smoke test looks for `script` in `--help` rather than `push`.
+- CI: `npm ci` retry loops now fail the step when all three attempts fail (they used to fall through to a misleading type error), and the Intel macOS binary builds on `macos-15-intel` (the retired `macos-13` runner never ran).
 - The test build shares the real build's `external` list (`NODE_EXTERNALS` in `esbuild.js`).
 
 ## [0.8.2] — 2026-10-20
