@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`b6p auth token list|create|revoke|rotate`** - manage your own gateway tokens. `create` and `rotate`
   print the secret once on stdout; `--expires` takes `90d` (default), another day count, an ISO date or
   `never` (asks first). Needs the `tokens:self` scope.
+- A token the gateway minted but answered malformedly (`off-contract`) still has its secret printed once, with what to do next.
 - Gateway errors come with the fix: the scope to mint, `b6p auth set`, the dirty paths, "pull first",
   "choose another folder", "switch to the live branch".
 

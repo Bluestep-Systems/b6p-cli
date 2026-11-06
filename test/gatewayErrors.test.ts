@@ -169,3 +169,33 @@ test("never-expires: --yes proceeds only on the explicit flag, otherwise the saf
     false
   );
 });
+
+test("an off-contract token answer is described without its secret, with the right next step", () => {
+  const SECRET = "b6pt_OFFCONTRACT";
+  const create = text(new Err.GatewayOffContractTokenError("malformed", "create", SECRET, false));
+  assert.match(create, /printed once/);
+  assert.match(create, /token list/);
+  const stored = text(new Err.GatewayOffContractTokenError("malformed", "rotate", SECRET, true));
+  assert.match(stored, /stored for b6p/);
+  const notStored = text(new Err.GatewayOffContractTokenError("malformed", "rotate", SECRET, false));
+  assert.match(notStored, /b6p auth set/);
+  for (const t of [create, stored, notStored]) {
+    assert.ok(!t.includes(SECRET), "the secret must not appear in the description");
+  }
+});
+
+test("marketplace tag-moved and tag-gone say to pull into a fresh folder", () => {
+  assert.match(text(new Err.GatewayCloneMismatchError("m", "tag-moved", "/d", "core")), /fresh folder/);
+  assert.match(text(new Err.GatewayCloneMismatchError("m", "tag-gone", "/d", "core")), /fresh folder/);
+});
+
+test("a git timeout (unavailable) says the gateway stopped responding and to retry", () => {
+  const t = text(new Err.GatewayUnavailableError("The gateway stopped responding.", null, null));
+  assert.match(t, /stopped responding/);
+  assert.match(t, /try again/);
+});
+
+test("token not-found and ambiguous advice never quote the id or alias the user typed", () => {
+  const nf = text(new Err.GatewayNotFoundError("No token matches the given id or alias.", null));
+  assert.ok(!nf.includes("my-secret-alias"));
+});

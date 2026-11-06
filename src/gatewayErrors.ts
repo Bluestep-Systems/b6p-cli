@@ -55,6 +55,15 @@ export function describeGatewayError(err: unknown): string | undefined {
   if (err instanceof Err.GatewayTokenStoreError) {
     return `${what}\nThe replacement token is printed once above/in the JSON output. Run \`b6p auth set\` and paste it, or you will be locked out.`;
   }
+  if (err instanceof Err.GatewayOffContractTokenError) {
+    const done =
+      err.operation === "rotate"
+        ? err.stored
+          ? "The old token is revoked and the new secret has been stored for b6p."
+          : "The old token is revoked. If it was the token b6p uses, run `b6p auth set` and paste the new secret, or b6p holds a dead token."
+        : "The token was created.";
+    return `${what}\n${done} The gateway's answer was malformed, but the new secret was recovered and is printed once (stdout, or the JSON \`secret\` field). Store it now; it cannot be read back. Then check \`b6p auth token list\`.`;
+  }
   if (err instanceof Err.GatewayKnowledgeBasePushNotPermittedError) {
     return `${what}\nYou can read ${err.ref} but not push to it. Only that knowledge base's managers (or super users) may push to a global one; ask one of them, or use a tenant you are vouched for.`;
   }
@@ -71,7 +80,7 @@ export function describeGatewayError(err: unknown): string | undefined {
     return `${what}\nThe push is bigger than the gateway accepts. Push fewer or smaller files.`;
   }
   if (err instanceof Err.GatewayUnavailableError) {
-    return `${what}\nThe gateway or the git server behind it could not be reached. Check your network and try again in a minute.`;
+    return `${what}\nThe gateway or the git server behind it could not be reached, or stopped responding. Check your network and try again in a minute.`;
   }
   if (err instanceof Err.GatewayConfigError) {
     return `${what}\nCheck the gateway address: \`b6p config set gatewayUrl https://gateway.bluestep.net\`.`;
@@ -81,9 +90,16 @@ export function describeGatewayError(err: unknown): string | undefined {
     return `${what}\nThese files have local changes that the incoming commits also change:\n${list}\nCommit, stash or discard them (nothing was changed), then pull again, or pull into another folder.`;
   }
   if (err instanceof Err.GatewayCloneMismatchError) {
-    return err.reason === "different-repo"
-      ? `${what}\n${err.dir} is a clone of a different repository. Choose another folder.`
-      : `${what}\n${err.dir} is checked out at a different branch or tag than you asked for. Choose another folder, or switch it yourself with git.`;
+    switch (err.reason) {
+      case "different-repo":
+        return `${what}\n${err.dir} is a clone of a different repository. Choose another folder.`;
+      case "different-ref":
+        return `${what}\n${err.dir} is checked out at a different branch or tag than you asked for. Choose another folder, or switch it yourself with git.`;
+      case "tag-moved":
+        return `${what}\nThe tag now points at a different commit than the one in ${err.dir}. Pull into a fresh folder to get the current one.`;
+      case "tag-gone":
+        return `${what}\nThe tag no longer exists on the server. Pull into a fresh folder (see \`b6p marketplace list\` for the current tags).`;
+    }
   }
   if (err instanceof Err.GatewayWorkingCopyError) {
     switch (err.reason) {

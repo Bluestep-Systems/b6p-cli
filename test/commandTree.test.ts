@@ -59,7 +59,16 @@ test("the advertised top level is exactly the documented set", () => {
   // subsystems; they are the acknowledged exceptions to the noun rule (see
   // AGENTS.md). Pinning the whole list means adding anything new is a deliberate
   // decision rather than a drift.
-  assert.deepEqual(visibleTopLevel(), ["script", "auth", "kb", "marketplace", "sessions", "config", "report", "check-updates"]);
+  assert.deepEqual(visibleTopLevel(), [
+    "script",
+    "auth",
+    "kb",
+    "marketplace",
+    "sessions",
+    "config",
+    "report",
+    "check-updates",
+  ]);
 });
 
 test("script owns every script-tree verb", () => {

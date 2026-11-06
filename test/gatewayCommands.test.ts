@@ -181,3 +181,29 @@ test("auth token revoke warns when it revokes the token b6p holds, then calls fa
   const gone = await b6p(["auth", "token", "revoke", "--tokenid", "nope"]);
   assert.equal(gone.code, 1);
 });
+
+test("an off-contract create still shows the minted secret once, then fails", async () => {
+  const fresh = "b6pt_e2e_fresh_0002";
+  gateway.grantToken(fresh, ["kb:read", "tokens:self"], { alias: "fresh" });
+  assert.equal((await b6p(["auth", "set"], `${fresh}\n`)).code, 0);
+  gateway.route({
+    method: "POST",
+    prefix: "/api/v1/tokens",
+    scope: "tokens:self",
+    handler: (_req, res) => {
+      res.writeHead(201, { "content-type": "application/json" });
+      res.end(JSON.stringify({ token: "b6pt_recovered_secret_9", alias: 42 }));
+    },
+  });
+  const r = await b6p(["auth", "token", "create", "--alias", "weird", "--scopes", "kb:read"]);
+  assert.equal(r.code, 1);
+  assert.equal(r.stdout.trim(), "b6pt_recovered_secret_9");
+  assert.ok(!r.stderr.includes("b6pt_recovered_secret_9"), "the secret goes to stdout only");
+  assert.match(r.stderr, /Store it now/);
+
+  const j = await b6p(["--json", "auth", "token", "create", "--alias", "weird2", "--scopes", "kb:read"]);
+  assert.equal(j.code, 1);
+  const body = JSON.parse(j.stdout);
+  assert.equal(body.secret, "b6pt_recovered_secret_9");
+  assert.equal(body.operation, "create");
+});

@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { withCore, resolve, type GlobalOpts } from "../context";
+import { withCore, type GlobalOpts } from "../context";
 import { formatTable, printResult, runGateway } from "../gatewayRun";
 
 /**
@@ -43,9 +43,7 @@ export function registerMarketplaceCommands(program: Command): void {
         globals(),
         async (ctx) => {
           await runGateway(ctx, async () => {
-            const r = await ctx.core.gateway.marketplace.pull(name, dir === undefined ? undefined : resolve(dir), {
-              ref: opts.ref,
-            });
+            const r = await ctx.core.gateway.marketplace.pull(name, { cwd: process.cwd(), dir, ref: opts.ref });
             const verb: Record<typeof r.action, string> = {
               cloned: "Cloned",
               "fast-forwarded": "Updated",
