@@ -37,7 +37,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Node.js 22
+      - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -75,11 +75,9 @@ jobs:
       - name: Format check
         run: npm run format-check
 
-      - name: Compile
-        run: npm run compile
-
       # A tag can be pushed without ever going through a PR, so the test suite
       # has to gate the publish too — ci.yml is not on this path.
+      # `npm test` compiles first (pretest), so there is no separate Compile step.
       - name: Unit tests
         run: npm test
 

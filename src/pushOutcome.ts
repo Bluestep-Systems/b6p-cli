@@ -177,3 +177,20 @@ export function pushFailureNotice(result: PushResult, alreadyReported: boolean):
   }
   return null;
 }
+
+/**
+ * The user's push arguments with the deprecated top-level spelling (`b6p push`) rewritten to the
+ * noun-first one (`b6p script push`), so a printed follow-up command never hands out the alias.
+ * The root flags (`--yes`, `--json`, `--verbose`, `--quiet`) take no value, so the first argument
+ * that is not an option is the command.
+ * @param args The push's arguments as given (`process.argv.slice(2)`)
+ * @returns The same arguments, with `script` inserted before a bare `push`
+ * @lastreviewed null
+ */
+export function canonicalPushArgs(args: string[]): string[] {
+  const at = args.findIndex((a) => !a.startsWith("-"));
+  if (at === -1 || args[at] !== "push") {
+    return args;
+  }
+  return [...args.slice(0, at), "script", ...args.slice(at)];
+}

@@ -2,6 +2,7 @@ import type { Command } from "commander";
 import { Err } from "@bluestep-systems/b6p-core";
 import { resolve, withCore, type GlobalOpts } from "../context";
 import {
+  canonicalPushArgs,
   declinedPushJson,
   deleteCommand,
   detectShellDialect,
@@ -68,7 +69,7 @@ const addPush: Registrar = (parent, globals, hidden) =>
         await withCore(globals(), async ({ core, prompt, logger, spinner, emitJson, fail, hasFailed }) => {
           const isSnapshot = opts.snapshot || opts.message !== undefined;
           // The user's own arguments, to print commands that repeat this push with a confirmation added.
-          const args = process.argv.slice(2);
+          const args = canonicalPushArgs(process.argv.slice(2));
           const dialect = detectShellDialect();
           try {
             const result = opts.file
@@ -236,7 +237,7 @@ const REGISTRARS: Registrar[] = [addPush, addPull, addAudit, addDeploy, addSetup
 
 /**
  * Mount the script subsystem at `b6p script <verb>`, plus hidden top-level
- * aliases for the pre-0.5.0 spellings.
+ * aliases for the spellings that predate the noun-first tree.
  *
  * The aliases exist because `b6p push` / `b6p pull` are already embedded in CI
  * pipelines that a global `npm i -g` upgrade would silently break. They are

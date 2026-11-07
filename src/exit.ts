@@ -82,3 +82,19 @@ export class FailureTracker {
     return this.reported.length > 0;
   }
 }
+
+let stdoutJson = false;
+
+/**
+ * Note that a JSON document has been written to stdout this invocation (a success payload or a
+ * failure body), so the top-level handler does not write a second one.
+ * @lastreviewed null
+ */
+export function markStdoutJson(): void {
+  stdoutJson = true;
+}
+
+/** Whether a JSON document has already been written to stdout this invocation. */
+export function stdoutJsonWritten(): boolean {
+  return stdoutJson;
+}

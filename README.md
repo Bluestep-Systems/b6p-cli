@@ -236,7 +236,7 @@ or not a token is stored. Branch on its output, not its exit code:
 b6p --json auth status | jq -e .authenticated >/dev/null
 ```
 
-> **Changed in 0.5.0.** Failing commands previously exited `0`. If a pipeline was relying on
+> **Changed in 0.9.0.** Failing commands previously exited `0`. If a pipeline was relying on
 > `b6p` never failing, it will now correctly go red.
 
 **Known gap:** a multi-target `b6p script deploy` in which some targets fail still exits `0` and
@@ -272,12 +272,6 @@ Set a token non-interactively by piping it in:
 ```bash
 echo "$B6P_TOKEN" | b6p auth set
 ```
-
-> **Upgrading from 0.4.x?** Authentication changed from a username/password pair to a bearer
-> token, stored under a different key — so the first command you run after upgrading will prompt
-> for your `b6pt_` token. Your old credentials are left in place (`~/.b6p` is shared with the VS
-> Code extension, which may still be using them); clear them with `b6p auth clear` once every
-> tool on this machine has moved to a token.
 
 ## WebDAV URL format
 

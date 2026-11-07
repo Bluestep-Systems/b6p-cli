@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import type { Command } from "commander";
 import { buildProgram } from "../src/program";
 
-/** The pre-0.5.0 top-level verbs, kept as hidden aliases (deprecated, removal unscheduled). */
+/** The top-level verbs that predate the noun-first tree, kept as hidden aliases (deprecated, removal unscheduled). */
 const DEPRECATED_ALIASES = ["push", "pull", "audit", "deploy", "setup"];
 
 function program(): Command {

@@ -65,11 +65,9 @@ jobs:
       - name: Format check
         run: npm run format-check
 
-      - name: Compile
-        run: npm run compile
-
       # Unit tests run on compiled .cjs (esbuild.test.js → dist-test/), so they
       # pass on every Node in the matrix without type-stripping.
+      # `npm test` compiles first (pretest), so there is no separate Compile step.
       - name: Unit tests
         run: npm test
 
