@@ -9,7 +9,7 @@ import { Spinner } from "./providers/Spinner";
 import { WindowsRestartManagerLockDiagnoser } from "./lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 import { resolveTsLibDirs } from "./tsLibs";
 import { migrateLegacyDotfiles } from "./migrate";
-import { FailureTracker } from "./exit";
+import { FailureTracker, markStdoutJson } from "./exit";
 
 /**
  * The root-level flags every command honours. Declared as a `type` rather than an
@@ -155,6 +155,7 @@ export async function withCore<T>(
     emitJson(payload: unknown): void {
       if (globalOpts.json) {
         emittedJson = true;
+        markStdoutJson();
         process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
       }
     },
@@ -179,6 +180,7 @@ export async function withCore<T>(
     // sentence on stderr. Suppressed when a success payload was already written,
     // so stdout never carries two JSON documents.
     if (globalOpts.json && failures.failed && !emittedJson) {
+      markStdoutJson();
       process.stdout.write(JSON.stringify({ error: failures.messages[0], errors: failures.messages }, null, 2) + "\n");
     }
   }

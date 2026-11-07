@@ -11,7 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Node.js 24 or newer is required** (`engines.node` is `>=24`); Node 18 to 22 are no longer supported.
   CI tests Node 24 and 26, the publish and release builds run on Node 24, and `@types/node` is `^24`.
-  The standalone binaries bundle their own Node and are unaffected.
+  The standalone binaries bundle their own Node and are unaffected. `engines` is only advisory to npm,
+  so `b6p` also checks the Node major at startup and exits `1` with a clear message below 24.
+- **Failing commands now exit `1`** where they used to exit `0` (for example `b6p script deploy
+  missing.json`). A pipeline that relied on `b6p` never failing will go red. See Fixed below.
 
 ### Added
 
@@ -22,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`b6p auth status`** - reports whether an access token is stored (`{"authenticated": bool}` under
   `--json`). It never prompts, so unattended scripts can check for credentials without risking a hang.
 - **Machine-readable failures.** Under `--json`, a failed command writes `{"error": "...", "errors": [...]}`
-  to stdout instead of leaving stdout empty.
+  to stdout instead of leaving stdout empty. This covers errors that are thrown (such as no input
+  available for a prompt) as well as failures core reports, and never writes two documents.
 - `130` is the exit code when a prompt is interrupted with Ctrl-C.
 
 ### Changed
@@ -56,7 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only report "Update service is not configured". It now checks this repository's own releases.
 - The CLI now calls `B6PCore.dispose()`, so core's session-cleanup timer no longer outlives the command.
 - Fatal errors set `process.exitCode` instead of calling `process.exit()`, which could truncate a `--json`
-  write. A closed stdout pipe (`b6p --json report | head -1`) is a clean exit rather than an `EPIPE`.
+  write. A closed stdout pipe (`b6p --json report | head -1`) is a clean exit rather than an `EPIPE`, and keeps
+  a failure exit code the command had already set.
 - The standalone-binary build smoke test looks for `script` in `--help` rather than `push`.
 - CI: `npm ci` retry loops now fail the step when all three attempts fail (they used to fall through to a misleading type error), and the Intel macOS binary builds on `macos-15-intel` (the retired `macos-13` runner never ran).
 - The test build shares the real build's `external` list (`NODE_EXTERNALS` in `esbuild.js`).

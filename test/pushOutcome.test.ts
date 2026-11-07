@@ -9,6 +9,7 @@ import assert from "node:assert";
 import type { PushResult } from "@bluestep-systems/b6p-core";
 import {
   declinedPushJson,
+  canonicalPushArgs,
   deleteCommand,
   detectShellDialect,
   overwriteCommand,
@@ -194,5 +195,29 @@ describe("pushFailureNotice", () => {
   it("stays silent for a clean push, and the exit code is independent of it", () => {
     assert.strictEqual(pushFailureNotice(result(), false), null);
     assert.strictEqual(pushExitCode(result({ pushed: false })), 1);
+  });
+});
+
+describe("canonicalPushArgs", () => {
+  it("rewrites the deprecated top-level spelling to the noun-first one", () => {
+    assert.deepStrictEqual(canonicalPushArgs(["push", "--file", "a.ts"]), ["script", "push", "--file", "a.ts"]);
+    assert.deepStrictEqual(canonicalPushArgs(["--yes", "--json", "push", "--file", "a.ts"]), [
+      "--yes",
+      "--json",
+      "script",
+      "push",
+      "--file",
+      "a.ts",
+    ]);
+  });
+
+  it("leaves the noun-first spelling alone", () => {
+    const args = ["--yes", "script", "push", "--file", "a.ts"];
+    assert.deepStrictEqual(canonicalPushArgs(args), args);
+  });
+
+  it("is what the printed commands use", () => {
+    assert.match(overwriteCommand(canonicalPushArgs(["push"]), ["a.ts"], "posix"), /^b6p script push --overwrite a\.ts$/);
+    assert.match(deleteCommand(canonicalPushArgs(["--yes", "push"]), "posix"), /b6p script push$/);
   });
 });

@@ -4,13 +4,13 @@
 // Why a separate build from esbuild.js: the main build has a single entry
 // (src/index.ts) and produces the shipped bundle; tests need their own entries
 // and must NOT touch dist/. Emitting compiled .cjs (rather than running .ts via
-// a loader) keeps the tests runnable across the whole CI Node matrix (18/20/22)
+// a loader) keeps the tests runnable across the whole CI Node matrix (24/26)
 // with no type-stripping and no extra dependency.
 //
 // We spawn `node --test` with the EXPLICIT list of built files rather than a
 // directory or glob: a bare directory positional is interpreted inconsistently
-// across Node versions (18/20 search it; 22 tries to load it as a module), and
-// glob expansion in `--test` isn't supported on 18/20. Explicit file paths work
+// across Node versions (some search it, others try to load it as a module), and
+// glob expansion in `--test` is not portable. Explicit file paths work
 // everywhere.
 const esbuild = require("esbuild");
 const { NODE_EXTERNALS } = require("./esbuild.js");

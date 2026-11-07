@@ -14,8 +14,9 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { EXIT_FAILURE, EXIT_SUCCESS, FailureTracker } from "../src/exit";
-import { CliPrompt } from "../src/providers/CliPrompt";
+import { EXIT_FAILURE, EXIT_SIGINT, EXIT_SUCCESS, FailureTracker } from "../src/exit";
+import { exitCodeOnEpipe, fatalExitCode } from "../src/fatal";
+import { CliPrompt, PromptCancelledError } from "../src/providers/CliPrompt";
 import { CliLogger } from "../src/providers/CliLogger";
 
 /** Run `fn` with stderr swallowed, so the adapters under test stay quiet. */
@@ -232,4 +233,41 @@ test("check-updates is wired to a real update service", () => {
   // setting the exit code, it failed unconditionally for every user.
   const run = runCli(["--json", "check-updates"]);
   assert.doesNotMatch(run.stderr, /Update service is not configured/);
+});
+
+test("--json: a thrown error also writes {error, errors} to stdout, once, with exit 1", () => {
+  // The commonest unattended failure: no token stored and stdin at EOF, which core surfaces as a
+  // THROWN NonInteractiveInputError rather than a Prompt.error. It used to reach stderr only, so
+  // `b6p --json ... | jq .error` read nothing.
+  const run = runCli(["--json", "script", "pull"], "");
+  assert.equal(run.status, EXIT_FAILURE);
+  const body = JSON.parse(run.stdout) as { error: string; errors: string[] };
+  assert.match(body.error, /No input available/);
+  assert.deepEqual(body.errors, [body.error]);
+  assert.equal(run.stdout.trim().split("\n").filter((l) => l === "{").length, 1, "exactly one JSON document");
+});
+
+test("--json: a failure already reported through Prompt.error is not written a second time", () => {
+  const run = runCli(["--json", "--yes", "script", "deploy", "/nonexistent-b6p-config.json"]);
+  assert.equal(run.status, EXIT_FAILURE);
+  assert.equal(run.stdout.trim().split("\n").filter((l) => l === "{").length, 1, "exactly one JSON document");
+});
+
+test("without --json a thrown error leaves stdout empty", () => {
+  const run = runCli(["script", "pull"], "");
+  assert.equal(run.status, EXIT_FAILURE);
+  assert.equal(run.stdout, "");
+});
+
+test("a prompt cancelled with Ctrl-C exits 130, anything else thrown exits 1", () => {
+  assert.equal(fatalExitCode(new PromptCancelledError()), EXIT_SIGINT);
+  assert.equal(fatalExitCode(new Error("boom")), EXIT_FAILURE);
+});
+
+test("a closed stdout pipe keeps a failure exit code and otherwise exits 0", () => {
+  // `b6p script push ... | head -1` must not mask a failed push.
+  assert.equal(exitCodeOnEpipe(1), EXIT_FAILURE);
+  assert.equal(exitCodeOnEpipe(130), EXIT_SIGINT);
+  assert.equal(exitCodeOnEpipe(undefined), EXIT_SUCCESS);
+  assert.equal(exitCodeOnEpipe(0), EXIT_SUCCESS);
 });

@@ -21,6 +21,7 @@ import { execFileSync, execSync } from "node:child_process";
 import { chmodSync, copyFileSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
+import { helpListsCommand } from "./helpListsCommand.mjs";
 
 // postject locates the injected blob via this fuse sentinel — the fixed value
 // Node documents for SEA. It must match what the runtime looks for.
@@ -149,11 +150,11 @@ function smokeTest(out) {
 
   console.error(`$ ${out} --help`);
   const help = exec(["--help"]);
-  // Sentinel must be a command that appears in TOP-LEVEL help. `push` used to be
-  // one; it moved under `b6p script` in 0.5.0 and its top-level alias is hidden,
-  // so asserting on it would fail every SEA build while the CLI worked perfectly.
-  // `script` is the namespace itself and cannot be hidden.
-  if (!/\bscript\b/.test(help)) {
+  // Sentinel must be a command listed in TOP-LEVEL help. `push` used to be one; it moved under
+  // `b6p script` and its top-level alias is hidden, so asserting on it would fail every SEA build
+  // while the CLI worked perfectly. `script` is the namespace itself and cannot be hidden. It is
+  // matched in the "Commands:" list, not anywhere in the text: option help mentions it too.
+  if (!helpListsCommand(help, "script")) {
     throw new Error("Smoke test failed: --help did not list expected subcommands.");
   }
 }
