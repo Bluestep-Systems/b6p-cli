@@ -10,7 +10,7 @@ export type ExpiresChoice =
   { kind: "default" } | { kind: "never" } | { kind: "at"; iso: string } | { kind: "invalid"; message: string };
 
 const ACCEPTED =
-  "Use a number of days like 90d, a date like 2027-03-01, a full date-time like 2027-03-01T12:00:00Z (or with an offset such as +02:00), or never.";
+  "Use a number of days like 90d, a date like 2027-03-01, a date-time like 2027-03-01T12:00Z (or with an offset such as +02:00), or never.";
 const DAY_MS = 86_400_000;
 
 /**
@@ -39,10 +39,10 @@ export function parseExpires(raw: string | undefined, now: Date = new Date()): E
     }
     return { kind: "at", iso: new Date(now.getTime() + n * DAY_MS).toISOString() };
   }
-  // A date alone is the start of that day, UTC. Anything with a time must be a full ISO date-time with
-  // seconds and a Z or numeric offset, because core refuses every other spelling.
+  // A date alone is the start of that day, UTC. Anything with a time must be an ISO date-time ending in Z or
+  // a numeric offset (seconds and up to nine fractional digits optional), the spelling core accepts.
   const withDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
-  const withTime = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.exec(text);
+  const withTime = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/.exec(text);
   const parts = withDate ?? withTime;
   if (parts) {
     const full = withDate ? `${text}T00:00:00Z` : text;
@@ -60,7 +60,10 @@ export function parseExpires(raw: string | undefined, now: Date = new Date()): E
   return { kind: "invalid", message: `--expires ${raw} is not understood. ${ACCEPTED}` };
 }
 
-/** The slice of the prompt provider {@link confirmNeverExpires} uses. */
+/**
+ * The slice of the prompt provider {@link confirmNeverExpires} and {@link confirmRevokeCurrent} use.
+ * @lastreviewed null
+ */
 export interface NeverExpiresPrompt {
   confirm(
     message: string,
@@ -94,4 +97,25 @@ export async function confirmNeverExpires(prompt: NeverExpiresPrompt, yes: boole
     safeOption: cancel,
   });
   return answer === create;
+}
+
+/**
+ * Settle whether the token b6p itself is using may be revoked.
+ *
+ * Revoking it locks b6p out until another token is stored, so unlike any other revoke this one asks,
+ * with the safe option (Cancel) first and `{ destructive: true, safeOption }`. Under `--yes` the safe
+ * option is the answer, so `--yes` alone declines; the question is never skipped.
+ * @param alias The token's alias, for the question.
+ * @returns whether to go ahead.
+ * @lastreviewed null
+ */
+export async function confirmRevokeCurrent(prompt: NeverExpiresPrompt, alias: string): Promise<boolean> {
+  const cancel = "Cancel";
+  const revoke = "Revoke";
+  const answer = await prompt.confirm(
+    `Token "${alias}" is the one b6p is using. Revoking it locks b6p out until you store another token with \`b6p auth set\`. Revoke it?`,
+    [cancel, revoke],
+    { destructive: true, safeOption: cancel }
+  );
+  return answer === revoke;
 }

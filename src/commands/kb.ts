@@ -1,4 +1,6 @@
+import * as path from "node:path";
 import type { Command } from "commander";
+import { findCloneRoot } from "../cloneRoot";
 import { withCore, type GlobalOpts } from "../context";
 import { formatTable, printResult, runGateway } from "../gatewayRun";
 
@@ -63,13 +65,17 @@ export function registerKbCommands(program: Command): void {
     });
 
   kb.command("push [dir]")
-    .description("Push the knowledge base clone in a folder (default: here) to its live branch")
+    .description(
+      "Push the knowledge base clone in a folder (default: here, or the clone containing it) to its live branch"
+    )
     .action(async (dir: string | undefined) => {
       await withCore(
         globals(),
         async (ctx) => {
           await runGateway(ctx, async () => {
-            const r = await ctx.core.gateway.kb.push(dir ?? ".", { cwd: process.cwd() });
+            const r = await ctx.core.gateway.kb.push(findCloneRoot(path.resolve(process.cwd(), dir ?? ".")), {
+              cwd: process.cwd(),
+            });
             printResult(
               ctx,
               r.pushed

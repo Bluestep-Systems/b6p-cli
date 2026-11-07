@@ -115,6 +115,7 @@ test("auth token create prints the secret once on stdout, and --json carries it"
   const body = JSON.parse(j.stdout);
   assert.match(body.token, /^b6pt_/);
   assert.equal(body.neverExpires, false);
+  assert.equal(body.secret, body.token, "the secret is always the top-level `secret` field");
 });
 
 test("auth token create: --expires never goes ahead under --yes only because it was explicit", async () => {
@@ -144,7 +145,7 @@ test("auth token create: --expires never goes ahead under --yes only because it 
 
 test("auth token create: --expires takes a date or a full date-time, and refuses the rest locally", async () => {
   const before = gateway.requests.length;
-  for (const bad of ["2099-01-01T00:00Z", "2099-01-01T00:00:00", "2099-02-31"]) {
+  for (const bad of ["2099-01-01T00:00", "2099-01-01T00:00:00", "2099-02-31"]) {
     const r = await b6p(["auth", "token", "create", "--alias", "d", "--scopes", "kb:read", "--expires", bad]);
     assert.equal(r.code, 1, bad);
     assert.match(r.stderr, /not understood/);
@@ -201,7 +202,8 @@ test("kb push and pull, and marketplace pull, hand core the user's cwd: a relati
 test("auth token create: alias clash and bad --expires fail non-zero", async () => {
   const clash = await b6p(["auth", "token", "create", "--alias", "ci", "--scopes", "kb:read"]);
   assert.equal(clash.code, 1);
-  assert.match(clash.stderr, /rotate/);
+  assert.match(clash.stderr, /another --alias/);
+  assert.doesNotMatch(clash.stderr, /rotate/);
 
   const bad = await b6p(["auth", "token", "create", "--alias", "x", "--scopes", "kb:read", "--expires", "tomorrow"]);
   assert.equal(bad.code, 1);
@@ -219,14 +221,47 @@ test("auth token list marks the current token; rotate of it re-stores the new se
   const body = JSON.parse(rotated.stdout);
   assert.equal(body.rotatedCurrent, true);
   assert.notEqual(body.token.token, TOKEN);
+  assert.equal(body.secret, body.token.token, "the secret is always the top-level `secret` field");
 
   // The stored token is now the new one, so the next call still works.
   const after = await b6p(["kb", "list"]);
   assert.equal(after.code, 0, after.stderr);
 });
 
-test("auth token revoke warns when it revokes the token b6p holds, then calls fail with advice", async () => {
-  const r = await b6p(["auth", "token", "revoke", "--tokenid", "laptop"]);
+test("revoking another token, and rotating any token, ask nothing", async () => {
+  const made = await b6p(["--json", "auth", "token", "create", "--alias", "tmp", "--scopes", "kb:read"]);
+  assert.equal(made.code, 0, made.stderr);
+  // No stdin and no --yes: a prompt would fail on end of input, so success proves none was asked.
+  const revoked = await b6p(["auth", "token", "revoke", "--tokenid", "tmp"]);
+  assert.equal(revoked.code, 0, revoked.stderr);
+  assert.doesNotMatch(revoked.stderr, /locks b6p out/);
+});
+
+test("revoking the stored token asks first: --yes alone and no input decline and send no DELETE", async () => {
+  const deletes = () => gateway.requests.filter((r) => r.method === "DELETE").length;
+  const before = deletes();
+
+  const yes = await b6p(["--yes", "auth", "token", "revoke", "--tokenid", "laptop"]);
+  assert.equal(yes.code, 1);
+  assert.match(yes.stderr, /locks b6p out/);
+  assert.match(yes.stderr, /Cancelled/);
+
+  const empty = await b6p(["auth", "token", "revoke", "--tokenid", "laptop"], "\n");
+  assert.equal(empty.code, 1, "an empty answer is Cancel");
+
+  const json = await b6p(["--json", "auth", "token", "revoke", "--tokenid", "laptop"]);
+  assert.equal(json.code, 1, "no input under --json fails");
+  const body = JSON.parse(json.stdout);
+  assert.equal(typeof body.error, "string");
+  assert.deepEqual(body.errors, [body.error]);
+
+  assert.equal(deletes(), before, "nothing was revoked");
+  const still = await b6p(["kb", "list"]);
+  assert.equal(still.code, 0, "the stored token still works");
+});
+
+test("confirming revokes the stored token, warns, and later calls fail with advice", async () => {
+  const r = await b6p(["auth", "token", "revoke", "--tokenid", "laptop"], "Revoke\n");
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stderr, /dead token/);
 
@@ -262,4 +297,5 @@ test("an off-contract create still shows the minted secret once, then fails", as
   const body = JSON.parse(j.stdout);
   assert.equal(body.secret, "b6pt_recovered_secret_9");
   assert.equal(body.operation, "create");
+  assert.deepEqual(body.errors, [body.error], "the documented failure body is kept");
 });

@@ -1,3 +1,4 @@
+import { Err } from "@bluestep-systems/b6p-core";
 import type { CliContext } from "./context";
 import { describeGatewayError } from "./gatewayErrors";
 
@@ -11,12 +12,38 @@ export async function runGateway(ctx: CliContext, body: () => Promise<void>): Pr
   try {
     await body();
   } catch (err) {
-    const text = describeGatewayError(err);
+    // The configured address is only worth a read when the error is about it.
+    const gatewayUrl = err instanceof Err.GatewayConfigError ? await configuredGatewayUrl(ctx) : undefined;
+    const text = describeGatewayError(err, { gatewayUrl });
     if (text === undefined) {
       throw err;
     }
     ctx.fail(text);
   }
+}
+
+/**
+ * The `gatewayUrl` setting, or `undefined` when the default is in use (or it cannot be read).
+ * @lastreviewed null
+ */
+async function configuredGatewayUrl(ctx: CliContext): Promise<string | undefined> {
+  try {
+    return await ctx.core.getConfig<string>("gatewayUrl");
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Write to stdout with the stderr spinner out of the way first. The spinner redraws its line on
+ * stderr; without the pause, a terminal shows a frame and its label in front of whatever is written,
+ * so a token secret would land on a line that starts with "⠋ Creating token…". `pause()` clears
+ * the line and does nothing when the spinner is off (pipes, `--json`, `--quiet`).
+ * @lastreviewed null
+ */
+export function writeStdout(ctx: Pick<CliContext, "spinner">, text: string): void {
+  ctx.spinner.pause();
+  process.stdout.write(text);
 }
 
 /**
@@ -27,7 +54,7 @@ export function printResult(ctx: CliContext, human: string, json: unknown): void
   if (ctx.globalOpts.json) {
     ctx.emitJson(json);
   } else {
-    process.stdout.write(human.endsWith("\n") ? human : human + "\n");
+    writeStdout(ctx, human.endsWith("\n") ? human : human + "\n");
   }
 }
 

@@ -58,7 +58,9 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
   [src/gatewayErrors.ts](src/gatewayErrors.ts); core's messages never say how to respond. A new gateway
   error class needs a branch there and a line in its test. A minted token secret is printed once, alone,
   to stdout (a field under `--json`), is never put in a log, error text or stderr, and a
-  `GatewayTokenStoreError`'s `replacement` and a `GatewayOffContractTokenError`'s `secret` are printed the same way (`runMinting`) before the command fails. `--expires
+  `GatewayTokenStoreError`'s `replacement` and a `GatewayOffContractTokenError`'s `secret` are printed the same way (`runMinting`) before the command fails. `auth token revoke` of the stored token asks via `confirmRevokeCurrent` (Cancel first, `destructive`; `--yes` alone
+  declines). Stdout writes go through `writeStdout`, which pauses the spinner first. Every `--json` body that carries a
+  secret has it in a top-level `secret` field. `--expires
   never` runs through `confirmNeverExpires` ([src/tokenExpiry.ts](src/tokenExpiry.ts)): safe option first
   and `destructive`, and proceeds under `--yes` only because the flag was typed.
 - **Durable state is core's**, via its `SharedFilePersistence`. The CLI only adapts I/O, prompting,

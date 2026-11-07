@@ -41,8 +41,13 @@ test("a missing scope names the scope to mint", () => {
 });
 
 test("alias, ambiguity and argument errors say what to do", () => {
-  assert.match(text(new Err.GatewayAliasTakenError("m")), /rotate/);
-  assert.match(text(new Err.GatewayTokenAmbiguousError("m", ["1", "2"])), /token id.*1, 2/);
+  const taken = text(new Err.GatewayAliasTakenError("m"));
+  assert.match(taken, /another --alias/);
+  assert.match(taken, /revoke/);
+  assert.ok(!/rotate/.test(taken), "rotate keeps the old scopes and lifetime, so it is not the answer to a clash");
+  const amb = text(new Err.GatewayTokenAmbiguousError("m", ["1", "2"]));
+  assert.ok(!amb.includes("1, 2"), "core's message already lists the ids");
+  assert.match(amb, /web token page/);
   assert.equal(text(new Err.GatewayInvalidArgumentError("bad alias")), "bad alias");
 });
 
@@ -56,10 +61,16 @@ test("permission, not-found, conflict and availability errors", () => {
   assert.match(text(new Err.GatewayKnowledgeBasePushNotPermittedError("m", "global/x")), /global\/x/);
   assert.match(text(new Err.GatewayNotPermittedError("m", null)), /not allowed/);
   assert.match(text(new Err.GatewayNotFoundError("m", null)), /b6p kb list/);
-  assert.match(text(new Err.GatewayConflictError("m", null)), /pull/);
+  const conflict = text(new Err.GatewayConflictError("m", null));
+  assert.match(conflict, /merge or rebase/);
+  assert.ok(!/`b6p kb pull <ref> <dir>` to fast-forward/.test(conflict), "pull would refuse a diverged folder");
   assert.match(text(new Err.GatewayTooLargeError("m", null)), /smaller/);
   assert.match(text(new Err.GatewayUnavailableError("m", 502, null)), /try again/);
-  assert.match(text(new Err.GatewayConfigError("m")), /gatewayUrl/);
+  const cfg = describeGatewayError(new Err.GatewayConfigError("m"), { gatewayUrl: "https://staging.example/gw" });
+  assert.ok(cfg !== undefined);
+  assert.match(cfg, /https:\/\/staging\.example\/gw/);
+  assert.ok(!cfg.includes("gateway.bluestep.net"), "the production URL must not be hard-coded");
+  assert.match(cfg, /server/);
 });
 
 test("a dirty tree lists its paths; a mismatch asks for another folder", () => {
@@ -117,10 +128,18 @@ test("parseExpires: default, days, dates, never, and refusals", () => {
   assert.deepEqual(parseExpires("2027-01-31T12:00:00Z", now), { kind: "at", iso: "2027-01-31T12:00:00.000Z" });
   assert.deepEqual(parseExpires("2027-01-31T12:00:00+02:00", now), { kind: "at", iso: "2027-01-31T10:00:00.000Z" });
   assert.deepEqual(parseExpires("2027-01-31T12:00:00.5Z", now), { kind: "at", iso: "2027-01-31T12:00:00.500Z" });
-  // Core takes only a full ISO date-time with Z or an offset; the rest is refused here, before any request.
+  // Core also takes a date-time without seconds, and up to nine fractional digits.
+  assert.deepEqual(parseExpires("2027-01-31T12:00Z", now), { kind: "at", iso: "2027-01-31T12:00:00.000Z" });
+  assert.deepEqual(parseExpires("2027-01-31T12:00+02:00", now), { kind: "at", iso: "2027-01-31T10:00:00.000Z" });
+  assert.deepEqual(parseExpires("2027-01-31T12:00:00.123456789Z", now), {
+    kind: "at",
+    iso: "2027-01-31T12:00:00.123Z",
+  });
+  // Core takes only a zone-qualified ISO date-time with Z or an offset; the rest is refused here, before any request.
   for (const bad of [
-    "2027-01-31T12:00Z",
     "2027-01-31T12:00:00",
+    "2027-01-31T12:00",
+    "2027-01-31T12Z",
     "2027-01-31 12:00:00Z",
     "2027-02-31",
     "2027-02-31T00:00:00Z",
@@ -259,6 +278,18 @@ test("wrong-branch names the branch, what it tracks and the live branch", () => 
     })
   );
   assert.match(detached, /detached head/);
+});
+
+test("a not-a-clone folder is told to use the clone's top folder or [dir]", () => {
+  const t = text(new Err.GatewayWorkingCopyError("m", "not-a-clone"));
+  assert.match(t, /inside it/);
+  assert.match(t, /\[dir\]/);
+});
+
+test("an unexpected response without a status may be an unusable marketplace name: pass [dir]", () => {
+  const t = text(new Err.GatewayUnexpectedResponseError("m", null, null));
+  assert.match(t, /pass \[dir\]/);
+  assert.match(t, /version mismatch/);
 });
 
 test("the invalid-argument and unsafe-name cases keep their own words or advice", () => {

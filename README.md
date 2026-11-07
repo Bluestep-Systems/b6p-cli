@@ -114,21 +114,25 @@ platform; the verbs beneath it act on that part.
 
 `auth token` manages only your **own** tokens and needs the `tokens:self` scope. `create` and `rotate`
 print the new secret **once**, alone on stdout (so `TOKEN=$(b6p auth token create …)` captures it), with
-the details and a "store it now" note on stderr; under `--json` it is the `token` field. A new token's
+the details and a "store it now" note on stderr. Under `--json` the secret is the top-level `secret`
+field of the body, on success (`create`, `rotate`) and on the failure bodies that still carry one (a token
+that could not be stored, a malformed gateway answer), which also have `error`, `errors`, `operation`
+and `stored`. A new token's
 scopes can never exceed the token b6p is using. The default lifetime is 90 days; `--expires 30d`, a date
 (`2027-03-01`, the start of that day UTC) or a full date-time with `Z` or an offset
-(`2027-03-01T12:00:00+02:00`) picks another. `--expires never` warns and asks first (the safe answer, Cancel, is the
-default); under `--yes` it goes ahead only because you typed `never` yourself. Rotating or revoking the
-token b6p is using is allowed: rotating stores the new secret for b6p; revoking leaves b6p holding a dead
-token until you run `b6p auth set`.
+(`2027-03-01T12:00Z`, `2027-03-01T12:00:00+02:00`) picks another. `--expires never` warns and asks first (the safe answer, Cancel, is the
+default); under `--yes` it goes ahead only because you typed `never` yourself. Rotating the token b6p is
+using runs at once and stores the new secret for b6p. Revoking it asks first (Cancel is the default, so
+`--yes` alone declines, and `--json` with no input fails) because it leaves b6p holding a dead token until
+you run `b6p auth set`; revoking any other token runs at once.
 
 ### `b6p kb` — knowledge bases
 
 | Command | Purpose |
 |---|---|
 | `b6p kb list [--scope global\|tenant] [--tenant U…]` | List the knowledge bases you may read, and whether you may push |
-| `b6p kb pull <ref> [dir]` | Clone a knowledge base into a folder (default `./<name>`), or fast-forward an existing clone |
-| `b6p kb push [dir]` | Push a clone (default: the current folder) to the knowledge base's live branch |
+| `b6p kb pull <ref> [dir]` | Clone a knowledge base into a folder (default `./<name>`, or `./<tenant>-<name>` for a tenant's), or fast-forward an existing clone |
+| `b6p kb push [dir]` | Push a clone (default: the current folder, or the clone that contains it) to the knowledge base's live branch |
 
 `<ref>` is `<name>` for a global knowledge base or `U<number>/<name>` for a tenant's. Pulls never
 overwrite local changes (the dirty paths are listed) and pushes are fast-forward only: if the knowledge

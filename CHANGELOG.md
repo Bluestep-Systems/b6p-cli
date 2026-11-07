@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `auth token create --expires` takes a day count, a date (start of that day, UTC) or a full ISO date-time
   with `Z` or an offset; anything else is refused before a request is sent. `marketplace pull --ref` also
   accepts full ref names (`refs/tags/v1.0.0`).
+- `auth token revoke` of the token b6p itself is using asks first (Cancel by default; `--yes` alone declines).
+  Under `--json` every secret-bearing body carries the secret in a top-level `secret` field. `kb push` works
+  from a subfolder of a clone. The spinner is cleared before any stdout write.
 - Gateway errors come with the fix: the scope to mint, `b6p auth set`, the dirty paths, "pull first",
   "choose another folder", "switch to the live branch".
 

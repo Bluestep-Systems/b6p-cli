@@ -2,8 +2,8 @@ import type { Command } from "commander";
 import { Err } from "@bluestep-systems/b6p-core";
 import { withCore, type CliContext, type GlobalOpts } from "../context";
 import { describeGatewayError } from "../gatewayErrors";
-import { formatTable, printResult, runGateway } from "../gatewayRun";
-import { confirmNeverExpires, parseExpires } from "../tokenExpiry";
+import { formatTable, printResult, runGateway, writeStdout } from "../gatewayRun";
+import { confirmNeverExpires, confirmRevokeCurrent, parseExpires } from "../tokenExpiry";
 
 /**
  * Shown before delegating to the core credential prompt.
@@ -79,40 +79,42 @@ export function registerAuthCommands(program: Command): void {
 /**
  * Show a freshly minted secret exactly once. The secret goes to stdout alone, so
  * `TOKEN=$(b6p auth token create ...)` captures it; everything else goes to stderr. Under `--json`
- * the caller emits it as a field instead. Never logged.
+ * the caller emits it as the top-level `secret` field instead. Never logged.
+ * @lastreviewed null
  */
 function printSecret(ctx: CliContext, secret: string): void {
   if (!ctx.globalOpts.json) {
-    process.stdout.write(`${secret}\n`);
+    writeStdout(ctx, `${secret}\n`);
   }
 }
 
 /**
  * Run a call that mints a secret (`create`, `rotate`). When core throws an error that CARRIES the new
  * secret (`GatewayTokenStoreError`, `GatewayOffContractTokenError`) the secret exists nowhere else,
- * so it is printed once (stdout, or the JSON `replacement` / `secret` field) before the command
- * fails with the "how to fix" text. Any other gateway error is reported as usual.
+ * so it is printed once (stdout, or the top-level JSON `secret` field) before the command fails with
+ * the "how to fix" text. Any other gateway error is reported as usual.
+ * @lastreviewed null
  */
 async function runMinting(ctx: CliContext, body: () => Promise<void>): Promise<void> {
   await runGateway(ctx, async () => {
     try {
       await body();
     } catch (err) {
-      if (err instanceof Err.GatewayTokenStoreError) {
-        printSecret(ctx, err.replacement.token);
-        ctx.emitJson({ error: describeGatewayError(err), replacement: err.replacement });
-      } else if (err instanceof Err.GatewayOffContractTokenError) {
-        printSecret(ctx, err.secret);
-        ctx.emitJson({
-          error: describeGatewayError(err),
-          operation: err.operation,
-          stored: err.stored,
-          secret: err.secret,
-        });
-      } else {
+      // The same body shape for every failure that carries a secret: the documented `{error, errors}`
+      // plus `operation`, `stored` and the top-level `secret`.
+      const carried =
+        err instanceof Err.GatewayTokenStoreError
+          ? { operation: "rotate", stored: false, secret: err.replacement.token }
+          : err instanceof Err.GatewayOffContractTokenError
+            ? { operation: err.operation, stored: err.stored, secret: err.secret }
+            : undefined;
+      if (carried === undefined) {
         throw err;
       }
-      ctx.fail(describeGatewayError(err) ?? "The gateway answer could not be used.");
+      const error = describeGatewayError(err) ?? "The gateway answer could not be used.";
+      printSecret(ctx, carried.secret);
+      ctx.emitJson({ error, errors: [error], ...carried });
+      ctx.fail(error);
     }
   });
 }
@@ -122,6 +124,7 @@ const STORE_NOW = "Store this token now: it is shown only this once and cannot b
 /**
  * Mount the caller's own tokens at `b6p auth token <verb>`. Needs the `tokens:self` scope on the
  * stored token. Nothing here addresses another user's tokens.
+ * @lastreviewed null
  */
 function registerTokenCommands(auth: Command, globals: () => GlobalOpts): void {
   const token = auth
@@ -200,7 +203,7 @@ function registerTokenCommands(auth: Command, globals: () => GlobalOpts): void {
                 (minted.neverExpires ? "never expiring." : `expiring ${minted.expiresAt}.`)
             );
             ctx.prompt.warn(STORE_NOW);
-            ctx.emitJson(minted);
+            ctx.emitJson({ ...minted, secret: minted.token });
           });
         },
         "Creating token…"
@@ -216,6 +219,15 @@ function registerTokenCommands(auth: Command, globals: () => GlobalOpts): void {
         globals(),
         async (ctx) => {
           await runGateway(ctx, async () => {
+            // Revoking the token b6p is using locks b6p out, so that one case asks first. Only a single clear
+            // match is checked; no match or several is left to core, which refuses both.
+            const mine = (await ctx.core.gateway.tokens.list()).filter(
+              (t) => t.id === opts.tokenid || t.alias === opts.tokenid
+            );
+            if (mine.length === 1 && mine[0].current && !(await confirmRevokeCurrent(ctx.prompt, mine[0].alias))) {
+              ctx.fail("Cancelled: the token was not revoked.");
+              return;
+            }
             const r = await ctx.core.gateway.tokens.revoke(opts.tokenid);
             printResult(ctx, `Revoked token "${r.alias}" (id ${r.id}).`, r);
             if (r.revokedCurrent) {
@@ -247,7 +259,7 @@ function registerTokenCommands(auth: Command, globals: () => GlobalOpts): void {
               ctx.prompt.info("That was the token b6p is using; the new secret has been stored for b6p.");
             }
             ctx.prompt.warn(STORE_NOW);
-            ctx.emitJson(r);
+            ctx.emitJson({ ...r, secret: r.token.token });
           });
         },
         "Rotating token…"
