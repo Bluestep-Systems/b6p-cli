@@ -4,11 +4,35 @@ Single-package CLI `@bluestep-systems/b6p-cli`: the `b6p` command, published to 
 installed globally (`npm i -g @bluestep-systems/b6p-cli`). It is a thin front-end over
 [`@bluestep-systems/b6p-core`](https://github.com/Bluestep-Systems/b6p-core) — the vscode-free core
 shared with the [`vscode-extension`](https://github.com/Bluestep-Systems/vscode-extension). Entry
-point [src/index.ts](src/index.ts); terminal adapters for core's provider interfaces in
+point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); the command tree is
+[src/program.ts](src/program.ts) and [src/commands/](src/commands/); terminal adapters for core's provider interfaces in
 [src/providers/](src/providers/).
 
 ## Hard constraints
 
+- **The command tree is noun-first: `b6p <subsystem> <verb>`.** The top level is a namespace of platform
+  subsystems (`script`, `auth`, `sessions`, `config`), each owning its verbs. **Never add a top-level
+  verb for platform work** (`b6p push` re-creates the collision the noun-first tree removed); `report`
+  and `check-updates` are the two grandfathered exceptions, since they act on this installation. Add a
+  command by writing `src/commands/<noun>.ts` exporting `register<Noun>Commands(program)` and adding one
+  line to `registerCommands` in [src/commands/index.ts](src/commands/index.ts). The hidden
+  `push`/`pull`/`audit`/`deploy`/`setup` aliases are a deprecation shim (removal unscheduled); do not
+  add more, and do not hand-edit one half of a pair, since both come from one registrar so they cannot
+  drift. [test/commandTree.test.ts](test/commandTree.test.ts) asserts the shape.
+- **Command actions run inside `withCore`** ([src/context.ts](src/context.ts)). It owns SDK construction
+  and the `finally` that disposes core, stops the spinner and closes readline; an action that builds its
+  own providers or skips that teardown leaks an stdin handle and hangs the process. Emit
+  machine-readable output with `ctx.emitJson(...)`, not a hand-rolled `--json` check.
+- **A command that fails must exit non-zero.** Core reports most failures through `Prompt.error` and
+  returns normally, so a `FailureTracker` ([src/exit.ts](src/exit.ts)) counts that channel and sets
+  `process.exitCode` as each failure is recorded. Report a genuine failure with `ctx.fail(...)` and a
+  *negative answer* with `prompt.info` (`b6p auth status` with no token is a success). **Never count
+  `Logger.error`**: it is diagnostic and core logs recoverable conditions to it; counting it once made
+  a successful first `script pull` exit `1`. Never make the exit code depend on `--json`/`--quiet`/
+  `--verbose`; prefer `process.exitCode` to `process.exit()`, which can truncate a stdout write. Exit
+  codes: `0`, `1`, and `130` for Ctrl-C at a prompt (`PromptCancelledError`). Known gap:
+  `ScriptService.deploy` logs each target's failure to `logger.error` and still prints "Deploy
+  complete!", so an all-failed deploy exits `0`; fixing it needs core.
 - **Cross-package code goes through `@bluestep-systems/b6p-core`** — never relative paths into the
   core source. Shared orchestration belongs in core; this repo only adapts it to a terminal.
 - **`b6p-core` is a bundled `devDependency`**, not a runtime one: esbuild inlines it (and
@@ -62,7 +86,7 @@ the whole CI Node matrix.
 
 ## Build and distribution
 
-- ES2022 / Node16, `strict`. Base options in `tsconfig.base.json`, `noEmit: true` in `tsconfig.json`
+- Node **>=24** (`engines`; CI matrix 24 and 26, publish/release build on 24; `@types/node` stays on ^24 so no newer APIs creep in). ES2022 / Node16, `strict`. Base options in `tsconfig.base.json`, `noEmit: true` in `tsconfig.json`
   — esbuild produces the artifact, not the compiler. `types: ["node"]` is set deliberately.
 - **`typescript` is exact-pinned at 5.9.2**, matching the version core bundles, so npm dedupes to one
   copy. Do not float it to a range or a newer major without reading

@@ -1,6 +1,7 @@
 import * as readline from "readline/promises";
 import type { Readable, Writable } from "node:stream";
 import type { ConfirmOptions, Prompt } from "@bluestep-systems/b6p-core";
+import type { FailureTracker } from "../exit";
 
 /**
  * Thrown when the core asks for input that stdin cannot supply - piped input
@@ -23,6 +24,18 @@ export class NonInteractiveInputError extends Error {
         `or configure the value up front (for credentials: \`b6p auth set\`).`
     );
     this.name = "NonInteractiveInputError";
+  }
+}
+
+/**
+ * Thrown when the user interrupts a prompt with Ctrl-C, so the top level can
+ * exit `130` (the conventional 128 + SIGINT) rather than a generic failure.
+ * @lastreviewed null
+ */
+export class PromptCancelledError extends Error {
+  constructor() {
+    super("Cancelled");
+    this.name = "PromptCancelledError";
   }
 }
 
@@ -54,6 +67,7 @@ export class CliPrompt implements Prompt {
   private readonly autoYes: boolean;
   private readonly jsonMode: boolean;
   private pauser: ActivityPauser | null = null;
+  private failures: FailureTracker | null = null;
   private readonly input: InputStream;
   private readonly output: Writable;
   /** Set once stdin has ended; every later prompt fails fast instead of re-reading a dead stream. */
@@ -76,6 +90,15 @@ export class CliPrompt implements Prompt {
     this.jsonMode = opts.json ?? false;
     this.input = opts.input ?? process.stdin;
     this.output = opts.output ?? process.stderr; // keep stdout clean for --json
+  }
+
+  /**
+   * Attach the tracker that decides this invocation's exit code. See
+   * {@link FailureTracker} for why `error` counts and `warn` does not.
+   * @lastreviewed null
+   */
+  setFailureTracker(failures: FailureTracker | null): void {
+    this.failures = failures;
   }
 
   /** Attach a background activity indicator (e.g. Spinner) that should be
@@ -212,8 +235,8 @@ export class CliPrompt implements Prompt {
    *
    * Requires a TTY with raw-mode support; when stdin is not a TTY (e.g. piped
    * input) masking is impossible, so it falls back to the standard readline
-   * question, which echoes. Handles Enter/Ctrl-D (submit), Ctrl-C (re-raise
-   * SIGINT) and Backspace.
+   * question, which echoes. Handles Enter/Ctrl-D (submit), Ctrl-C (rejects with
+   * {@link PromptCancelledError}) and Backspace.
    *
    * @param query The fully-formatted prompt to display (e.g. `"Password: "`).
    * @returns The entered string, or `undefined` if the input was empty.
@@ -288,8 +311,10 @@ export class CliPrompt implements Prompt {
             case "\u0003": // Ctrl-C (ETX)
               output.write("\n");
               cleanup();
-              process.kill(process.pid, "SIGINT");
-              reject(new Error("Cancelled"));
+              // Reject rather than re-raising SIGINT at ourselves: the default signal
+              // disposition terminates the process immediately, racing teardown and any
+              // pending stdout flush. The top level maps this to EXIT_SIGINT.
+              reject(new PromptCancelledError());
               return;
             case "\u007f": // Backspace (DEL)
             case "\b":
@@ -384,7 +409,13 @@ export class CliPrompt implements Prompt {
     this.pauser?.resume();
   }
 
+  /**
+   * Report a failed operation. This is the channel that decides the exit code.
+   * @lastreviewed null
+   */
   error(message: string): void {
+    // Record before writing: the count must not depend on output mode or on the write succeeding.
+    this.failures?.record(message);
     this.pauser?.pause();
     this.output.write(`ERROR: ${message}\n`);
     this.pauser?.resume();

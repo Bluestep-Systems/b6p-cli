@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false  # See results across all Node versions, not just the first failure.
       matrix:
-        node: ['18', '20', '22']  # engines floor (>=18) through current maintenance LTS.
+        node: ['24', '26']  # 24 = maintenance LTS and the engines floor (>=24); 26 = Active LTS.
 
     steps:
       - name: Checkout repository
@@ -49,20 +49,25 @@ jobs:
       - name: Install dependencies
         run: |
           for i in 1 2 3; do
-            npm ci --prefer-offline --no-audit && break
+            npm ci --prefer-offline --no-audit && exit 0
             echo "Attempt $i failed, retrying..."
             sleep 5
           done
+          echo "::error::npm ci failed after 3 attempts"
+          exit 1
         shell: bash
 
       - name: Type check
         run: npm run check-types
 
-      - name: Compile
-        run: npm run compile
+      # Prettier is a documented static gate (AGENTS.md) and was previously only
+      # ever run by hand, so unformatted code could merge green.
+      - name: Format check
+        run: npm run format-check
 
       # Unit tests run on compiled .cjs (esbuild.test.js → dist-test/), so they
       # pass on every Node in the matrix without type-stripping.
+      # `npm test` compiles first (pretest), so there is no separate Compile step.
       - name: Unit tests
         run: npm test
 

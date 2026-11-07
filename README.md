@@ -1,8 +1,10 @@
 # @bluestep-systems/b6p-cli
 
-Command-line interface for managing [BlueStep](https://www.bluestep.net/) B6P
-scripts: pull components from the platform, push changes back, audit local vs.
-server, snapshot history, and deploy across targets.
+Headless command-line interface for the [BlueStep](https://www.bluestep.net/) platform.
+
+Script management is the subsystem it covers today — pull components from the platform,
+push changes back, audit local vs. server, snapshot history, and deploy across targets —
+under `b6p script`. Further subsystems will appear alongside it as top-level names.
 
 The CLI shares its core implementation
 ([`@bluestep-systems/b6p-core`](https://github.com/Bluestep-Systems/b6p-core)) with the
@@ -12,7 +14,7 @@ terminals, CI pipelines, and scripts.
 ## Installation
 
 This package is published to the public [npm registry](https://www.npmjs.com/), so no authentication is
-required to install it.
+required to install it. Requires **Node.js 24 or newer** (the standalone binaries below bundle their own).
 
 1. Install globally:
 
@@ -77,19 +79,44 @@ means the token expired or its account lost access, not that it is the wrong kin
 
 ## Commands
 
+`b6p` is organised as `b6p <subsystem> <verb>`. Each top-level name is a part of the
+platform; the verbs beneath it act on that part.
+
+### `b6p script` — script trees
+
 | Command | Purpose |
 |---|---|
-| `b6p pull <webdav-url>` | Pull a script by URL |
-| `b6p pull --file <path>` | Pull using metadata stored with a local file |
-| `b6p push --file <path>` | Push local files to the platform |
-| `b6p push --file <path> --snapshot --message "…"` | Push and record a versioned snapshot |
-| `b6p push --file <path> --overwrite <file>` | Push, overwriting a file that changed on the platform |
-| `b6p audit --file <path>` | Diff local vs. server |
-| `b6p audit --file <path> --pull` | Audit and pull if differences found |
-| `b6p deploy <config.json>` | Multi-target deploy from a config file |
-| `b6p setup --file <path>` | Print the web-UI setup URL for a script |
+| `b6p script pull <webdav-url>` | Pull a script by URL |
+| `b6p script pull --file <path>` | Pull using metadata stored with a local file |
+| `b6p script push --file <path>` | Push local files to the platform |
+| `b6p script push --file <path> --snapshot --message "…"` | Push and record a versioned snapshot |
+| `b6p script push --file <path> --overwrite <file>` | Push, overwriting a file that changed on the platform |
+| `b6p script audit --file <path>` | Diff local vs. server |
+| `b6p script audit --file <path> --pull` | Audit and pull if differences found |
+| `b6p script deploy <config.json>` | Multi-target deploy from a config file |
+| `b6p script setup --file <path>` | Print the web-UI setup URL for a script |
+
+> **Moved.** These were previously top-level (`b6p push`, `b6p pull`, …). The old
+> spellings still work but are deprecated, warn on use, and **will be removed in a future release** —
+> the top level is being kept free for other platform subsystems.
+
+### `b6p auth` — credentials
+
+| Command | Purpose |
+|---|---|
+| `b6p auth set` | Set or update the access token |
+| `b6p auth status` | Report whether a token is stored (never prompts) |
+| `b6p auth clear` | Clear the stored token |
+
+### Everything else
+
+| Command | Purpose |
+|---|---|
+| `b6p sessions clear` | Clear all active sessions |
+| `b6p config set <key> <value>` | Set a configuration value |
+| `b6p config reset` | Reset all settings to defaults |
 | `b6p report` | Report cached state |
-| `b6p auth set` | Store or replace your platform access token (`b6pt_…`, see [Signing in](#signing-in)) |
+| `b6p check-updates` | Check for CLI updates |
 
 Most commands accept `--json` for machine-readable output and `--yes` to answer every question with
 its default (and print what it answered). Run `b6p <command> --help` for full options.
@@ -107,16 +134,16 @@ take, so `--yes` never overwrites or deletes anything on the platform:
    No keeps them (exit `0`).
 
 When question 1 is declined, the CLI prints the command that confirms it. After checking the
-platform versions (`b6p audit`), confirm specific files up front with `--overwrite`, once per file,
+platform versions (`b6p script audit`), confirm specific files up front with `--overwrite`, once per file,
 using the path the question listed:
 
 ```bash
-b6p --yes push --file <path> --snapshot --overwrite scripts/app.ts --overwrite README.md
+b6p --yes script push --file <path> --snapshot --overwrite scripts/app.ts --overwrite README.md
 ```
 
 Question 2 has no flag: run without `--yes` and answer `Yes`. Answers can be piped, one line per
-question, in order (`printf 'Overwrite all\nYes\n' | b6p push --file <path>`, or `< answers.txt`;
-in PowerShell, `'Overwrite all', 'Yes' | b6p push --file <path>`). The commands the CLI prints are
+question, in order (`printf 'Overwrite all\nYes\n' | b6p script push --file <path>`, or `< answers.txt`;
+in PowerShell, `'Overwrite all', 'Yes' | b6p script push --file <path>`). The commands the CLI prints are
 written for your shell: POSIX, or PowerShell on Windows outside Git Bash.
 
 **Exit codes:** `0` when the push went through (keeping platform-only files is still `0`); `1` when
@@ -128,6 +155,76 @@ diagnostics were reported.
 `liveVerified`, `liveMismatches`, `keptPlatformOnly`, `declinedOverwrites`. A declined overwrite
 prints `pushed: false` with the files in `declinedOverwrites`. Questions, warnings and next steps
 go to stderr.
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | The command completed without reporting an error |
+| `1` | The command failed, or its arguments were rejected |
+| `130` | A prompt was interrupted with Ctrl-C |
+
+`--quiet` and `--json` change what is printed, never the exit code, so it is safe to gate a
+pipeline on:
+
+```bash
+set -e
+b6p script push --file ./src/app.ts --snapshot --message "release $VERSION"
+```
+
+Under `--json`, a failure also writes a machine-readable payload to stdout:
+
+```console
+$ b6p --json script deploy missing.json
+{
+  "error": "Config file not found: missing.json",
+  "errors": ["Config file not found: missing.json"]
+}
+```
+
+Note that a command reporting a *value* has still succeeded — `b6p auth status` exits `0` whether
+or not a token is stored. Branch on its output, not its exit code:
+
+```bash
+b6p --json auth status | jq -e .authenticated >/dev/null
+```
+
+> **Changed in 0.9.0.** Failing commands previously exited `0`. If a pipeline was relying on
+> `b6p` never failing, it will now correctly go red.
+
+**Known gap:** a multi-target `b6p script deploy` in which some targets fail still exits `0` and
+prints "Deploy complete!". Check the log output until this is fixed upstream.
+
+## Unattended use
+
+Every command is usable from a script, but two flags matter:
+
+- `--yes` skips confirmation prompts. If a command needs a value it cannot guess, it now **fails
+  immediately** rather than blocking on a prompt no one will answer.
+- `--json` writes machine-readable output to stdout and keeps all human text on stderr.
+
+A closed stdin is also an error rather than a hang, so `b6p … < /dev/null` in CI fails fast
+instead of stalling until the job times out.
+
+## Authentication
+
+The token from [Signing in](#signing-in) is stored in encrypted secret storage under `~/.b6p/`.
+Any command that needs credentials prompts for a token if none is stored, so `b6p auth set` is
+optional — but it is the only way to *replace* a token without clearing it first.
+
+For unattended use, check for credentials before running anything that might prompt:
+
+```bash
+if [ "$(b6p --json auth status | jq -r .authenticated)" != "true" ]; then
+  echo "no b6p token configured" >&2; exit 1
+fi
+```
+
+Set a token non-interactively by piping it in:
+
+```bash
+echo "$B6P_TOKEN" | b6p auth set
+```
 
 ## WebDAV URL format
 
@@ -145,8 +242,9 @@ npm install
 npm run check-types   # tsc --noEmit
 npm run compile       # esbuild → dist/cli.js (self-contained bundle)
 npm run watch         # esbuild --watch
+npm run test          # bundle test/ → dist-test/ and run node --test
 npm run format        # prettier --write
-npm run clean         # rm -rf dist
+npm run clean         # rm -rf dist dist-test
 ```
 
 `npm run compile` bundles the CLI and `@bluestep-systems/b6p-core` into a single self-contained

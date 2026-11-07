@@ -37,10 +37,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Node.js 22
+      - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: package-lock.json
           registry-url: 'https://registry.npmjs.org'
@@ -48,10 +48,12 @@ jobs:
       - name: Install dependencies
         run: |
           for i in 1 2 3; do
-            npm ci --prefer-offline --no-audit && break
+            npm ci --prefer-offline --no-audit && exit 0
             echo "Attempt $i failed, retrying..."
             sleep 5
           done
+          echo "::error::npm ci failed after 3 attempts"
+          exit 1
         shell: bash
 
       # Guard against publishing a tag whose version doesn't match package.json.
@@ -70,8 +72,14 @@ jobs:
       - name: Type check
         run: npm run check-types
 
-      - name: Compile
-        run: npm run compile
+      - name: Format check
+        run: npm run format-check
+
+      # A tag can be pushed without ever going through a PR, so the test suite
+      # has to gate the publish too — ci.yml is not on this path.
+      # `npm test` compiles first (pretest), so there is no separate Compile step.
+      - name: Unit tests
+        run: npm test
 
       # Smoke test: the bundled binary must start and print usage.
       - name: Smoke-run CLI

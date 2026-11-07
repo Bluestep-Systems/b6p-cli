@@ -9,10 +9,12 @@ import assert from "node:assert";
 import type { PushResult } from "@bluestep-systems/b6p-core";
 import {
   declinedPushJson,
+  canonicalPushArgs,
   deleteCommand,
   detectShellDialect,
   overwriteCommand,
   pushExitCode,
+  pushFailureNotice,
   shellQuote,
   toPushJson,
 } from "../src/pushOutcome";
@@ -176,5 +178,46 @@ describe("deleteCommand", () => {
 
   it("PowerShell: pipes the string 'Yes' (no printf there)", () => {
     assert.strictEqual(deleteCommand(args, "powershell"), "'Yes' | b6p --json push --file d/app.ts --message 'v2 fix'");
+  });
+});
+
+describe("pushFailureNotice", () => {
+  it("adds no second error line when core already reported the failure", () => {
+    assert.strictEqual(pushFailureNotice(result({ pushed: false }), true), null);
+    assert.strictEqual(pushFailureNotice(result({ historyRecorded: false }), true), null);
+  });
+
+  it("speaks once when core said nothing", () => {
+    assert.match(pushFailureNotice(result({ pushed: false }), false) ?? "", /^Nothing was pushed/);
+    assert.match(pushFailureNotice(result({ historyRecorded: false }), false) ?? "", /history entry was NOT recorded/);
+  });
+
+  it("stays silent for a clean push, and the exit code is independent of it", () => {
+    assert.strictEqual(pushFailureNotice(result(), false), null);
+    assert.strictEqual(pushExitCode(result({ pushed: false })), 1);
+  });
+});
+
+describe("canonicalPushArgs", () => {
+  it("rewrites the deprecated top-level spelling to the noun-first one", () => {
+    assert.deepStrictEqual(canonicalPushArgs(["push", "--file", "a.ts"]), ["script", "push", "--file", "a.ts"]);
+    assert.deepStrictEqual(canonicalPushArgs(["--yes", "--json", "push", "--file", "a.ts"]), [
+      "--yes",
+      "--json",
+      "script",
+      "push",
+      "--file",
+      "a.ts",
+    ]);
+  });
+
+  it("leaves the noun-first spelling alone", () => {
+    const args = ["--yes", "script", "push", "--file", "a.ts"];
+    assert.deepStrictEqual(canonicalPushArgs(args), args);
+  });
+
+  it("is what the printed commands use", () => {
+    assert.match(overwriteCommand(canonicalPushArgs(["push"]), ["a.ts"], "posix"), /^b6p script push --overwrite a\.ts$/);
+    assert.match(deleteCommand(canonicalPushArgs(["--yes", "push"]), "posix"), /b6p script push$/);
   });
 });

@@ -40,7 +40,7 @@ jobs:
         include:
           - os: windows-latest # x64
             asset: b6p-windows-x64.exe
-          - os: macos-13 # Intel
+          - os: macos-15-intel # Intel
             asset: b6p-macos-x64
           - os: macos-14 # Apple Silicon
             asset: b6p-macos-arm64
@@ -59,10 +59,10 @@ jobs:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
 
-      - name: Setup Node.js 22
+      - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: package-lock.json
 
