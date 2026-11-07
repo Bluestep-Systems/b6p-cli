@@ -79,6 +79,17 @@ export function describeGatewayError(err: unknown): string | undefined {
   if (err instanceof Err.GatewayTooLargeError) {
     return `${what}\nThe push is bigger than the gateway accepts. Push fewer or smaller files.`;
   }
+  if (err instanceof Err.GatewayOutcomeUnknownError) {
+    const done =
+      err.operation === "rotate"
+        ? "The token may already have been rotated, in which case the old one is revoked and the new secret was never received."
+        : "The token may already have been created, and its secret was never received.";
+    const next =
+      err.operation === "rotate"
+        ? "Run `b6p auth token list` to check. If b6p is now refused (`b6p kb list` fails with a token error), mint a new token in the web token page and run `b6p auth set`; otherwise rotate again."
+        : "Run `b6p auth token list` to check for the alias. If it is there, revoke it (`b6p auth token revoke --tokenid <alias>`) and create it again, since its secret cannot be recovered.";
+    return `${what}\n${done} ${next}`;
+  }
   if (err instanceof Err.GatewayUnavailableError) {
     return `${what}\nThe gateway or the git server behind it could not be reached, or stopped responding. Check your network and try again in a minute.`;
   }
@@ -115,6 +126,8 @@ export function describeGatewayError(err: unknown): string | undefined {
         return `${what}\nThe branch tracks nothing. Check out the knowledge base's branch that came from the pull and try again.`;
       case "diverged":
         return `${what}\nBoth your folder and the server have new commits. b6p only fast-forwards: merge or rebase with git inside the folder, then push, or pull into a fresh folder.`;
+      case "unsafe-target":
+        return `${what}\nThat folder path contains a \`.git\` (or \`git~1\`-style) component, which a clone must not be placed under. Choose a different folder.`;
       case "ref-not-found":
         return `${what}\nThe server has no such branch or tag. See \`b6p marketplace list\` for the available tags.`;
     }
@@ -134,9 +147,19 @@ export function describeGatewayError(err: unknown): string | undefined {
       case "wrong-branch": {
         const live = err.liveBranch ?? "the live branch";
         const now = err.branch === null ? "a detached head" : `branch ${err.branch}`;
-        return `${what}\nThe folder is on ${now}, and pushes go to ${live} only. Switch to ${live} (\`git switch ${live}\`) before pushing.`;
+        const tracks =
+          err.upstream === null
+            ? "tracks nothing"
+            : `tracks ${err.upstream}${err.liveBranch !== null && err.upstream === `origin/${err.liveBranch}` ? "" : ` rather than origin/${live}`}`;
+        return `${what}\nThe folder is on ${now}${err.branch === null ? "" : ` and ${tracks}`}, and pulls and pushes work on ${live} only. Switch to it (\`git switch ${live}\`; \`git branch --set-upstream-to=origin/${live}\` if it does not track origin/${live}), then try again.`;
       }
     }
+  }
+  if (err instanceof Err.GatewayUnexpectedResponseError && err.code === "redirect-refused") {
+    return `${what}\nb6p never follows a redirect, so the token cannot be sent to another address. Check the gateway address (\`b6p config set gatewayUrl https://gateway.bluestep.net\`), and tell the gateway's operators if it is correct.`;
+  }
+  if (err instanceof Err.GatewayUnexpectedResponseError && err.code === "invalid-git-response") {
+    return `${what}\nThe server answered a git request with something that is not git. A proxy or captive portal may be in the way; check your network and the gateway address, then try again.`;
   }
   if (err instanceof Err.GatewayUnexpectedResponseError) {
     return `${what}\nThe gateway answered in a way b6p does not understand; this may be a version mismatch. Try \`b6p check-updates\`.`;

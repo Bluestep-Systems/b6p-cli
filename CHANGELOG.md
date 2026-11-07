@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   print the secret once on stdout; `--expires` takes `90d` (default), another day count, an ISO date or
   `never` (asks first). Needs the `tokens:self` scope.
 - A token the gateway minted but answered malformedly (`off-contract`) still has its secret printed once, with what to do next.
+- `auth token create --expires` takes a day count, a date (start of that day, UTC) or a full ISO date-time
+  with `Z` or an offset; anything else is refused before a request is sent. `marketplace pull --ref` also
+  accepts full ref names (`refs/tags/v1.0.0`).
 - Gateway errors come with the fix: the scope to mint, `b6p auth set`, the dirty paths, "pull first",
   "choose another folder", "switch to the live branch".
 

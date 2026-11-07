@@ -244,13 +244,27 @@ test("--json: a thrown error also writes {error, errors} to stdout, once, with e
   const body = JSON.parse(run.stdout) as { error: string; errors: string[] };
   assert.match(body.error, /No input available/);
   assert.deepEqual(body.errors, [body.error]);
-  assert.equal(run.stdout.trim().split("\n").filter((l) => l === "{").length, 1, "exactly one JSON document");
+  assert.equal(
+    run.stdout
+      .trim()
+      .split("\n")
+      .filter((l) => l === "{").length,
+    1,
+    "exactly one JSON document"
+  );
 });
 
 test("--json: a failure already reported through Prompt.error is not written a second time", () => {
   const run = runCli(["--json", "--yes", "script", "deploy", "/nonexistent-b6p-config.json"]);
   assert.equal(run.status, EXIT_FAILURE);
-  assert.equal(run.stdout.trim().split("\n").filter((l) => l === "{").length, 1, "exactly one JSON document");
+  assert.equal(
+    run.stdout
+      .trim()
+      .split("\n")
+      .filter((l) => l === "{").length,
+    1,
+    "exactly one JSON document"
+  );
 });
 
 test("without --json a thrown error leaves stdout empty", () => {

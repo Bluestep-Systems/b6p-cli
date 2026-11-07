@@ -99,7 +99,7 @@ test("every knowledge-base reason has advice; wrong-branch says to switch", () =
   const wrong = text(
     new Err.GatewayKnowledgeBaseError("m", "wrong-branch", "global/x", [], { branch: "feat", liveBranch: "master" })
   );
-  assert.match(wrong, /Switch to master/);
+  assert.match(wrong, /Switch to it \(`git switch master`/);
   assert.match(wrong, /branch feat/);
   const detached = text(
     new Err.GatewayKnowledgeBaseError("m", "wrong-branch", "global/x", [], { branch: null, liveBranch: "master" })
@@ -115,6 +115,19 @@ test("parseExpires: default, days, dates, never, and refusals", () => {
   assert.deepEqual(parseExpires("90d", now), { kind: "at", iso: "2027-02-04T00:00:00.000Z" });
   assert.deepEqual(parseExpires("2027-01-31", now), { kind: "at", iso: "2027-01-31T00:00:00.000Z" });
   assert.deepEqual(parseExpires("2027-01-31T12:00:00Z", now), { kind: "at", iso: "2027-01-31T12:00:00.000Z" });
+  assert.deepEqual(parseExpires("2027-01-31T12:00:00+02:00", now), { kind: "at", iso: "2027-01-31T10:00:00.000Z" });
+  assert.deepEqual(parseExpires("2027-01-31T12:00:00.5Z", now), { kind: "at", iso: "2027-01-31T12:00:00.500Z" });
+  // Core takes only a full ISO date-time with Z or an offset; the rest is refused here, before any request.
+  for (const bad of [
+    "2027-01-31T12:00Z",
+    "2027-01-31T12:00:00",
+    "2027-01-31 12:00:00Z",
+    "2027-02-31",
+    "2027-02-31T00:00:00Z",
+    "20270131",
+  ]) {
+    assert.equal(parseExpires(bad, now).kind, "invalid", bad);
+  }
   for (const bad of ["0d", "-5d", "soon", "90", "2020-01-01", "2027-13-45", "d", "1.5d", ""]) {
     assert.equal(parseExpires(bad, now).kind, "invalid", bad);
   }
@@ -198,4 +211,57 @@ test("a git timeout (unavailable) says the gateway stopped responding and to ret
 test("token not-found and ambiguous advice never quote the id or alias the user typed", () => {
   const nf = text(new Err.GatewayNotFoundError("No token matches the given id or alias.", null));
   assert.ok(!nf.includes("my-secret-alias"));
+});
+
+test("an unknown outcome says the token may exist and how to check", () => {
+  const create = text(new Err.GatewayOutcomeUnknownError("No answer came.", "create", null));
+  assert.match(create, /may already have been created/);
+  assert.match(create, /b6p auth token list/);
+  const rotate = text(new Err.GatewayOutcomeUnknownError("No answer came.", "rotate", 504));
+  assert.match(rotate, /may already have been rotated/);
+  assert.match(rotate, /old one is revoked/);
+  assert.match(rotate, /b6p auth set/);
+});
+
+test("redirect-refused and invalid-git-response have their own advice", () => {
+  assert.match(text(new Err.GatewayUnexpectedResponseError("m", 302, "redirect-refused")), /never follows a redirect/);
+  assert.match(text(new Err.GatewayUnexpectedResponseError("m", 200, "invalid-git-response")), /not git/);
+  assert.match(text(new Err.GatewayUnexpectedResponseError("m", 418, null)), /version mismatch/);
+});
+
+test("unsafe-target asks for another folder", () => {
+  assert.match(text(new Err.GatewayWorkingCopyError("m", "unsafe-target")), /different folder/);
+});
+
+test("wrong-branch names the branch, what it tracks and the live branch", () => {
+  const untracked = text(
+    new Err.GatewayKnowledgeBaseError("m", "wrong-branch", "global/x", [], {
+      branch: "feat",
+      liveBranch: "master",
+      upstream: null,
+    })
+  );
+  assert.match(untracked, /branch feat and tracks nothing/);
+  assert.match(untracked, /git switch master/);
+  const elsewhere = text(
+    new Err.GatewayKnowledgeBaseError("m", "wrong-branch", "global/x", [], {
+      branch: "master",
+      liveBranch: "master",
+      upstream: "origin/other",
+    })
+  );
+  assert.match(elsewhere, /tracks origin\/other rather than origin\/master/);
+  const detached = text(
+    new Err.GatewayKnowledgeBaseError("m", "wrong-branch", "global/x", [], {
+      branch: null,
+      liveBranch: "master",
+      upstream: null,
+    })
+  );
+  assert.match(detached, /detached head/);
+});
+
+test("the invalid-argument and unsafe-name cases keep their own words or advice", () => {
+  assert.equal(text(new Err.GatewayInvalidArgumentError("The folder is relative.")), "The folder is relative.");
+  assert.match(text(new Err.GatewayKnowledgeBaseError("m", "unsafe-name", "x")), /b6p kb pull <ref> <dir>/);
 });

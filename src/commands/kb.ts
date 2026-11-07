@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { withCore, resolve, type GlobalOpts } from "../context";
+import { withCore, type GlobalOpts } from "../context";
 import { formatTable, printResult, runGateway } from "../gatewayRun";
 
 /**
@@ -69,7 +69,7 @@ export function registerKbCommands(program: Command): void {
         globals(),
         async (ctx) => {
           await runGateway(ctx, async () => {
-            const r = await ctx.core.gateway.kb.push(resolve(dir ?? "."));
+            const r = await ctx.core.gateway.kb.push(dir ?? ".", { cwd: process.cwd() });
             printResult(
               ctx,
               r.pushed

@@ -142,6 +142,62 @@ test("auth token create: --expires never goes ahead under --yes only because it 
   assert.equal(JSON.parse(yes.stdout).neverExpires, true);
 });
 
+test("auth token create: --expires takes a date or a full date-time, and refuses the rest locally", async () => {
+  const before = gateway.requests.length;
+  for (const bad of ["2099-01-01T00:00Z", "2099-01-01T00:00:00", "2099-02-31"]) {
+    const r = await b6p(["auth", "token", "create", "--alias", "d", "--scopes", "kb:read", "--expires", bad]);
+    assert.equal(r.code, 1, bad);
+    assert.match(r.stderr, /not understood/);
+  }
+  assert.equal(gateway.requests.length, before, "a refused --expires sends nothing");
+
+  const date = await b6p([
+    "--json",
+    "auth",
+    "token",
+    "create",
+    "--alias",
+    "d1",
+    "--scopes",
+    "kb:read",
+    "--expires",
+    "2099-01-01",
+  ]);
+  assert.equal(date.code, 0, date.stderr);
+  assert.equal(new Date(JSON.parse(date.stdout).expiresAt).toISOString(), "2099-01-01T00:00:00.000Z");
+  const stamp = await b6p([
+    "--json",
+    "auth",
+    "token",
+    "create",
+    "--alias",
+    "d2",
+    "--scopes",
+    "kb:read",
+    "--expires",
+    "2099-01-01T12:00:00+02:00",
+  ]);
+  assert.equal(stamp.code, 0, stamp.stderr);
+  assert.equal(new Date(JSON.parse(stamp.stdout).expiresAt).toISOString(), "2099-01-01T10:00:00.000Z");
+});
+
+test("kb push and pull, and marketplace pull, hand core the user's cwd: a relative folder is not refused", async () => {
+  // No git server is mounted, so each fails later than argument checking. What this pins is that the
+  // failure is not core's "needs an absolute path / cwd" refusal (GatewayInvalidArgumentError).
+  gateway.repos = [
+    { name: "core", description: "", defaultBranch: "master", tags: [], gitUrl: gateway.gitUrl("marketplace", "core") },
+  ];
+  const runs = [
+    await b6p(["kb", "push", "some-relative-dir"]),
+    await b6p(["kb", "pull", "onboarding", "rel-kb-dir"]),
+    await b6p(["marketplace", "pull", "core", "rel-mp-dir", "--ref", "refs/tags/v1.0.0"]),
+  ];
+  for (const r of runs) {
+    assert.equal(r.code, 1);
+    assert.doesNotMatch(r.stderr, /absolute/i, r.stderr);
+  }
+});
+
 test("auth token create: alias clash and bad --expires fail non-zero", async () => {
   const clash = await b6p(["auth", "token", "create", "--alias", "ci", "--scopes", "kb:read"]);
   assert.equal(clash.code, 1);

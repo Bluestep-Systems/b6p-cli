@@ -37,7 +37,10 @@ export function registerMarketplaceCommands(program: Command): void {
   market
     .command("pull <name> [dir]")
     .description("Clone a marketplace repository into a folder (default ./<name>), or fast-forward an existing clone")
-    .option("--ref <ref>", "A tag or branch to check out (default: the repository's default branch)")
+    .option(
+      "--ref <ref>",
+      "A tag or branch to check out, short or full name such as refs/tags/v1.0.0 (default: the repository's default branch)"
+    )
     .action(async (name: string, dir: string | undefined, opts: { ref?: string }) => {
       await withCore(
         globals(),

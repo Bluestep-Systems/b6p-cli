@@ -108,15 +108,16 @@ platform; the verbs beneath it act on that part.
 | `b6p auth status` | Report whether a token is stored (never prompts) |
 | `b6p auth clear` | Clear the stored token |
 | `b6p auth token list` | List your own tokens (the secret is never shown) |
-| `b6p auth token create --alias <a> --scopes <s,…> [--expires <90d\|ISO date\|never>]` | Mint a token; the secret is printed once |
+| `b6p auth token create --alias <a> --scopes <s,…> [--expires <90d\|date\|date-time\|never>]` | Mint a token; the secret is printed once |
 | `b6p auth token revoke --tokenid <alias\|id>` | Revoke one of your tokens |
 | `b6p auth token rotate --tokenid <alias\|id>` | Replace a token (same alias, scopes and lifetime); the old one dies at once |
 
 `auth token` manages only your **own** tokens and needs the `tokens:self` scope. `create` and `rotate`
 print the new secret **once**, alone on stdout (so `TOKEN=$(b6p auth token create …)` captures it), with
 the details and a "store it now" note on stderr; under `--json` it is the `token` field. A new token's
-scopes can never exceed the token b6p is using. The default lifetime is 90 days; `--expires 30d` or an
-ISO date picks another. `--expires never` warns and asks first (the safe answer, Cancel, is the
+scopes can never exceed the token b6p is using. The default lifetime is 90 days; `--expires 30d`, a date
+(`2027-03-01`, the start of that day UTC) or a full date-time with `Z` or an offset
+(`2027-03-01T12:00:00+02:00`) picks another. `--expires never` warns and asks first (the safe answer, Cancel, is the
 default); under `--yes` it goes ahead only because you typed `never` yourself. Rotating or revoking the
 token b6p is using is allowed: rotating stores the new secret for b6p; revoking leaves b6p holding a dead
 token until you run `b6p auth set`.

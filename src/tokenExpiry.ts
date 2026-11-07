@@ -9,7 +9,8 @@
 export type ExpiresChoice =
   { kind: "default" } | { kind: "never" } | { kind: "at"; iso: string } | { kind: "invalid"; message: string };
 
-const ACCEPTED = "Use a number of days like 90d, an ISO date like 2027-03-01, or never.";
+const ACCEPTED =
+  "Use a number of days like 90d, a date like 2027-03-01, a full date-time like 2027-03-01T12:00:00Z (or with an offset such as +02:00), or never.";
 const DAY_MS = 86_400_000;
 
 /**
@@ -38,9 +39,18 @@ export function parseExpires(raw: string | undefined, now: Date = new Date()): E
     }
     return { kind: "at", iso: new Date(now.getTime() + n * DAY_MS).toISOString() };
   }
-  if (/^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:\d{2}))?$/.test(text)) {
-    const t = Date.parse(text);
-    if (!Number.isNaN(t)) {
+  // A date alone is the start of that day, UTC. Anything with a time must be a full ISO date-time with
+  // seconds and a Z or numeric offset, because core refuses every other spelling.
+  const withDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  const withTime = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.exec(text);
+  const parts = withDate ?? withTime;
+  if (parts) {
+    const full = withDate ? `${text}T00:00:00Z` : text;
+    const t = Date.parse(full);
+    // Date.parse rolls 2027-02-31 over to March; reject a day that does not exist.
+    const day = new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])));
+    const real = day.getUTCMonth() === Number(parts[2]) - 1 && day.getUTCDate() === Number(parts[3]);
+    if (!Number.isNaN(t) && real) {
       if (t <= now.getTime()) {
         return { kind: "invalid", message: `--expires ${raw} is not in the future.` };
       }
