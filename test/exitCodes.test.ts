@@ -244,13 +244,27 @@ test("--json: a thrown error also writes {error, errors} to stdout, once, with e
   const body = JSON.parse(run.stdout) as { error: string; errors: string[] };
   assert.match(body.error, /No input available/);
   assert.deepEqual(body.errors, [body.error]);
-  assert.equal(run.stdout.trim().split("\n").filter((l) => l === "{").length, 1, "exactly one JSON document");
+  assert.equal(
+    run.stdout
+      .trim()
+      .split("\n")
+      .filter((l) => l === "{").length,
+    1,
+    "exactly one JSON document"
+  );
 });
 
 test("--json: a failure already reported through Prompt.error is not written a second time", () => {
   const run = runCli(["--json", "--yes", "script", "deploy", "/nonexistent-b6p-config.json"]);
   assert.equal(run.status, EXIT_FAILURE);
-  assert.equal(run.stdout.trim().split("\n").filter((l) => l === "{").length, 1, "exactly one JSON document");
+  assert.equal(
+    run.stdout
+      .trim()
+      .split("\n")
+      .filter((l) => l === "{").length,
+    1,
+    "exactly one JSON document"
+  );
 });
 
 test("without --json a thrown error leaves stdout empty", () => {
@@ -270,4 +284,12 @@ test("a closed stdout pipe keeps a failure exit code and otherwise exits 0", () 
   assert.equal(exitCodeOnEpipe(130), EXIT_SIGINT);
   assert.equal(exitCodeOnEpipe(undefined), EXIT_SUCCESS);
   assert.equal(exitCodeOnEpipe(0), EXIT_SUCCESS);
+});
+
+test("`script push --help` documents the snapshot refusal, the exit codes and the --json shape", () => {
+  const help = runCli(["script", "push", "--help"]).stdout;
+  assert.match(help, /cannot snapshot, only push saves/);
+  assert.match(help, /snapshot the platform refused to publish/);
+  assert.match(help, /\{ pushed, route, snapshotRefused, compile, publish, historyRecorded, keptPlatformOnly,/);
+  assert.match(help, /"error" is null on success/);
 });

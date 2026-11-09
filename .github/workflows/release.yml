@@ -10,6 +10,14 @@
 #          independent and lives in publish.yml (tag-triggered) — this workflow
 #          does NOT touch it.
 #
+# Pre-release lines: a binary line listed in PRERELEASE_LINES below is marked
+#          "pre-release" on its Release BEFORE any binary is attached, so
+#          `releases/latest/download/<asset>` keeps serving the previous stable
+#          binary. Promote a line by removing it from the list and running
+#          `gh release edit <tag> --prerelease=false --latest`. (An admin can also
+#          tick "Set as a pre-release" when publishing; this job is the backstop.)
+#          Why 0.9 is listed: docs/adr/0003-server-side-compile.md.
+#
 # Toolchain: Node SEA + postject. SEA cannot cross-compile, so each OS/arch is
 #            built on its own runner. See docs/adr/0001-standalone-binary-toolchain.md
 #            and scripts/build-sea.mjs.
@@ -29,9 +37,36 @@ concurrency:
   group: release-${{ github.event.release.tag_name }}
   cancel-in-progress: false # Never cancel an in-flight asset upload.
 
+env:
+  # Space-separated MAJOR.MINOR lines whose standalone binaries ship as a pre-release.
+  # 0.9 needs a server with server-side compile; remove it once every namespace is on the floor tag.
+  PRERELEASE_LINES: '0.9'
+
 jobs:
+  classify:
+    name: Mark pre-release lines
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Mark the Release pre-release when its line is listed
+        run: |
+          set -euo pipefail
+          LINE="$(echo "${TAG#v}" | cut -d. -f1,2)"
+          for listed in $PRERELEASE_LINES; do
+            if [ "$listed" = "$LINE" ]; then
+              gh release edit "$TAG" --prerelease
+              echo "::notice::$TAG is on pre-release line $LINE: marked pre-release"
+              exit 0
+            fi
+          done
+          echo "::notice::$TAG (line $LINE) is not a pre-release line"
+
   build:
     name: Build ${{ matrix.asset }}
+    needs: classify
     runs-on: ${{ matrix.os }}
 
     strategy:

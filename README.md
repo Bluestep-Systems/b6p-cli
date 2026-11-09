@@ -61,6 +61,12 @@ clear it with `xattr -d com.apple.quarantine ~/.bluestep/bin/b6p` and make it ex
 
 The npm install above is unchanged and remains the recommended path wherever Node is available.
 
+**The 0.9 binaries are a GitHub pre-release.** 0.9 compiles on the platform, which needs a server
+version that supports it (see [Pushing](#pushing)); until every organization runs one, the 0.9 Release
+is marked pre-release, so `releases/latest` keeps serving 0.8.x, which works against every server. To
+use 0.9 now, download it from its Release page by tag. `b6p check-updates` only offers non-pre-release
+versions, so it will not suggest 0.9 either.
+
 ## Signing in
 
 `b6p` signs in with your BlueStep platform access token, which starts with `b6pt_`. It is the same
@@ -146,15 +152,38 @@ question, in order (`printf 'Overwrite all\nYes\n' | b6p script push --file <pat
 in PowerShell, `'Overwrite all', 'Yes' | b6p script push --file <path>`). The commands the CLI prints are
 written for your shell: POSIX, or PowerShell on Windows outside Git Bash.
 
-**Exit codes:** `0` when the push went through (keeping platform-only files is still `0`); `1` when
-nothing was uploaded, an overwrite was not confirmed, an upload was refused, or, on a snapshot, a
-live copy is still wrong after one re-send, the history entry wasn't recorded, or type-check
-diagnostics were reported.
+### What a push does, by server version
 
-**`--json`** prints one object on stdout: `pushed`, `historyRecorded`, `typeCheckDiagnostics`,
-`liveVerified`, `liveMismatches`, `keptPlatformOnly`, `declinedOverwrites`. A declined overwrite
-prints `pushed: false` with the files in `declinedOverwrites`. Questions, warnings and next steps
-go to stderr.
+A push saves your sources to `draft/`; the **platform** compiles them (the CLI and core bundle no
+compiler). `b6p` asks the server for its version first (`--verbose` prints the route it took, `--json`
+carries it as `route`):
+
+| Server | `b6p script push` | `b6p script push --snapshot` |
+|---|---|---|
+| Has server-side compile (or a `dev` build) | sources saved, then the platform compiles the draft | the same, then the platform recompiles and publishes the snapshot |
+| Older, unreadable version, or no minimum known | sources saved to `draft/`; nothing compiled (exit `0`) | sources saved, **no snapshot**: prints `cannot snapshot, only push saves` and exits `1` |
+
+The diagnostics, save-gate problems and withheld projects the platform reports are printed on stderr
+(capped, with "N more omitted"). A compile that stops at the save gate, withholds its output
+(`noEmitOnError`) or does not build leaves your sources saved but the platform's output not updated,
+and exits `1`; a compile that finishes with type errors but produced output exits `0` on a plain push.
+There is no `b6p script check` (a dry-run compile is waiting on a platform endpoint).
+
+**Exit codes:** `0` when the push went through (keeping platform-only files is still `0`; so is a
+plain push to a server without server-side compile); `1` when nothing was uploaded, an overwrite was
+not confirmed, an upload was refused, a snapshot was asked of a server that cannot snapshot, the
+platform's compile stopped at its save gate, withheld its output or did not build, the platform
+refused to publish the snapshot (the error line names the reason and what to do), a compile or
+publish request failed (a network failure says to run the push again), or a snapshot published
+nothing or has no history entry.
+
+**`--json`** prints one object on stdout: `pushed`, `route`, `snapshotRefused`, `compile`, `publish`,
+`historyRecorded`, `keptPlatformOnly`, `declinedOverwrites`, `error`. `error` is `null` on success, else
+`{ kind, message }` (the sentence printed on stderr), plus `reason` / `rawReason` for a refused
+publish and `networkFailure` / `messages` for a failed request. When core threw instead of
+returning, `route` and `compile` are `null` ("not known"). A declined overwrite prints
+`pushed: false` with the files in `declinedOverwrites`. Questions, warnings and next steps go to
+stderr.
 
 ## Exit codes
 

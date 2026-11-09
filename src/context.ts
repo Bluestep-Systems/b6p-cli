@@ -7,7 +7,6 @@ import { CliLogger } from "./providers/CliLogger";
 import { CliProgress } from "./providers/CliProgress";
 import { Spinner } from "./providers/Spinner";
 import { WindowsRestartManagerLockDiagnoser } from "./lockDiagnoser/WindowsRestartManagerLockDiagnoser";
-import { resolveTsLibDirs } from "./tsLibs";
 import { migrateLegacyDotfiles } from "./migrate";
 import { FailureTracker, markStdoutJson } from "./exit";
 
@@ -131,8 +130,6 @@ export async function withCore<T>(
     prompt,
     logger,
     progress,
-    // Resolve lib.*.d.ts for the core's bundled TypeScript compile (see tsLibs.ts).
-    typescriptLibDirs: resolveTsLibDirs(),
     // Without this core leaves `updateService` null and `checkForUpdates()` can
     // only ever report "Update service is not configured". Points at THIS
     // repository — the CLI's own releases — not b6p-core's.

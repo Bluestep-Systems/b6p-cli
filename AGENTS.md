@@ -61,9 +61,13 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
   and queues lines: one line answers one prompt, however they arrive, and end of input with the
   queue empty throws `NonInteractiveInputError`. Don't go back to `question()` per prompt: it drops
   a line that arrives with no question pending and never settles at end of input.
-- **`push`'s exit code and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**, as
-  pure functions with their own tests. `--json` is one shape for every push outcome (core's
-  `PushResult` plus `declinedOverwrites`); add fields there, never a second shape. Core says what
+- **`push`'s exit code, error line and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**,
+  as pure functions with their own tests: `pushProblem` is the one verdict (a push that returned a
+  result), `pushErrorOutcome` maps what core throws (`PublishRefusedError`, `ServerCompileRequestError`,
+  `FileSendError`). `--json` is one shape for every push outcome (core's `PushResult` plus
+  `declinedOverwrites` and `error`); add fields there, never a second shape. A snapshot push to a server
+  without server-side compile saves the draft and prints exactly `cannot snapshot, only push saves`
+  (`SNAPSHOT_REFUSED_LINE`, exit 1); scripts match on it, so do not reword it. Core says what
   happened and why; the "how to go on" lines (the `--overwrite` and delete commands) are the CLI's,
   quoted per `ShellDialect` (POSIX, or PowerShell on Windows without `MSYSTEM`/`SHELL`).
 
@@ -88,14 +92,18 @@ the whole CI Node matrix.
 
 - Node **>=24** (`engines`; CI matrix 24 and 26, publish/release build on 24; `@types/node` stays on ^24 so no newer APIs creep in). ES2022 / Node16, `strict`. Base options in `tsconfig.base.json`, `noEmit: true` in `tsconfig.json`
   — esbuild produces the artifact, not the compiler. `types: ["node"]` is set deliberately.
-- **`typescript` is exact-pinned at 5.9.2**, matching the version core bundles, so npm dedupes to one
-  copy. Do not float it to a range or a newer major without reading
-  [docs/adr/0002-typescript-version-strategy.md](docs/adr/0002-typescript-version-strategy.md).
-- **`copy-ts-libs` resolves `typescript` from core's directory, never the repo root** — the shipped
-  `dist/lib/lib.*.d.ts` are read at runtime by the compiler esbuild inlined, so they must match *that*
-  compiler. The failure mode is silent; the lib-set invariant test is what makes a mismatch red.
+- **`typescript` is a build-time devDependency only** (exact-pinned, 5.9.2 today): nothing compiles
+  TypeScript at runtime any more. Compilation is the platform's, done server-side on push
+  ([docs/adr/0003-server-side-compile.md](docs/adr/0003-server-side-compile.md), which supersedes
+  [0002](docs/adr/0002-typescript-version-strategy.md)); core ships no compiler and the CLI bundles none,
+  so there is no `copy-ts-libs`, no `ts-libs` SEA asset and no `typescriptLibDirs`. TypeScript 7 type-checks
+  this repo cleanly; moving the pin is a lockfile change for whoever next regenerates it. **Never
+  externalize or bundle a compiler** (an earlier plan did, and was dropped: ADR 0003).
 - Two artifacts from the same `dist/cli.js`: the npm package (primary) and standalone SEA binaries per
   OS/arch attached to each GitHub Release. → [docs/adr/0001-standalone-binary-toolchain.md](docs/adr/0001-standalone-binary-toolchain.md)
+  A binary line listed in `PRERELEASE_LINES` in [release.yml](.github/workflows/release.yml) (0.9 today) is
+  marked pre-release before its binaries attach; promote it by removing the line and running
+  `gh release edit <tag> --prerelease=false --latest`.
 
 ## Documentation, in the same change
 

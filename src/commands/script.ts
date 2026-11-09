@@ -7,8 +7,11 @@ import {
   deleteCommand,
   detectShellDialect,
   overwriteCommand,
+  pushDetailLines,
+  pushErrorOutcome,
   pushExitCode,
-  pushFailureNotice,
+  pushProblem,
+  routeVerboseLines,
   toPushJson,
 } from "../pushOutcome";
 
@@ -35,14 +38,25 @@ Questions a push can ask (both default to the safe answer, which --yes and an em
     printf 'Overwrite all\\nYes\\n' | b6p script push --file <path>
     'Overwrite all', 'Yes' | b6p script push --file <path>        (PowerShell)
 
+Which route a push takes depends on the server's version (--verbose prints it; --json carries
+it as "route"). A server with server-side compile saves your sources, compiles them there and, for
+--snapshot, publishes the result. An older server cannot compile: a plain push just saves the
+sources to draft/; --snapshot saves them too, then refuses the snapshot (exit 1) with
+"cannot snapshot, only push saves".
+
 Exit codes:
-  0  pushed (keeping platform-only files is still 0)
-  1  nothing uploaded; an overwrite not confirmed; an upload refused; on a snapshot, a live copy
-     still wrong after one re-send, no history entry recorded, or type-check diagnostics
+  0  pushed (keeping platform-only files is still 0; so is a plain push to a server without
+     server-side compile, and a compile that finished with errors but produced output)
+  1  nothing uploaded; an overwrite not confirmed; an upload refused; --snapshot to a server that
+     cannot snapshot; the platform's compile stopped at its save gate, withheld its output or did
+     not build; a snapshot the platform refused to publish, that published nothing, or that has
+     no history entry; a compile or publish request that failed
 
 --json prints one object on stdout:
-  { pushed, historyRecorded, typeCheckDiagnostics, liveVerified, liveMismatches,
-    keptPlatformOnly, declinedOverwrites }
+  { pushed, route, snapshotRefused, compile, publish, historyRecorded, keptPlatformOnly,
+    declinedOverwrites, error }
+  "error" is null on success, else { kind, message } (plus reason/rawReason for a refused
+  publish, networkFailure/messages for a failed request): the same sentence printed on stderr.
   A declined overwrite prints pushed: false with the files in declinedOverwrites; a cancelled
   target-URL prompt prints { cancelled: true }. Questions, warnings and next steps go to stderr.
 `;
@@ -91,7 +105,14 @@ const addPush: Registrar = (parent, globals, hidden) =>
               emitJson({ cancelled: true });
               return;
             }
-            emitJson(toPushJson(result));
+            emitJson(toPushJson(result, isSnapshot));
+            for (const line of routeVerboseLines(result)) {
+              logger.info(line);
+            }
+            const details = pushDetailLines(result);
+            if (details.length > 0) {
+              prompt.notice(details.join("\n"));
+            }
             // Core's warning says which platform-only files were kept and why; how to delete them is ours.
             if (result.keptPlatformOnly.length > 0) {
               prompt.notice(
@@ -99,15 +120,15 @@ const addPush: Registrar = (parent, globals, hidden) =>
                   `again without --yes and answer Yes to the delete question:\n  ${deleteCommand(args, dialect)}`
               );
             }
-            // Core usually reports a failed push itself; the CLI adds its line only when it did not,
-            // so a failed push prints one error. The exit code below does not depend on it.
-            const notice = pushFailureNotice(result, hasFailed());
-            if (notice !== null) {
-              fail(notice);
+            // One error line, built by the same rule as the exit code. Core usually reports a failed push
+            // itself (Prompt.error); the CLI adds its line only when it did not, so a failed push prints one
+            // error. The snapshot refusal is core's warning, never an error, so its line is always ours.
+            const problem = pushProblem(result, isSnapshot);
+            if (problem !== null && (problem.kind === "SNAPSHOT_REFUSED" || !hasFailed())) {
+              fail(problem.message);
             }
-            // The rule for every outcome (live copy wrong, type-check diagnostics, ...) is in pushOutcome.ts.
             // `exitCode` rather than `exit()` so an in-flight --json write still flushes.
-            if (pushExitCode(result) !== 0) {
+            if (pushExitCode(result, isSnapshot) !== 0) {
               process.exitCode = 1;
             }
           } catch (e) {
@@ -120,11 +141,23 @@ const addPush: Registrar = (parent, globals, hidden) =>
                 `After checking ${n ? "it" : "them"}, overwrite ${n ? "it" : "them"} ` +
                   `with your local ${n ? "file" : "files"} with:\n  ${overwriteCommand(args, e.paths, dialect)}`
               );
-              emitJson(declinedPushJson(e.paths));
+              emitJson(declinedPushJson(e.paths, e.message));
               return;
             }
-            // Core logs a refused upload as "Failed to push <file>: <details>" and then rethrows it;
-            // the top-level handler would print the same details a second time.
+            // A publish refusal, a failed compile/publish request and a refused upload each get one
+            // error line (what core says, then what to do) and a --json body with the same verdict.
+            const mapped = pushErrorOutcome(e, e instanceof Error && logger.hasReported(e.message));
+            if (mapped !== null) {
+              spinner.stop();
+              if (mapped.problem.details.length > 0) {
+                prompt.notice(mapped.problem.details.join("\n"));
+              }
+              emitJson(mapped.json);
+              fail(mapped.problem.message);
+              return;
+            }
+            // Core logs some other failures and then rethrows them; the top-level handler would
+            // print the same details a second time.
             if (e instanceof Error && logger.hasReported(e.message)) {
               spinner.stop();
               process.stderr.write("Push stopped: the error above has the details.\n");
@@ -136,6 +169,26 @@ const addPush: Registrar = (parent, globals, hidden) =>
         });
       }
     );
+
+// TODO(script check): there is deliberately no `b6p script check`. The local type-check went with
+// the client-side compiler (docs/adr/0003): the platform compiles on push, and a push's compile
+// result (diagnostics, gate problems) is what tells you a script does not build. "The best way to do
+// this is obviously the dry-run endpoint but that is way too far afield" (campaign ruling 76): when
+// the platform offers a dry-run compile (compile the draft without saving or publishing), this is
+// where the command goes, as a verb beside push that prints the same diagnostics and exits non-zero
+// on the same statuses (src/pushOutcome.ts):
+//
+// const addCheck: Registrar = (parent, globals, hidden) =>
+//   parent
+//     .command("check", { hidden })
+//     .description("Dry-run the platform's compile of a script's draft, saving nothing")
+//     .option("--file <path>", "Derive the script from local file metadata")
+//     .option("--root <path>", "Script root folder")
+//     .action(async () => {
+//       // POST the draft to the dry-run endpoint, print compileDetailLines(...), exit by pushProblem's rule.
+//     });
+//
+// Then add it to REGISTRARS below and to test/commandTree.test.ts.
 
 const addPull: Registrar = (parent, globals, hidden) =>
   parent
