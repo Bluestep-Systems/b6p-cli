@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking)
 
+- **Pushes are compiled on the platform; the CLI bundles no compiler** (needs `@bluestep-systems/b6p-core`
+  0.9.0, [ADR 0003](docs/adr/0003-server-side-compile.md)). `b6p script push` saves your sources and the
+  platform compiles them; `--snapshot` also publishes the result. The local type-check a snapshot push
+  ran is gone, and with it `typeCheckDiagnostics`, `liveVerified` and `liveMismatches` from `--json`
+  (new: `route`, `snapshotRefused`, `compile`, `publish`, `error`; see the README). Against a server
+  without server-side compile a plain push only saves `draft/`, and `--snapshot` saves the draft, takes
+  no snapshot, prints `cannot snapshot, only push saves` and exits `1`.
+- **A compile that stops at the platform's save gate, withholds its output or does not build exits `1`**,
+  as does a snapshot the platform refuses to publish; each prints one error line saying what to do and
+  lists the platform's diagnostics, capped with "N more omitted". A failed compile or publish request
+  says to run the push again when it was a network failure.
+- **The standalone binaries for 0.9 are a GitHub pre-release** until every server supports server-side
+  compile (`release.yml`'s `PRERELEASE_LINES` marks a listed line pre-release before its binaries attach).
+  `releases/latest` keeps serving 0.8.x meanwhile, and `b6p check-updates` does not offer a pre-release.
 - **Node.js 24 or newer is required** (`engines.node` is `>=24`); Node 18 to 22 are no longer supported.
   CI tests Node 24 and 26, the publish and release builds run on Node 24, and `@types/node` is `^24`.
   The standalone binaries bundle their own Node and are unaffected. `engines` is only advisory to npm,
@@ -28,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to stdout instead of leaving stdout empty. This covers errors that are thrown (such as no input
   available for a prompt) as well as failures core reports, and never writes two documents.
 - `130` is the exit code when a prompt is interrupted with Ctrl-C.
+
+### Removed
+
+- `copy-ts-libs`, the SEA `ts-libs` asset, `typescriptLibDirs` and the TypeScript lib invariant test:
+  nothing compiles in the CLI any more.
 
 ### Changed
 
