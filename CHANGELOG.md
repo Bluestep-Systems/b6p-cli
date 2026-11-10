@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Gateway contract delta (2026-11-10)**: `auth token create` without `--expires` mints for the sooner of 90 days and the stored token's own expiry and prints a note with the date when it cut it; a `--expires` (or `never`) past the stored token's expiry is explained, and so are the 400 (`invalid-request`), 409 `token-limit` (revoke an unused token) and 503 `registry-unavailable` answers. `auth token list` shows expired tokens, `CREATED` (`unknown` when the gateway has no creation time) and an approximate `LAST USED`.
+- **Gateway contract delta (2026-11-10)**: `auth token create` without `--expires` mints for the sooner of 90 days and the stored token's own expiry and prints a note with the date when it cut it; a `--expires` (or `never`) past the stored token's expiry is explained, and so are the 400 (`invalid-request`), 409 `token-limit` (revoke an unused token) and 503 `registry-unavailable` answers. a 403 `restricted-mints-disabled` says token creation for that scope set is not enabled yet (only `mcp`-scoped tokens can be minted for now). `auth token list` shows expired tokens, `CREATED` (`unknown` when the gateway has no creation time) and an approximate `LAST USED`.
 - **`b6p kb list|pull|push`** - browse, clone and push the knowledge bases (global and tenant) the stored
   `b6pt_` token may reach, through the BlueStep gateway. Pulls fast-forward an existing clone and never
   overwrite local changes; pushes are fast-forward only, to the live branch.

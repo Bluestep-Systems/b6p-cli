@@ -7,12 +7,6 @@ import { Err } from "@bluestep-systems/b6p-core";
  */
 export interface GatewayErrorContext {
   gatewayUrl?: string;
-  /**
-   * What the command was doing, when that changes the advice. `token-create`: a `403 not-permitted` on
-   * a mint can also be the gateway refusing restricted tokens during its rollout.
-   * @lastreviewed null
-   */
-  operation?: "token-create";
 }
 
 /**
@@ -76,8 +70,16 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
     return `${what}\nYou already hold ${max} tokens. Revoke one you no longer use (see \`b6p auth token list\`, then \`b6p auth token revoke --tokenid <alias>\`) and try again. Expired tokens do not count.`;
   }
   if (err instanceof Err.GatewayTokenExpiryRefusedError) {
-    const asked = err.requestedExpiresAt === null ? "never expires" : `expires ${err.requestedExpiresAt}`;
+    const asked =
+      err.requestedExpiresAt === undefined
+        ? "would outlive the token b6p is using"
+        : err.requestedExpiresAt === null
+          ? "never expires"
+          : `expires ${err.requestedExpiresAt}`;
     return `${what}\nThe new token ${asked}, but the token b6p is using expires ${err.presentingExpiresAt}, and a new token cannot outlive the one that creates it. Pass a --expires before ${err.presentingExpiresAt}, or leave --expires out to get the longest allowed. For a longer-lived token, mint one in the web token page and store it with \`b6p auth set\`.`;
+  }
+  if (err instanceof Err.GatewayRestrictedMintsDisabledError) {
+    return `${what}\nToken creation for that scope set is not enabled yet; for now only tokens with just the \`mcp\` scope can be minted. Try again later, or use a token with the scopes you need from the web token page if you have one.`;
   }
   if (err instanceof Err.GatewayAliasTakenError) {
     return `${what}\nChoose another --alias, or revoke the existing token (\`b6p auth token revoke --tokenid <alias>\`) and create this one again.`;
@@ -104,9 +106,6 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
     return `${what}\nYou can read ${err.ref} but not push to it. Only that knowledge base's managers (or super users) may push to a global one; ask one of them, or use a tenant you are vouched for.`;
   }
   if (err instanceof Err.GatewayNotPermittedError) {
-    if (context.operation === "token-create") {
-      return `${what}\nThe gateway refused to mint this token. Your account may not be allowed to, or the gateway may not yet issue tokens with scopes beyond \`mcp\` (it is being rolled out): try again later, or ask the gateway's operators.`;
-    }
     return `${what}\nYour account is not allowed to do this, whatever the token's scopes. Ask someone who manages the target.`;
   }
   if (err instanceof Err.GatewayNotFoundError) {

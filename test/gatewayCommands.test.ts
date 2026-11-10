@@ -380,11 +380,20 @@ test("a 400 invalid-request, a bare 403 on a mint and a 503 registry-unavailable
   assert.equal(bad.code, 1);
   assert.match(bad.stderr, /rejected what was sent/);
 
-  gateway.failNext({ method: "POST", status: 403, body: { error: "not-permitted", message: "m" } });
+  gateway.restrictedMintsDisabled = true;
   const refused = await b6p(["auth", "token", "create", "--alias", "r", "--scopes", "kb:read", "--expires", "1d"]);
+  gateway.restrictedMintsDisabled = false;
   assert.equal(refused.code, 1);
-  assert.match(refused.stderr, /rolled out/);
+  assert.equal(refused.stdout, "");
+  assert.match(refused.stderr, /not enabled yet/);
+  assert.match(refused.stderr, /mcp/);
   assert.doesNotMatch(refused.stderr, /cannot outlive/);
+
+  gateway.failNext({ method: "POST", status: 403, body: { error: "not-permitted", reason: "something-new", message: "m" } });
+  const unknown = await b6p(["auth", "token", "create", "--alias", "r2", "--scopes", "kb:read", "--expires", "1d"]);
+  assert.equal(unknown.code, 1);
+  assert.match(unknown.stderr, /not allowed/);
+  assert.doesNotMatch(unknown.stderr, /not enabled yet|rolled out/);
 
   gateway.failNext({ status: 503, body: { error: "registry-unavailable", message: "m" } });
   const registry = await b6p(["marketplace", "list"]);

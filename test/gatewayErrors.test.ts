@@ -100,13 +100,14 @@ test("the 2026-11-10 delta errors each say how to go on", () => {
   assert.match(text(new Err.GatewayConflictError("m", "non-fast-forward")), /merge or rebase/);
 });
 
-test("a refused mint that the expiry does not explain mentions the rollout; other 403s do not", () => {
-  const err = new Err.GatewayNotPermittedError("m", "not-permitted");
-  const mint = describeGatewayError(err, { operation: "token-create" });
-  assert.ok(mint !== undefined);
-  assert.match(mint, /rolled out/);
-  assert.match(text(err), /not allowed/);
-  assert.ok(!/rolled out/.test(text(err)));
+test("a restricted-mints-disabled refusal says only mcp tokens can be minted for now; other 403s keep the generic text", () => {
+  const rollout = text(new Err.GatewayRestrictedMintsDisabledError("m"));
+  assert.match(rollout, /not enabled yet/);
+  assert.match(rollout, /`mcp`/);
+  const plain = text(new Err.GatewayNotPermittedError("m", "not-permitted", "something-new"));
+  assert.match(plain, /not allowed/);
+  assert.ok(!/rolled out|not enabled yet/.test(plain), "no hedge about the rollout");
+  assert.match(text(new Err.GatewayTokenExpiryRefusedError("m", undefined, "2026-12-01T00:00:00Z")), /would outlive the token b6p is using/);
 });
 
 test("a dirty tree lists its paths; a mismatch asks for another folder", () => {

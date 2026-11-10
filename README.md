@@ -126,7 +126,7 @@ using runs at once and stores the new secret for b6p. Revoking it asks first (Ca
 `--yes` alone declines, and `--json` with no input fails) because it leaves b6p holding a dead token until
 you run `b6p auth set`; revoking any other token runs at once.
 
-A new token can never outlive the token that creates it: an explicit `--expires` (or `never`) past that date is refused (`403`), and the error says when the stored token expires. You may hold at most 50 live tokens; past that, revoke one you no longer use. `list` shows a token whose creation time the gateway never recorded as `unknown`, and `LAST USED` is approximate (the gateway stamps it at most every 12 hours).
+A new token can never outlive the token that creates it: an explicit `--expires` (or `never`) past that date is refused (`403`), and the error says when the stored token expires. Until the gateway's rollout switch is flipped, only tokens with just the `mcp` scope can be minted (`not enabled yet`). You may hold at most 50 live tokens; past that, revoke one you no longer use. `list` shows a token whose creation time the gateway never recorded as `unknown`, and `LAST USED` is approximate (the gateway stamps it at most every 12 hours).
 
 ### `b6p kb` — knowledge bases
 
