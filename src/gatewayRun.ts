@@ -18,6 +18,10 @@ export async function runGateway(ctx: CliContext, body: () => Promise<void>): Pr
     if (text === undefined) {
       throw err;
     }
+    if (err instanceof Err.GatewayNotPermittedError) {
+      // Under --json, say why in fields as well as prose; a script should not parse the sentence.
+      ctx.emitJson({ error: text, errors: [text], code: err.code, reason: err.reason, scope: err.scope });
+    }
     ctx.fail(text);
   }
 }

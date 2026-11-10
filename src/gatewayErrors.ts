@@ -81,6 +81,9 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
   if (err instanceof Err.GatewayRestrictedMintsDisabledError) {
     return `${what}\nToken creation for that scope set is not enabled yet; for now only tokens with just the \`mcp\` scope can be minted. Try again later, or use a token with the scopes you need from the web token page if you have one.`;
   }
+  if (err instanceof Err.GatewayRewriteNotPermittedError) {
+    return `${what}\nThe \`${err.scope}\` scope needs an account that is allowed to rewrite knowledge bases; ask an administrator. To get a token now, create or rotate it without \`${err.scope}\`.`;
+  }
   if (err instanceof Err.GatewayAliasTakenError) {
     return `${what}\nChoose another --alias, or revoke the existing token (\`b6p auth token revoke --tokenid <alias>\`) and create this one again.`;
   }

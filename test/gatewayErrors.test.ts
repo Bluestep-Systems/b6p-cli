@@ -110,6 +110,14 @@ test("a restricted-mints-disabled refusal says only mcp tokens can be minted for
   assert.match(text(new Err.GatewayTokenExpiryRefusedError("m", undefined, "2026-12-01T00:00:00Z")), /would outlive the token b6p is using/);
 });
 
+test("a rewrite-not-permitted refusal names the scope and says to ask an administrator or drop it", () => {
+  const e = text(new Err.GatewayRewriteNotPermittedError("m", "kb:rewrite"));
+  assert.match(e, /`kb:rewrite`/);
+  assert.match(e, /administrator/);
+  assert.match(e, /without `kb:rewrite`/);
+  assert.ok(!/web token page|--expires/.test(e));
+});
+
 test("a dirty tree lists its paths; a mismatch asks for another folder", () => {
   const dirty = text(new Err.GatewayDirtyWorkingTreeError("m", ["a.md", "docs/b.md"]));
   assert.match(dirty, /a\.md/);

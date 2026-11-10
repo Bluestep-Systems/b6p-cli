@@ -228,6 +228,32 @@ test("auth token list marks the current token; rotate of it re-stores the new se
   assert.equal(after.code, 0, after.stderr);
 });
 
+test("a kb:rewrite refusal on create and on rotate is explained, and --json carries reason and scope", async () => {
+  const refusal = { error: "not-permitted", reason: "rewrite-not-permitted", scope: "kb:rewrite", message: "no" };
+  gateway.failNext({ method: "POST", status: 403, body: refusal });
+  const human = await b6p(["auth", "token", "create", "--alias", "rw-h", "--scopes", "kb:read"]);
+  assert.equal(human.code, 1);
+  assert.match(human.stderr, /administrator/);
+  assert.match(human.stderr, /without `kb:rewrite`/);
+
+  gateway.failNext({ method: "POST", status: 403, body: refusal });
+  const json = await b6p(["--json", "auth", "token", "create", "--alias", "rw-j", "--scopes", "kb:read"]);
+  assert.equal(json.code, 1);
+  const body = JSON.parse(json.stdout);
+  assert.equal(body.reason, "rewrite-not-permitted");
+  assert.equal(body.scope, "kb:rewrite");
+  assert.equal(body.code, "not-permitted");
+  assert.match(body.error, /administrator/);
+  assert.equal(json.stdout.trim().split("\n").filter((l) => l === "{").length, 1, "one JSON document");
+
+  const made = await b6p(["auth", "token", "create", "--alias", "rw-r", "--scopes", "kb:read"]);
+  assert.equal(made.code, 0, made.stderr);
+  gateway.failNext({ method: "POST", status: 403, body: refusal });
+  const rotated = await b6p(["auth", "token", "rotate", "--tokenid", "rw-r"]);
+  assert.equal(rotated.code, 1);
+  assert.match(rotated.stderr, /administrator/);
+});
+
 test("revoking another token, and rotating any token, ask nothing", async () => {
   const made = await b6p(["--json", "auth", "token", "create", "--alias", "tmp", "--scopes", "kb:read"]);
   assert.equal(made.code, 0, made.stderr);
