@@ -73,6 +73,42 @@ test("permission, not-found, conflict and availability errors", () => {
   assert.match(cfg, /server/);
 });
 
+test("the 2026-11-10 delta errors each say how to go on", () => {
+  assert.match(text(new Err.GatewayInvalidRequestError("m", "invalid-request")), /rejected what was sent/);
+  const limit = text(new Err.GatewayTokenLimitError("m", 50));
+  assert.match(limit, /maximum of 50 live tokens/);
+  assert.match(limit, /b6p auth token revoke --tokenid <alias>/);
+  assert.match(text(new Err.GatewayTokenLimitError("m", null)), /maximum number of live tokens/);
+
+  const at = "2026-12-01T00:00:00.000Z";
+  const dated = text(new Err.GatewayTokenExpiryRefusedError("m", "2027-03-01T00:00:00Z", at));
+  assert.match(dated, /expires 2027-03-01T00:00:00Z/);
+  assert.match(dated, new RegExp(`expires ${at}`));
+  assert.match(dated, /--expires before/);
+  assert.match(text(new Err.GatewayTokenExpiryRefusedError("m", null, at)), /never expires/);
+
+  const registry = text(new Err.GatewayUnavailableError("m", 503, "registry-unavailable"));
+  assert.match(registry, /web-global/);
+  assert.match(registry, /Try again/);
+  assert.ok(!/git server/.test(registry));
+  assert.match(text(new Err.GatewayUnavailableError("m", 502, "forge-unavailable")), /git server/);
+
+  // Only the push conflict talks about merging; any other 409 code gets the neutral advice.
+  const other = text(new Err.GatewayConflictError("m", "stale-state"));
+  assert.match(other, /conflict with its current state/);
+  assert.ok(!/merge or rebase/.test(other));
+  assert.match(text(new Err.GatewayConflictError("m", "non-fast-forward")), /merge or rebase/);
+});
+
+test("a refused mint that the expiry does not explain mentions the rollout; other 403s do not", () => {
+  const err = new Err.GatewayNotPermittedError("m", "not-permitted");
+  const mint = describeGatewayError(err, { operation: "token-create" });
+  assert.ok(mint !== undefined);
+  assert.match(mint, /rolled out/);
+  assert.match(text(err), /not allowed/);
+  assert.ok(!/rolled out/.test(text(err)));
+});
+
 test("a dirty tree lists its paths; a mismatch asks for another folder", () => {
   const dirty = text(new Err.GatewayDirtyWorkingTreeError("m", ["a.md", "docs/b.md"]));
   assert.match(dirty, /a\.md/);

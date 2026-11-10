@@ -7,6 +7,12 @@ import { Err } from "@bluestep-systems/b6p-core";
  */
 export interface GatewayErrorContext {
   gatewayUrl?: string;
+  /**
+   * What the command was doing, when that changes the advice. `token-create`: a `403 not-permitted` on
+   * a mint can also be the gateway refusing restricted tokens during its rollout.
+   * @lastreviewed null
+   */
+  operation?: "token-create";
 }
 
 /**
@@ -62,6 +68,17 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
         : "";
     return `${what}\nThe stored token lacks the \`${scope}\` scope. Mint a token with \`${scope}\` (kb:read, kb:push, registry:read, tokens:self are the scopes b6p uses) and run \`b6p auth set\`.${extra}`;
   }
+  if (err instanceof Err.GatewayInvalidRequestError) {
+    return `${what}\nThe gateway rejected what was sent (a malformed value, a bad alias, a past expiry, an unknown scope or a bad filter). Check the options you passed against \`b6p <command> --help\`; if they look right, try \`b6p check-updates\`.`;
+  }
+  if (err instanceof Err.GatewayTokenLimitError) {
+    const max = err.limit === null ? "the maximum number of live" : `the maximum of ${err.limit} live`;
+    return `${what}\nYou already hold ${max} tokens. Revoke one you no longer use (see \`b6p auth token list\`, then \`b6p auth token revoke --tokenid <alias>\`) and try again. Expired tokens do not count.`;
+  }
+  if (err instanceof Err.GatewayTokenExpiryRefusedError) {
+    const asked = err.requestedExpiresAt === null ? "never expires" : `expires ${err.requestedExpiresAt}`;
+    return `${what}\nThe new token ${asked}, but the token b6p is using expires ${err.presentingExpiresAt}, and a new token cannot outlive the one that creates it. Pass a --expires before ${err.presentingExpiresAt}, or leave --expires out to get the longest allowed. For a longer-lived token, mint one in the web token page and store it with \`b6p auth set\`.`;
+  }
   if (err instanceof Err.GatewayAliasTakenError) {
     return `${what}\nChoose another --alias, or revoke the existing token (\`b6p auth token revoke --tokenid <alias>\`) and create this one again.`;
   }
@@ -87,10 +104,16 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
     return `${what}\nYou can read ${err.ref} but not push to it. Only that knowledge base's managers (or super users) may push to a global one; ask one of them, or use a tenant you are vouched for.`;
   }
   if (err instanceof Err.GatewayNotPermittedError) {
+    if (context.operation === "token-create") {
+      return `${what}\nThe gateway refused to mint this token. Your account may not be allowed to, or the gateway may not yet issue tokens with scopes beyond \`mcp\` (it is being rolled out): try again later, or ask the gateway's operators.`;
+    }
     return `${what}\nYour account is not allowed to do this, whatever the token's scopes. Ask someone who manages the target.`;
   }
   if (err instanceof Err.GatewayNotFoundError) {
     return `${what}\nIt does not exist or you cannot see it. Check the name with \`b6p kb list\` / \`b6p marketplace list\` / \`b6p auth token list\`.`;
+  }
+  if (err instanceof Err.GatewayConflictError && err.code !== null && err.code !== "non-fast-forward") {
+    return `${what}\nThe gateway reports a conflict with its current state. Look at \`b6p auth token list\` / \`b6p kb list\` for what is already there, then try again.`;
   }
   if (err instanceof Err.GatewayConflictError) {
     return `${what}\nThe knowledge base has commits your folder does not. Bring them in with git inside the folder (fetch, then merge or rebase; the token is the password), resolve any overlap, then run \`b6p kb push\` again. Or pull into a fresh folder with \`b6p kb pull <ref> <dir>\` and re-apply your changes there.`;
@@ -108,6 +131,9 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
         ? "Run `b6p auth token list` to check. If b6p is now refused (`b6p kb list` fails with a token error), mint a new token in the web token page and run `b6p auth set`; otherwise rotate again."
         : "Run `b6p auth token list` to check for the alias. If it is there, revoke it (`b6p auth token revoke --tokenid <alias>`) and create it again, since its secret cannot be recovered.";
     return `${what}\n${done} ${next}`;
+  }
+  if (err instanceof Err.GatewayUnavailableError && err.code === "registry-unavailable") {
+    return `${what}\nThe gateway could not get an answer from web-global, which holds the registry. Try again in a minute; if it keeps failing, tell the gateway's operators.`;
   }
   if (err instanceof Err.GatewayUnavailableError) {
     return `${what}\nThe gateway or the git server behind it could not be reached, or stopped responding. Check your network and try again in a minute.`;

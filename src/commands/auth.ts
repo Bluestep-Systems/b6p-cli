@@ -95,28 +95,36 @@ function printSecret(ctx: CliContext, secret: string): void {
  * the "how to fix" text. Any other gateway error is reported as usual.
  * @lastreviewed null
  */
-async function runMinting(ctx: CliContext, body: () => Promise<void>): Promise<void> {
-  await runGateway(ctx, async () => {
-    try {
-      await body();
-    } catch (err) {
-      // The same body shape for every failure that carries a secret: the documented `{error, errors}`
-      // plus `operation`, `stored` and the top-level `secret`.
-      const carried =
-        err instanceof Err.GatewayTokenStoreError
-          ? { operation: "rotate", stored: false, secret: err.replacement.token }
-          : err instanceof Err.GatewayOffContractTokenError
-            ? { operation: err.operation, stored: err.stored, secret: err.secret }
-            : undefined;
-      if (carried === undefined) {
-        throw err;
+async function runMinting(
+  ctx: CliContext,
+  body: () => Promise<void>,
+  extra: Parameters<typeof runGateway>[2] = {}
+): Promise<void> {
+  await runGateway(
+    ctx,
+    async () => {
+      try {
+        await body();
+      } catch (err) {
+        // The same body shape for every failure that carries a secret: the documented `{error, errors}`
+        // plus `operation`, `stored` and the top-level `secret`.
+        const carried =
+          err instanceof Err.GatewayTokenStoreError
+            ? { operation: "rotate", stored: false, secret: err.replacement.token }
+            : err instanceof Err.GatewayOffContractTokenError
+              ? { operation: err.operation, stored: err.stored, secret: err.secret }
+              : undefined;
+        if (carried === undefined) {
+          throw err;
+        }
+        const error = describeGatewayError(err) ?? "The gateway answer could not be used.";
+        printSecret(ctx, carried.secret);
+        ctx.emitJson({ error, errors: [error], ...carried });
+        ctx.fail(error);
       }
-      const error = describeGatewayError(err) ?? "The gateway answer could not be used.";
-      printSecret(ctx, carried.secret);
-      ctx.emitJson({ error, errors: [error], ...carried });
-      ctx.fail(error);
-    }
-  });
+    },
+    extra
+  );
 }
 
 const STORE_NOW = "Store this token now: it is shown only this once and cannot be read back.";
@@ -133,7 +141,7 @@ function registerTokenCommands(auth: Command, globals: () => GlobalOpts): void {
 
   token
     .command("list")
-    .description("List your tokens (the secret is never shown); * marks the one b6p is using")
+    .description("List your tokens, expired ones included (the secret is never shown); * marks the one b6p is using")
     .action(async () => {
       await withCore(
         globals(),
@@ -144,13 +152,14 @@ function registerTokenCommands(auth: Command, globals: () => GlobalOpts): void {
               tokens.length === 0
                 ? "No tokens."
                 : formatTable(
-                    ["", "ALIAS", "ID", "SCOPES", "EXPIRES", "LAST USED"],
+                    ["", "ALIAS", "ID", "SCOPES", "CREATED", "EXPIRES", "LAST USED (approx.)"],
                     tokens.map((t) => [
                       t.current ? "*" : "",
                       t.alias,
                       t.id,
                       t.scopes.join(","),
-                      t.expiresAt ?? "never",
+                      t.createdAt ?? "unknown",
+                      t.expired ? `${t.expiresAt} (expired)` : (t.expiresAt ?? "never"),
                       t.lastUsedAt ?? "-",
                     ])
                   );
@@ -169,7 +178,10 @@ function registerTokenCommands(auth: Command, globals: () => GlobalOpts): void {
       "--scopes <scopes>",
       "Comma-separated scopes (e.g. kb:read,kb:push,registry:read); at most your own"
     )
-    .option("--expires <when>", "90d (default), another number of days like 30d, an ISO date, or never")
+    .option(
+      "--expires <when>",
+      "90d (default, or until the token b6p uses expires if sooner), another number of days like 30d, an ISO date, or never"
+    )
     .action(async (opts: { alias: string; scopes: string; expires?: string }) => {
       await withCore(
         globals(),
@@ -187,24 +199,33 @@ function registerTokenCommands(auth: Command, globals: () => GlobalOpts): void {
             ctx.fail("Cancelled: no token was created.");
             return;
           }
-          await runMinting(ctx, async () => {
-            const minted = await ctx.core.gateway.tokens.create({
-              alias: opts.alias,
-              scopes,
-              ...(expires.kind === "never"
-                ? { expiresAt: null }
-                : expires.kind === "at"
-                  ? { expiresAt: expires.iso }
-                  : {}),
-            });
-            printSecret(ctx, minted.token);
-            ctx.prompt.info(
-              `Created token "${minted.alias}" (id ${minted.id}) with scopes ${minted.scopes.join(", ")}, ` +
-                (minted.neverExpires ? "never expiring." : `expiring ${minted.expiresAt}.`)
-            );
-            ctx.prompt.warn(STORE_NOW);
-            ctx.emitJson({ ...minted, secret: minted.token });
-          });
+          await runMinting(
+            ctx,
+            async () => {
+              const minted = await ctx.core.gateway.tokens.create({
+                alias: opts.alias,
+                scopes,
+                ...(expires.kind === "never"
+                  ? { expiresAt: null }
+                  : expires.kind === "at"
+                    ? { expiresAt: expires.iso }
+                    : {}),
+              });
+              printSecret(ctx, minted.token);
+              ctx.prompt.info(
+                `Created token "${minted.alias}" (id ${minted.id}) with scopes ${minted.scopes.join(", ")}, ` +
+                  (minted.neverExpires ? "never expiring." : `expiring ${minted.expiresAt}.`)
+              );
+              if (minted.expiryCapped !== null) {
+                ctx.prompt.info(
+                  `Note: ${minted.expiryCapped.requested} would have outlived the token b6p is using, so this token expires with it, on ${minted.expiryCapped.cappedTo}. Pass an earlier --expires if you want a different date.`
+                );
+              }
+              ctx.prompt.warn(STORE_NOW);
+              ctx.emitJson({ ...minted, secret: minted.token });
+            },
+            { operation: "token-create" }
+          );
         },
         "Creating token…"
       );

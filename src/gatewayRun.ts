@@ -1,20 +1,25 @@
 import { Err } from "@bluestep-systems/b6p-core";
 import type { CliContext } from "./context";
-import { describeGatewayError } from "./gatewayErrors";
+import { describeGatewayError, type GatewayErrorContext } from "./gatewayErrors";
 
 /**
  * Run a gateway call inside a command action. A gateway error is reported with its "how to fix" text
  * through `ctx.fail`, so the command exits non-zero (and `--json` gets `{ error }`); anything else is
  * rethrown for the top-level handler. Never logs the error object itself.
+ * @param extra What the command was doing, when that changes the advice (see {@link GatewayErrorContext}).
  * @lastreviewed null
  */
-export async function runGateway(ctx: CliContext, body: () => Promise<void>): Promise<void> {
+export async function runGateway(
+  ctx: CliContext,
+  body: () => Promise<void>,
+  extra: Pick<GatewayErrorContext, "operation"> = {}
+): Promise<void> {
   try {
     await body();
   } catch (err) {
     // The configured address is only worth a read when the error is about it.
     const gatewayUrl = err instanceof Err.GatewayConfigError ? await configuredGatewayUrl(ctx) : undefined;
-    const text = describeGatewayError(err, { gatewayUrl });
+    const text = describeGatewayError(err, { gatewayUrl, ...extra });
     if (text === undefined) {
       throw err;
     }

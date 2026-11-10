@@ -40,7 +40,7 @@ function b6p(args: string[], stdin = ""): Promise<Run> {
 before(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "b6p-cli-gw-"));
   gateway = await FakeGateway.start();
-  gateway.grantToken(TOKEN, ["kb:read", "kb:push", "registry:read", "tokens:self"], { alias: "laptop" });
+  gateway.grantToken(TOKEN, ["kb:read", "kb:push", "registry:read", "tokens:self"], { alias: "laptop", expiresAt: null });
   gateway.knowledgeBases = [
     {
       ref: "global/onboarding",
@@ -271,6 +271,127 @@ test("confirming revokes the stored token, warns, and later calls fail with advi
 
   const gone = await b6p(["auth", "token", "revoke", "--tokenid", "nope"]);
   assert.equal(gone.code, 1);
+});
+
+/** Grant `secret` as a token of its own, store it for the CLI, and return its secret. */
+async function useToken(
+  secret: string,
+  alias: string,
+  expiresAt: string | null,
+  scopes = ["kb:read", "registry:read", "tokens:self"]
+): Promise<void> {
+  gateway.grantToken(secret, scopes, { alias, expiresAt });
+  const saved = await b6p(["auth", "set"], `${secret}\n`);
+  assert.equal(saved.code, 0, saved.stderr);
+}
+
+const inDays = (n: number): string => new Date(Date.now() + n * 86_400_000).toISOString();
+
+test("auth token create with no --expires is capped at the stored token's expiry, and says so", async () => {
+  const expiry = inDays(10);
+  await useToken("b6pt_e2e_short_0003", "short", expiry);
+  const human = await b6p(["auth", "token", "create", "--alias", "capped", "--scopes", "kb:read"]);
+  assert.equal(human.code, 0, human.stderr);
+  assert.match(human.stdout.trim(), /^b6pt_\S+$/, "the secret is still alone on stdout");
+  assert.match(human.stderr, /would have outlived the token b6p is using/);
+  assert.ok(human.stderr.includes(`on ${expiry}`), human.stderr);
+  assert.ok(!human.stderr.includes(human.stdout.trim()));
+
+  const json = await b6p(["--json", "auth", "token", "create", "--alias", "capped2", "--scopes", "kb:read"]);
+  assert.equal(json.code, 0, json.stderr);
+  const body = JSON.parse(json.stdout);
+  assert.equal(body.expiresAt, expiry);
+  assert.deepEqual(body.expiryCapped, { cappedTo: expiry, requested: "90d" });
+
+  // A token that expires sooner than the stored one is sent as asked and is not "capped".
+  const early = await b6p(["--json", "auth", "token", "create", "--alias", "early", "--scopes", "kb:read", "--expires", "3d"]);
+  assert.equal(early.code, 0, early.stderr);
+  assert.equal(JSON.parse(early.stdout).expiryCapped, null);
+});
+
+test("auth token create: an --expires that outlives the stored token is refused and explained", async () => {
+  const expiry = inDays(10);
+  await useToken("b6pt_e2e_short_0004", "short2", expiry);
+  const later = await b6p(["auth", "token", "create", "--alias", "long", "--scopes", "kb:read", "--expires", "40d"]);
+  assert.equal(later.code, 1);
+  assert.equal(later.stdout, "", "no secret was minted");
+  assert.match(later.stderr, /cannot outlive the one that creates it/);
+  assert.ok(later.stderr.includes(`expires ${expiry}`), later.stderr);
+  assert.match(later.stderr, /--expires before/);
+
+  // Ruling 26 keeps its confirmation; the refusal comes after it.
+  const never = await b6p(["--yes", "--json", "auth", "token", "create", "--alias", "forever-capped", "--scopes", "kb:read", "--expires", "never"]);
+  assert.equal(never.code, 1);
+  const body = JSON.parse(never.stdout);
+  assert.match(body.error, /never expires/);
+  assert.match(body.error, /cannot outlive/);
+  assert.deepEqual(body.errors, [body.error]);
+});
+
+test("auth token create at the 50-token limit explains how to free one, and works after a revoke", async () => {
+  // Its own owner, so the other tests' tokens do not count toward the limit.
+  const scopes = ["kb:read", "tokens:self"];
+  gateway.grantToken("b6pt_e2e_full_0005", scopes, { alias: "full", expiresAt: null, owner: "limit-user" });
+  assert.equal((await b6p(["auth", "set"], "b6pt_e2e_full_0005\n")).code, 0);
+  for (let n = 0; n < 49; n++) {
+    gateway.grantToken(`b6pt_e2e_filler_${n}`, ["kb:read"], { alias: `filler-${n}`, expiresAt: null, owner: "limit-user" });
+  }
+  const full = await b6p(["auth", "token", "create", "--alias", "one-too-many", "--scopes", "kb:read"]);
+  assert.equal(full.code, 1);
+  assert.equal(full.stdout, "");
+  assert.match(full.stderr, /maximum of 50 live tokens/);
+  assert.match(full.stderr, /b6p auth token revoke --tokenid <alias>/);
+
+  const freed = await b6p(["auth", "token", "revoke", "--tokenid", "filler-0"]);
+  assert.equal(freed.code, 0, freed.stderr);
+  const again = await b6p(["auth", "token", "create", "--alias", "one-too-many", "--scopes", "kb:read"]);
+  assert.equal(again.code, 0, again.stderr);
+});
+
+test("auth token list marks expired tokens and an unknown createdAt, in both forms", async () => {
+  gateway.grantToken("b6pt_e2e_expired_01", ["kb:read"], {
+    alias: "gone",
+    id: "tok_gone",
+    owner: "limit-user",
+    createdAt: null,
+    expiresAt: new Date(Date.now() - 86_400_000).toISOString(),
+  });
+  const human = await b6p(["auth", "token", "list"]);
+  assert.equal(human.code, 0, human.stderr);
+  const row = human.stdout.split("\n").find((l) => /\bgone\b/.test(l));
+  assert.ok(row !== undefined, human.stdout);
+  assert.match(row, /unknown/);
+  assert.match(row, /\(expired\)/);
+  assert.match(human.stdout, /CREATED/);
+  assert.match(human.stdout, /LAST USED \(approx\.\)/);
+
+  const json = await b6p(["--json", "auth", "token", "list"]);
+  const gone = JSON.parse(json.stdout).tokens.find((t: { alias: string }) => t.alias === "gone");
+  assert.equal(gone.createdAt, null);
+  assert.equal(gone.expired, true);
+  const current = JSON.parse(json.stdout).tokens.find((t: { current: boolean }) => t.current);
+  assert.equal(current.expired, false);
+});
+
+test("a 400 invalid-request, a bare 403 on a mint and a 503 registry-unavailable are each explained", async () => {
+  await useToken("b6pt_e2e_reg_0006", "reg", null);
+  gateway.failNext({ method: "POST", status: 400, body: { error: "invalid-request", message: "bad alias" } });
+  const bad = await b6p(["auth", "token", "create", "--alias", "badreq", "--scopes", "kb:read"]);
+  assert.equal(bad.code, 1);
+  assert.match(bad.stderr, /rejected what was sent/);
+
+  gateway.failNext({ method: "POST", status: 403, body: { error: "not-permitted", message: "m" } });
+  const refused = await b6p(["auth", "token", "create", "--alias", "r", "--scopes", "kb:read", "--expires", "1d"]);
+  assert.equal(refused.code, 1);
+  assert.match(refused.stderr, /rolled out/);
+  assert.doesNotMatch(refused.stderr, /cannot outlive/);
+
+  gateway.failNext({ status: 503, body: { error: "registry-unavailable", message: "m" } });
+  const registry = await b6p(["marketplace", "list"]);
+  assert.equal(registry.code, 1);
+  assert.match(registry.stderr, /web-global/);
+  const asJson = await b6p(["--json", "marketplace", "list"]);
+  assert.equal(asJson.code, 0, "the next call works again");
 });
 
 test("an off-contract create still shows the minted secret once, then fails", async () => {
