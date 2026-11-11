@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Gateway: `409 live-branch-unprotected`** on `b6p kb push` says nothing was pushed, that the knowledge base's live branch is not protected on the forge, and to ask a Bluestep administrator to restore the protection before pushing again; under `--json` the failure document carries `code`.
 - **Gateway contract delta (2026-11-10)**: `auth token create` without `--expires` mints for the sooner of 90 days and the stored token's own expiry and prints a note with the date when it cut it; a `--expires` (or `never`) past the stored token's expiry is explained, and so are the 400 (`invalid-request`), 409 `token-limit` (revoke an unused token) and 503 `registry-unavailable` answers. a 403 `restricted-mints-disabled` says token creation for that scope set is not enabled yet (only `mcp`-scoped tokens can be minted for now). `auth token list` shows expired tokens, `CREATED` (`unknown` when the gateway has no creation time) and an approximate `LAST USED`. A 403 `rewrite-not-permitted` (a `kb:rewrite` mint or rotate the account may not hold) says to ask an administrator or create the token without that scope, and under `--json` the failure document carries `reason` and `scope`.
 - **`b6p kb list|pull|push`** - browse, clone and push the knowledge bases (global and tenant) the stored
   `b6pt_` token may reach, through the BlueStep gateway. Pulls fast-forward an existing clone and never

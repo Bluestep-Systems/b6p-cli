@@ -114,6 +114,9 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
   if (err instanceof Err.GatewayNotFoundError) {
     return `${what}\nIt does not exist or you cannot see it. Check the name with \`b6p kb list\` / \`b6p marketplace list\` / \`b6p auth token list\`.`;
   }
+  if (err instanceof Err.GatewayLiveBranchUnprotectedError) {
+    return `${what}\nNothing was pushed. The knowledge base's live branch must be protected on the forge, and its protection rule is missing or has changed. Ask a Bluestep administrator to restore the branch protection, then run \`b6p kb push\` again.`;
+  }
   if (err instanceof Err.GatewayConflictError && err.code !== null && err.code !== "non-fast-forward") {
     return `${what}\nThe gateway reports a conflict with its current state. Look at \`b6p auth token list\` / \`b6p kb list\` for what is already there, then try again.`;
   }

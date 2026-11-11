@@ -118,6 +118,14 @@ test("a rewrite-not-permitted refusal names the scope and says to ask an adminis
   assert.ok(!/web token page|--expires/.test(e));
 });
 
+test("a live-branch-unprotected refusal says nothing was pushed and to ask an administrator, not the non-fast-forward advice", () => {
+  const e = text(new Err.GatewayLiveBranchUnprotectedError("m"));
+  assert.match(e, /Nothing was pushed/);
+  assert.match(e, /Bluestep administrator/);
+  assert.match(e, /protect/);
+  assert.ok(!/fetch|rebase|another folder|conflict with/.test(e));
+});
+
 test("a dirty tree lists its paths; a mismatch asks for another folder", () => {
   const dirty = text(new Err.GatewayDirtyWorkingTreeError("m", ["a.md", "docs/b.md"]));
   assert.match(dirty, /a\.md/);

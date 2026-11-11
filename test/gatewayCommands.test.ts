@@ -254,6 +254,22 @@ test("a kb:rewrite refusal on create and on rotate is explained, and --json carr
   assert.match(rotated.stderr, /administrator/);
 });
 
+test("a 409 live-branch-unprotected is explained, and --json carries its code (any gateway call reaches runGateway)", async () => {
+  const refusal = { error: "live-branch-unprotected", message: "protection rule missing" };
+  gateway.failNext({ method: "POST", status: 409, body: refusal });
+  const human = await b6p(["auth", "token", "create", "--alias", "unp-h", "--scopes", "kb:read"]);
+  assert.equal(human.code, 1);
+  assert.match(human.stderr, /Nothing was pushed/);
+  assert.match(human.stderr, /Bluestep administrator/);
+
+  gateway.failNext({ method: "POST", status: 409, body: refusal });
+  const json = await b6p(["--json", "auth", "token", "create", "--alias", "unp-j", "--scopes", "kb:read"]);
+  assert.equal(json.code, 1);
+  const body = JSON.parse(json.stdout);
+  assert.equal(body.code, "live-branch-unprotected");
+  assert.match(body.error, /administrator/);
+});
+
 test("revoking another token, and rotating any token, ask nothing", async () => {
   const made = await b6p(["--json", "auth", "token", "create", "--alias", "tmp", "--scopes", "kb:read"]);
   assert.equal(made.code, 0, made.stderr);
