@@ -37,6 +37,7 @@ and snapshot. 0.8.x clients stop working against a script once it is on git: upd
 - Clear messages, each exiting `1` with nothing changed, for a declined switch, a wrong branch checked out, staged-only changes and symlinks that escape the draft folder.
 - `b6p push --author` and `b6p deploy --author`; `author` and `message` in deploy config files.
 - A push prints the draft and published commit SHAs.
+- `deploy` exits `1` when no author resolves (checked before anything is pushed) or when core reported any error while deploying (a failed target, a refused publish). Before, it printed "Deploy complete!" and exited `0`.
 
 ## [0.8.2] — 2026-10-20
 

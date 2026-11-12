@@ -2,7 +2,7 @@ import { Command } from "commander";
 import * as path from "path";
 import * as fs from "fs/promises";
 import * as os from "os";
-import { B6PCore, Err } from "@bluestep-systems/b6p-core";
+import { B6PCore, resolveGitIdentity } from "@bluestep-systems/b6p-core";
 import { SharedFilePersistence } from "@bluestep-systems/b6p-core";
 import { NodeFileSystem } from "./providers/NodeFileSystem";
 import { CliPrompt } from "./providers/CliPrompt";
@@ -11,26 +11,11 @@ import { CliProgress } from "./providers/CliProgress";
 import { Spinner } from "./providers/Spinner";
 import { WindowsRestartManagerLockDiagnoser } from "./lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 import { resolveTsLibDirs } from "./tsLibs";
-import {
-  declinedPushJson,
-  deleteCommand,
-  describePush,
-  detectShellDialect,
-  overwriteCommand,
-  pushExitCode,
-  toPushJson,
-} from "./pushOutcome";
+import { deleteCommand, describePush, detectShellDialect, pushExitCode, toPushJson } from "./pushOutcome";
 import { describeGitError } from "./gitErrors";
-import {
-  AUTHOR_SETTING,
-  AuthorFormatError,
-  chooseAuthor,
-  deployConfigWithAuthor,
-  isMissingAuthorError,
-  missingAuthorMessage,
-  parseAuthor,
-  type CommitAuthor,
-} from "./author";
+import { pushFailureOf } from "./pushFailure";
+import { deployExitCode, planDeploy, removeTempDir } from "./deployRun";
+import { AUTHOR_SETTING, chooseAuthor, type CommitAuthor } from "./author";
 
 const ENABLE_GIT_HELP =
   "Switch a script that still publishes over WebDAV to git without asking. The switch is one-way. " +
@@ -268,37 +253,16 @@ program
           process.exitCode = 1;
         }
       } catch (e) {
-        // No author anywhere (or a malformed one): nothing was committed. Say how to give one.
-        if (isMissingAuthorError(e) || e instanceof AuthorFormatError) {
+        // No author, a git refusal, or a declined overwrite: nothing was committed. Say what to do.
+        const failure = pushFailureOf(e, args, dialect);
+        if (failure) {
           spinner.stop();
-          prompt.error(isMissingAuthorError(e) ? missingAuthorMessage(e.message) : (e as Error).message);
-          if (globalOpts.json) {
-            process.stdout.write(JSON.stringify(declinedPushJson([]), null, 2) + "\n");
+          prompt.error(failure.message);
+          if (failure.notice) {
+            prompt.notice(failure.notice);
           }
-          process.exitCode = 1;
-          return;
-        }
-        // A declined switch to git, a wrong branch checked out: nothing was committed. Say what to do.
-        const gitMessage = describeGitError(e);
-        if (gitMessage !== undefined) {
-          spinner.stop();
-          prompt.error(gitMessage);
           if (globalOpts.json) {
-            process.stdout.write(JSON.stringify(declinedPushJson([]), null, 2) + "\n");
-          }
-          process.exitCode = 1;
-          return;
-        }
-        // Nothing was uploaded. Core's message says which files and why; how to confirm them is ours.
-        if (e instanceof Err.OverwriteDeclinedError) {
-          spinner.stop();
-          prompt.error(e.message);
-          prompt.notice(
-            `After checking ${e.paths.length === 1 ? "it" : "them"}, overwrite ${e.paths.length === 1 ? "it" : "them"} ` +
-              `with your local ${e.paths.length === 1 ? "file" : "files"} with:\n  ${overwriteCommand(args, e.paths, dialect)}`
-          );
-          if (globalOpts.json) {
-            process.stdout.write(JSON.stringify(declinedPushJson(e.paths), null, 2) + "\n");
+            process.stdout.write(JSON.stringify(failure.json, null, 2) + "\n");
           }
           process.exitCode = 1;
           return;
@@ -430,34 +394,43 @@ Every target gets a git commit of the source draft; "snapshot": true also publis
   )
   .action(async (configFile: string, opts: { author?: string }) => {
     const globalOpts = program.opts();
-    const { core, prompt, spinner } = await createCore(globalOpts);
-    let tempDir: string | undefined;
+    const { core, prompt, logger, spinner } = await createCore(globalOpts);
     try {
-      let configPath = resolve(configFile);
+      const original = resolve(configFile);
+      const text = await fs.readFile(original, "utf-8").catch(() => null);
+      const plan = await planDeploy(text, opts.author, await core.getConfig<unknown>(AUTHOR_SETTING), (dir) =>
+        resolveGitIdentity({ dir })
+      );
+      if (!plan.ok) {
+        prompt.error(plan.message);
+        process.exitCode = 1;
+        return;
+      }
+      let tempDir: string | undefined;
       try {
-        const flagAuthor = opts.author === undefined ? undefined : parseAuthor(opts.author, "--author");
-        const settingAuthor = chooseAuthor(undefined, await core.getConfig<unknown>(AUTHOR_SETTING));
-        const text = await fs.readFile(configPath, "utf-8").catch(() => null);
-        const merged = text === null ? null : deployConfigWithAuthor(text, flagAuthor, settingAuthor);
-        if (merged !== null) {
+        let configPath = original;
+        if (plan.configText !== null) {
           // Core reads the author from the config file, so hand it a copy that carries the chosen one.
           tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "b6p-deploy-"));
           configPath = path.join(tempDir, "deploy.json");
-          await fs.writeFile(configPath, merged, "utf-8");
+          await fs.writeFile(configPath, plan.configText, "utf-8");
         }
-      } catch (e) {
-        if (e instanceof AuthorFormatError) {
-          prompt.error(e.message);
+        const errorsBefore = logger.errorCount + prompt.errorCount;
+        await core.script.deploy({ configPath });
+        // Core logs a failed target and goes on; it returns no per-target results, so count what it reported.
+        if (deployExitCode(logger.errorCount + prompt.errorCount - errorsBefore) !== 0) {
           process.exitCode = 1;
-          return;
         }
-        throw e;
+      } finally {
+        if (tempDir) {
+          await removeTempDir(
+            tempDir,
+            (dir) => fs.rm(dir, { recursive: true, force: true }),
+            (message) => prompt.warn(message)
+          );
+        }
       }
-      await core.script.deploy({ configPath });
     } finally {
-      if (tempDir) {
-        await fs.rm(tempDir, { recursive: true, force: true });
-      }
       spinner.stop();
       prompt.close();
     }

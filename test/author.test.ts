@@ -4,7 +4,7 @@ import assert from "node:assert";
 import {
   AuthorFormatError,
   chooseAuthor,
-  deployConfigWithAuthor,
+  planDeployAuthor,
   isMissingAuthorError,
   missingAuthorMessage,
   parseAuthor,
@@ -68,51 +68,56 @@ describe("missing author", () => {
   });
 });
 
-describe("deployConfigWithAuthor", () => {
+describe("planDeployAuthor", () => {
   const base = { sourceRootPath: "/s", targets: [{ url: "u" }], message: "m" };
+  const text = (extra: object = {}) => JSON.stringify({ ...base, ...extra });
 
-  it("leaves a config alone when nothing chose an author", () => {
-    assert.strictEqual(deployConfigWithAuthor(JSON.stringify(base), undefined, undefined), null);
+  it("leaves a config alone and names no author when nothing chose one", () => {
+    const plan = planDeployAuthor(text(), undefined, undefined);
+    assert.deepStrictEqual([plan.text, plan.author, plan.sourceRootPath], [null, undefined, "/s"]);
   });
 
-  it("leaves a config alone when its own object author is the winner", () => {
-    assert.strictEqual(deployConfigWithAuthor(JSON.stringify({ ...base, author: JANE }), undefined, JOE), null);
+  it("leaves a config alone when its own object author wins", () => {
+    const plan = planDeployAuthor(text({ author: JANE }), undefined, "Joe Roe <joe@example.com>");
+    assert.strictEqual(plan.text, null);
+    assert.deepStrictEqual(plan.author, JANE);
   });
 
   it("adds the setting's author when the file has none, keeping every other field", () => {
-    const out = JSON.parse(deployConfigWithAuthor(JSON.stringify(base), undefined, JANE) ?? "null");
-    assert.deepStrictEqual(out, { ...base, author: JANE });
+    const plan = planDeployAuthor(text(), undefined, "Jane Doe <jane@example.com>");
+    assert.deepStrictEqual(JSON.parse(plan.text ?? "null"), { ...base, author: JANE });
   });
 
   it("--author overrides the file's author and the setting", () => {
-    const out = JSON.parse(deployConfigWithAuthor(JSON.stringify({ ...base, author: JANE }), JOE, JANE) ?? "null");
-    assert.deepStrictEqual(out.author, JOE);
+    const plan = planDeployAuthor(text({ author: JANE }), "Joe Roe <joe@example.com>", "Jane Doe <jane@example.com>");
+    assert.deepStrictEqual(JSON.parse(plan.text ?? "null").author, JOE);
   });
 
   it("converts a Name <email> author in the file to core's object form", () => {
-    const out = JSON.parse(
-      deployConfigWithAuthor(
-        JSON.stringify({ ...base, author: "Jane Doe <jane@example.com>" }),
-        undefined,
-        undefined
-      ) ?? "null"
-    );
-    assert.deepStrictEqual(out.author, JANE);
+    const plan = planDeployAuthor(text({ author: "Jane Doe <jane@example.com>" }), undefined, undefined);
+    assert.deepStrictEqual(JSON.parse(plan.text ?? "null").author, JANE);
   });
 
-  it("rejects a malformed author in the file", () => {
-    assert.throws(
-      () => deployConfigWithAuthor(JSON.stringify({ ...base, author: "nobody" }), undefined, undefined),
-      AuthorFormatError
+  it("a bad lower-priority source never blocks a valid higher one", () => {
+    // A garbage setting under a valid --author, and under a valid file author.
+    assert.deepStrictEqual(planDeployAuthor(text(), "Joe Roe <joe@example.com>", "garbage").author, JOE);
+    assert.deepStrictEqual(planDeployAuthor(text({ author: JANE }), undefined, 42).author, JANE);
+    // A malformed file author under a valid --author.
+    assert.deepStrictEqual(
+      planDeployAuthor(text({ author: "nobody" }), "Joe Roe <joe@example.com>", undefined).author,
+      JOE
     );
-    assert.throws(
-      () => deployConfigWithAuthor(JSON.stringify({ ...base, author: { name: "x" } }), undefined, undefined),
-      AuthorFormatError
-    );
+  });
+
+  it("rejects a malformed winning source", () => {
+    assert.throws(() => planDeployAuthor(text({ author: "nobody" }), undefined, undefined), AuthorFormatError);
+    assert.throws(() => planDeployAuthor(text({ author: { name: "x" } }), undefined, undefined), AuthorFormatError);
+    assert.throws(() => planDeployAuthor(text(), "nobody", undefined), AuthorFormatError);
+    assert.throws(() => planDeployAuthor(text(), undefined, "nobody"), AuthorFormatError);
   });
 
   it("passes unparseable or non-object files through for core to report", () => {
-    assert.strictEqual(deployConfigWithAuthor("{not json", JANE, undefined), null);
-    assert.strictEqual(deployConfigWithAuthor("[]", JANE, undefined), null);
+    assert.strictEqual(planDeployAuthor("{not json", "Jane Doe <jane@example.com>", undefined).text, null);
+    assert.strictEqual(planDeployAuthor("[]", "Jane Doe <jane@example.com>", undefined).text, null);
   });
 });

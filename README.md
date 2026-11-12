@@ -204,7 +204,8 @@ A plain push (no `--snapshot`) is judged by `pushed` alone.
 ```
 
 `author` (an object, or `"Jane Doe <jane@example.com>"`) and `message` are optional and apply to every
-target; `b6p deploy --author "…"` overrides the file's author.
+target; `b6p deploy --author "…"` overrides the file's author. `deploy` exits `1` if no author resolves
+(nothing is pushed then) or if any target failed or its publish was refused.
 
 ## WebDAV URL format
 

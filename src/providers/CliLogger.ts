@@ -50,6 +50,14 @@ export class CliLogger implements Logger {
    * @returns True when a logged error line contains it; always false for an empty message
    * @lastreviewed null
    */
+  /**
+   * How many error lines have been written so far.
+   * @lastreviewed null
+   */
+  get errorCount(): number {
+    return this.errorLines.length;
+  }
+
   hasReported(message: string): boolean {
     return message.length > 0 && this.errorLines.some((line) => line.includes(message));
   }

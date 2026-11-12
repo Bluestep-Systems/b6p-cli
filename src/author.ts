@@ -104,38 +104,66 @@ export function isMissingAuthorError(e: unknown): e is Error {
 }
 
 /**
- * Rewrites a deploy config's text so core sees the author the CLI chose. Core reads `author` as
- * `{ name, email }`; the file may also give it as `"Name <email>"`, which is converted. Precedence: the
- * CLI's choice (`--author`, then the setting) is applied only when the file has none, except that `--author`
- * on the command line overrides the file too.
- * @param configText The config file's JSON text
- * @param flagAuthor The parsed `--author`, if given
- * @param settingAuthor The parsed `author` setting, if set
- * @returns The new text, or `null` when the file can go to core untouched
- * @throws {AuthorFormatError} when the file's own `author` is malformed
+ * What the CLI decided about a deploy config's author.
  * @lastreviewed null
  */
-export function deployConfigWithAuthor(
+export interface DeployAuthorPlan {
+  /**
+   * The config text to give core (the author converted to `{ name, email }` or injected), or `null` when the file
+   * can go to core untouched.
+   * @lastreviewed null
+   */
+  text: string | null;
+  /**
+   * The author that will sign every target's commit, when the CLI knows one (flag, file or setting); `undefined` when
+   * core has to resolve it from git config or the environment.
+   * @lastreviewed null
+   */
+  author: CommitAuthor | undefined;
+  /**
+   * The config's `sourceRootPath`, when it has one.
+   * @lastreviewed null
+   */
+  sourceRootPath: string | undefined;
+}
+
+/**
+ * Decides the author of a deploy and rewrites the config text so core sees it. Core reads `author` as
+ * `{ name, email }`; the file may also give it as `"Name <email>"`, which is converted. Precedence: `--author`, the
+ * file's `author`, then the setting. Only the source that wins is parsed and validated, so a bad lower-priority source
+ * never blocks a valid higher one.
+ * @param configText The config file's JSON text
+ * @param flagText The raw `--author` value, if given
+ * @param settingValue The stored `author` setting, unparsed
+ * @returns The plan; `text: null` for files core must report itself (unparseable, not an object)
+ * @throws {AuthorFormatError} when the winning source is malformed
+ * @lastreviewed null
+ */
+export function planDeployAuthor(
   configText: string,
-  flagAuthor: CommitAuthor | undefined,
-  settingAuthor: CommitAuthor | undefined
-): string | null {
+  flagText: string | undefined,
+  settingValue: unknown
+): DeployAuthorPlan {
   let parsed: unknown;
   try {
     parsed = JSON.parse(configText);
   } catch {
-    return null; // core reports unparseable files itself
+    return { text: null, author: undefined, sourceRootPath: undefined };
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return null;
+    return { text: null, author: undefined, sourceRootPath: undefined };
   }
   const config = parsed as Record<string, unknown>;
-  let fileAuthor: CommitAuthor | undefined;
-  let fileNeedsRewrite = false;
-  if (typeof config.author === "string") {
-    fileAuthor = parseAuthor(config.author, 'The deploy config "author"');
-    fileNeedsRewrite = true;
-  } else if (config.author !== undefined) {
+  const sourceRootPath = typeof config.sourceRootPath === "string" ? config.sourceRootPath : undefined;
+  if (flagText !== undefined) {
+    const author = parseAuthor(flagText, "--author");
+    return { text: JSON.stringify({ ...config, author }, null, 2), author, sourceRootPath };
+  }
+  if (config.author !== undefined) {
+    if (typeof config.author === "string") {
+      const author = parseAuthor(config.author, 'The deploy config "author"');
+      return { text: JSON.stringify({ ...config, author }, null, 2), author, sourceRootPath };
+    }
     const o = config.author as Partial<CommitAuthor> | null;
     if (!o || typeof o.name !== "string" || typeof o.email !== "string") {
       throw new AuthorFormatError(
@@ -143,11 +171,12 @@ export function deployConfigWithAuthor(
           'or the text "Jane Doe <jane@example.com>".'
       );
     }
-    fileAuthor = { name: o.name, email: o.email };
+    return { text: null, author: { name: o.name, email: o.email }, sourceRootPath };
   }
-  const chosen = flagAuthor ?? fileAuthor ?? settingAuthor;
-  if (!chosen || (!fileNeedsRewrite && chosen === fileAuthor)) {
-    return null;
-  }
-  return JSON.stringify({ ...config, author: chosen }, null, 2);
+  const author = chooseAuthor(undefined, settingValue);
+  return {
+    text: author ? JSON.stringify({ ...config, author }, null, 2) : null,
+    author,
+    sourceRootPath,
+  };
 }
