@@ -107,7 +107,10 @@ test("a restricted-mints-disabled refusal says only mcp tokens can be minted for
   const plain = text(new Err.GatewayNotPermittedError("m", "not-permitted", "something-new"));
   assert.match(plain, /not allowed/);
   assert.ok(!/rolled out|not enabled yet/.test(plain), "no hedge about the rollout");
-  assert.match(text(new Err.GatewayTokenExpiryRefusedError("m", undefined, "2026-12-01T00:00:00Z")), /would outlive the token b6p is using/);
+  assert.match(
+    text(new Err.GatewayTokenExpiryRefusedError("m", undefined, "2026-12-01T00:00:00Z")),
+    /would outlive the token b6p is using/
+  );
 });
 
 test("a rewrite-not-permitted refusal names the scope and says to ask an administrator or drop it", () => {
@@ -293,6 +296,11 @@ test("an unknown outcome says the token may exist and how to check", () => {
   assert.match(rotate, /may already have been rotated/);
   assert.match(rotate, /old one is revoked/);
   assert.match(rotate, /b6p auth set/);
+  assert.doesNotMatch(rotate, /second time/);
+  const retried = text(new Err.GatewayOutcomeUnknownError("No answer came.", "rotate", 503, true));
+  assert.match(retried, /may already have been rotated/);
+  assert.match(retried, /second time/);
+  assert.match(retried, /b6p auth token list/);
 });
 
 test("redirect-refused and invalid-git-response have their own advice", () => {

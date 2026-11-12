@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `b6p kb list` shows a STATUS column and, after the table, one note per non-ok status present; `--json` carries `id`,
   `status` and `rawStatus`. `b6p kb pull` of a `row-only` knowledge base says it has no repository yet.
+- `b6p auth token rotate`: when the rotation's outcome is unknown, the message now says b6p already sent the request a
+  second time (core retries an unanswered rotation once with the same idempotency key).
 
 ### Changed (breaking)
 

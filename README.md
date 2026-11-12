@@ -110,7 +110,7 @@ platform; the verbs beneath it act on that part.
 | `b6p auth token list` | List your own tokens, expired ones included, marked `(expired)` (the secret is never shown) |
 | `b6p auth token create --alias <a> --scopes <s,…> [--expires <90d\|date\|date-time\|never>]` | Mint a token; the secret is printed once |
 | `b6p auth token revoke --tokenid <alias\|id>` | Revoke one of your tokens |
-| `b6p auth token rotate --tokenid <alias\|id>` | Replace a token (same alias, scopes and lifetime); the old one dies at once |
+| `b6p auth token rotate --tokenid <alias\|id>` | Replace a token (same alias, scopes and end date); the old one dies at once |
 
 `auth token` manages only your **own** tokens and needs the `tokens:self` scope. `create` and `rotate`
 print the new secret **once**, alone on stdout (so `TOKEN=$(b6p auth token create …)` captures it), with

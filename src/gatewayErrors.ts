@@ -131,11 +131,12 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
       err.operation === "rotate"
         ? "The token may already have been rotated, in which case the old one is revoked and the new secret was never received."
         : "The token may already have been created, and its secret was never received.";
+    const retried = err.retried ? " b6p already sent the request a second time, which did not settle it either." : "";
     const next =
       err.operation === "rotate"
         ? "Run `b6p auth token list` to check. If b6p is now refused (`b6p kb list` fails with a token error), mint a new token in the web token page and run `b6p auth set`; otherwise rotate again."
         : "Run `b6p auth token list` to check for the alias. If it is there, revoke it (`b6p auth token revoke --tokenid <alias>`) and create it again, since its secret cannot be recovered.";
-    return `${what}\n${done} ${next}`;
+    return `${what}\n${done}${retried} ${next}`;
   }
   if (err instanceof Err.GatewayUnavailableError && err.code === "registry-unavailable") {
     return `${what}\nThe gateway could not get an answer from web-global, which holds the registry. Try again in a minute; if it keeps failing, tell the gateway's operators.`;
