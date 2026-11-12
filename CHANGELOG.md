@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `b6p kb list` shows a STATUS column and, after the table, one note per non-ok status present; `--json` carries `id`,
+  `status` and `rawStatus`. `b6p kb pull` of a `row-only` knowledge base says it has no repository yet.
+
 ### Changed (breaking)
 
 - **Node.js 24 or newer is required** (`engines.node` is `>=24`); Node 18 to 22 are no longer supported.

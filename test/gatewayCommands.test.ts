@@ -43,6 +43,8 @@ before(async () => {
   gateway.grantToken(TOKEN, ["kb:read", "kb:push", "registry:read", "tokens:self"], { alias: "laptop", expiresAt: null });
   gateway.knowledgeBases = [
     {
+      id: "7f1c2b9e-0000-4000-8000-000000000001",
+      status: "ok",
       ref: "global/onboarding",
       scope: "global",
       tenant: null,
@@ -65,11 +67,91 @@ after(async () => {
 test("kb list prints a table, and --json the listing", async () => {
   const human = await b6p(["kb", "list"]);
   assert.equal(human.code, 0, human.stderr);
-  assert.match(human.stdout, /global\/onboarding\s+Onboarding\s+master\s+yes/);
+  assert.match(human.stdout, /global\/onboarding\s+Onboarding\s+master\s+yes\s+ok/);
+  assert.match(human.stdout, /REF\s+TITLE\s+BRANCH\s+PUSH\s+STATUS/);
+  assert.doesNotMatch(human.stdout, /pass --tenant|no repository yet/, "no note when every row is ok");
 
   const json = await b6p(["--json", "kb", "list"]);
   assert.equal(json.code, 0, json.stderr);
   assert.equal(JSON.parse(json.stdout).knowledgeBases[0].ref, "global/onboarding");
+  assert.equal(JSON.parse(json.stdout).knowledgeBases[0].status, "ok");
+  assert.equal(JSON.parse(json.stdout).knowledgeBases[0].id, "7f1c2b9e-0000-4000-8000-000000000001");
+});
+
+test("kb list: a STATUS column, one note per non-ok status present, --json carries id, status and rawStatus", async () => {
+  const saved = gateway.knowledgeBases;
+  const row = (name: string, status: string, tenant: string | null = "U1") => ({
+    id: status === "ok" ? "7f1c2b9e-0000-4000-8000-000000000002" : null,
+    status,
+    ref: tenant === null ? `global/${name}` : `tenant/${tenant}/${name}`,
+    scope: tenant === null ? "global" : "tenant",
+    tenant,
+    name,
+    title: name,
+    liveBranch: "master",
+    canPush: false,
+    gitUrl: gateway.gitUrl("U1-system", `kb-${name}`),
+  });
+  gateway.knowledgeBases = [
+    ...saved,
+    row("a", "undescribed"),
+    row("b", "undescribed"),
+    row("c", "unconfirmed"),
+    row("d", "row-only"),
+    row("e", "repo-only"),
+    row("f", "branch-mismatch"),
+    row("g", "quarantined"),
+  ] as typeof saved;
+  try {
+    const human = await b6p(["kb", "list"]);
+    assert.equal(human.code, 0, human.stderr);
+    assert.match(human.stdout, /tenant\/U1\/d\s+d\s+master\s+no\s+row-only/);
+    assert.match(human.stdout, /tenant\/U1\/g\s+g\s+master\s+no\s+quarantined/);
+    const out = human.stdout;
+    assert.equal(out.split("pass --tenant <U…> for titles and status from the tenant").length - 1, 1, "once, not per row");
+    assert.match(out, /the tenant's server did not answer; details may be stale, retry later/);
+    assert.match(out, /no repository yet; it cannot be pulled until it is created/);
+    assert.match(out, /no matching knowledge base record in the tenant/);
+    assert.match(out, /the live branch shown is the forge's default branch, which differs from the tenant's setting/);
+    assert.match(out, /quarantined: a status this version does not know/);
+
+    const json = await b6p(["--json", "kb", "list"]);
+    const rows = JSON.parse(json.stdout).knowledgeBases;
+    const g = rows.find((k: { name: string }) => k.name === "g");
+    assert.equal(g.status, "unknown");
+    assert.equal(g.rawStatus, "quarantined");
+    assert.equal(rows[0].id, "7f1c2b9e-0000-4000-8000-000000000001");
+    assert.equal(rows.find((k: { name: string }) => k.name === "d").id, null);
+  } finally {
+    gateway.knowledgeBases = saved;
+  }
+});
+
+test("kb pull of a row-only knowledge base says there is no repository yet, not a bare not-found", async () => {
+  const saved = gateway.knowledgeBases;
+  gateway.knowledgeBases = [
+    ...saved,
+    {
+      id: "7f1c2b9e-0000-4000-8000-000000000003",
+      status: "row-only",
+      ref: "global/unborn",
+      scope: "global",
+      tenant: null,
+      name: "unborn",
+      title: "Unborn",
+      liveBranch: "master",
+      canPush: false,
+      gitUrl: gateway.gitUrl("knowledge-base", "kb-unborn"),
+    },
+  ];
+  try {
+    const r = await b6p(["kb", "pull", "unborn", "unborn-dir"]);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /no repository yet/);
+    assert.doesNotMatch(r.stderr, /does not exist or you cannot see it/);
+  } finally {
+    gateway.knowledgeBases = saved;
+  }
 });
 
 test("kb list rejects a bad --scope with a non-zero exit", async () => {

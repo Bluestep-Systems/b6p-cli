@@ -132,7 +132,7 @@ A new token can never outlive the token that creates it: an explicit `--expires`
 
 | Command | Purpose |
 |---|---|
-| `b6p kb list [--scope global\|tenant] [--tenant U…]` | List the knowledge bases you may read, and whether you may push |
+| `b6p kb list [--scope global\|tenant] [--tenant U…]` | List the knowledge bases you may read, whether you may push, and each one's STATUS (`ok`, `branch-mismatch`, `repo-only`, `row-only`, `unconfirmed`, `undescribed`; a note under the table explains each one present) |
 | `b6p kb pull <ref> [dir]` | Clone a knowledge base into a folder (default `./<name>`, or `./<tenant>-<name>` for a tenant's), or fast-forward an existing clone |
 | `b6p kb push [dir]` | Push a clone (default: the current folder, or the clone that contains it) to the knowledge base's live branch |
 
