@@ -11,10 +11,17 @@ import { CliProgress } from "./providers/CliProgress";
 import { Spinner } from "./providers/Spinner";
 import { WindowsRestartManagerLockDiagnoser } from "./lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 import { resolveTsLibDirs } from "./tsLibs";
-import { deleteCommand, describePush, detectShellDialect, pushExitCode, toPushJson } from "./pushOutcome";
+import {
+  deleteCommand,
+  describePush,
+  detectShellDialect,
+  pushExitCode,
+  SWITCHED_TO_GIT_NOTICE,
+  toPushJson,
+} from "./pushOutcome";
 import { describeGitError } from "./gitErrors";
 import { pushFailureOf } from "./pushFailure";
-import { deployExitCode, planDeploy, removeTempDir } from "./deployRun";
+import { describeDeploy, planDeploy, removeTempDir } from "./deployRun";
 import { AUTHOR_SETTING, chooseAuthor, type CommitAuthor } from "./author";
 
 const ENABLE_GIT_HELP =
@@ -261,6 +268,9 @@ program
           if (failure.notice) {
             prompt.notice(failure.notice);
           }
+          if (failure.switchedToGit) {
+            prompt.notice(SWITCHED_TO_GIT_NOTICE);
+          }
           if (globalOpts.json) {
             process.stdout.write(JSON.stringify(failure.json, null, 2) + "\n");
           }
@@ -334,6 +344,9 @@ program
       }
       spinner.stop();
       prompt.error(gitMessage);
+      if ((e as { switchedToGit?: unknown }).switchedToGit === true) {
+        prompt.notice(SWITCHED_TO_GIT_NOTICE);
+      }
       if (globalOpts.json) {
         process.stdout.write(JSON.stringify({ cancelled: true }, null, 2) + "\n");
       }
@@ -394,7 +407,7 @@ Every target gets a git commit of the source draft; "snapshot": true also publis
   )
   .action(async (configFile: string, opts: { author?: string }) => {
     const globalOpts = program.opts();
-    const { core, prompt, logger, spinner } = await createCore(globalOpts);
+    const { core, prompt, spinner } = await createCore(globalOpts);
     try {
       const original = resolve(configFile);
       const text = await fs.readFile(original, "utf-8").catch(() => null);
@@ -415,10 +428,12 @@ Every target gets a git commit of the source draft; "snapshot": true also publis
           configPath = path.join(tempDir, "deploy.json");
           await fs.writeFile(configPath, plan.configText, "utf-8");
         }
-        const errorsBefore = logger.errorCount + prompt.errorCount;
-        await core.script.deploy({ configPath });
-        // Core logs a failed target and goes on; it returns no per-target results, so count what it reported.
-        if (deployExitCode(logger.errorCount + prompt.errorCount - errorsBefore) !== 0) {
+        const results = await core.script.deploy({ configPath });
+        const outcome = describeDeploy(results);
+        outcome.info.forEach((line) => prompt.info(line));
+        outcome.errors.forEach((line) => prompt.error(line));
+        outcome.notices.forEach((line) => prompt.notice(line));
+        if (outcome.exitCode !== 0) {
           process.exitCode = 1;
         }
       } finally {

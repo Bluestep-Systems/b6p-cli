@@ -1,8 +1,6 @@
-// What `b6p deploy` does before it calls core: settle the author and fail early when none resolves.
-//
-// Core's deploy swallows a per-target failure (it logs it, goes on, and prints "Deploy complete!"), and returns no
-// per-target results. So the CLI checks the author first, and afterwards counts the errors core reported.
+// What `b6p deploy` does around core: settle the author and fail early when none resolves, and read core's per-target results.
 import * as fs from "fs";
+import type { DeployTargetResult } from "@bluestep-systems/b6p-core";
 import * as path from "path";
 import {
   AuthorFormatError,
@@ -11,6 +9,7 @@ import {
   planDeployAuthor,
   type DeployAuthorPlan,
 } from "./author";
+import { SWITCHED_TO_GIT_NOTICE } from "./pushOutcome";
 
 /**
  * What to do with a deploy config.
@@ -76,13 +75,47 @@ export function nearestExistingDir(dir: string): string {
 }
 
 /**
- * The exit code of a deploy: `1` when core reported any error while it ran (a target that failed, a refused or failed
- * publish), `0` otherwise.
- * @param errorsReported Errors core raised through the logger and the prompt during the deploy
+ * What a deploy reads as, from core's per-target results: a line per target, and exit `1` when any target failed
+ * (`error`), had its publish refused or failed (`publishError`), or was not pushed. `null` (no results: the config file
+ * was missing, unreadable or invalid, which core has already reported) is a failure too.
+ * @param results What core's deploy returned
+ * @returns `info` lines (hidden under `--json`), `errors`, `notices` (a switch to git, shown in every mode) and the exit code
  * @lastreviewed null
  */
-export function deployExitCode(errorsReported: number): 0 | 1 {
-  return errorsReported > 0 ? 1 : 0;
+export function describeDeploy(results: readonly DeployTargetResult[] | null): {
+  info: string[];
+  errors: string[];
+  notices: string[];
+  exitCode: 0 | 1;
+} {
+  const info: string[] = [];
+  const errors: string[] = [];
+  const notices: string[] = [];
+  if (results === null) {
+    return { info, errors: ["Deploy did not run: see the error above."], notices, exitCode: 1 };
+  }
+  let failed = 0;
+  for (const r of results) {
+    if (r.error !== undefined) {
+      failed += 1;
+      errors.push(`${r.target}: failed: ${r.error instanceof Error ? r.error.message : String(r.error)}`);
+    } else if (!r.pushed) {
+      failed += 1;
+      errors.push(`${r.target}: nothing was pushed`);
+    } else if (r.publishError !== null) {
+      failed += 1;
+      errors.push(`${r.target}: pushed (commit ${r.commitSha}) but not published: ${r.publishError}`);
+    } else {
+      info.push(`${r.target}: pushed ${r.commitSha}${r.publishedSha !== null ? `, published ${r.publishedSha}` : ""}`);
+    }
+    if (r.switchedToGit) {
+      notices.push(`${r.target}: ${SWITCHED_TO_GIT_NOTICE}`);
+    }
+  }
+  info.push(
+    failed === 0 ? "Deploy complete." : `Deploy finished with ${failed} of ${results.length} target(s) failed.`
+  );
+  return { info, errors, notices, exitCode: failed === 0 ? 0 : 1 };
 }
 
 /**

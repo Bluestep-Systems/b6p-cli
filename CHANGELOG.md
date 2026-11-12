@@ -23,6 +23,7 @@ and snapshot. 0.8.x clients stop working against a script once it is on git: upd
 - **New exit-code rules.** `1` when `pushed` is false. On a snapshot, also `1` when `publishedSha` is `null`,
   `publishError` is set, or `liveVerified` is `false` (type-check diagnostics still fail a snapshot). Otherwise
   `0`. A plain push is judged by `pushed` alone.
+- A push that stops after switching a script to git (a declined overwrite, for instance) reports `switchedToGit: true`; the switch stands.
 - **A push is a git commit and needs an author.** `--author "Name <email>"`, or `b6p config set author "Name
   <email>"`, or (as before for git users) `git config user.name/user.email` or `GIT_AUTHOR_*` in the
   environment. With none, the push exits `1` and says how to fix it.
@@ -37,7 +38,7 @@ and snapshot. 0.8.x clients stop working against a script once it is on git: upd
 - Clear messages, each exiting `1` with nothing changed, for a declined switch, a wrong branch checked out, staged-only changes and symlinks that escape the draft folder.
 - `b6p push --author` and `b6p deploy --author`; `author` and `message` in deploy config files.
 - A push prints the draft and published commit SHAs.
-- `deploy` exits `1` when no author resolves (checked before anything is pushed) or when core reported any error while deploying (a failed target, a refused publish). Before, it printed "Deploy complete!" and exited `0`.
+- `deploy` exits `1` when no author resolves (checked before anything is pushed) or when any target failed, was not pushed, or had its publish refused, and prints a line per target with its commit and published SHAs (and a switch to git). Before, it printed "Deploy complete!" and exited `0` whatever happened.
 
 ## [0.8.2] — 2026-10-20
 

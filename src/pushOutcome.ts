@@ -52,6 +52,14 @@ export function pushExitCode(result: PushResult | null, snapshot: boolean): 0 | 
 }
 
 /**
+ * What a human is told when a script was switched from WebDAV to git.
+ * @lastreviewed null
+ */
+export const SWITCHED_TO_GIT_NOTICE =
+  "This script was switched from WebDAV to git publishing. The switch is one-way: its draft and snapshot " +
+  "no longer accept WebDAV writes, and its history is now its git history.";
+
+/**
  * The plain-language lines a human reads after a push: the commit, the published commit, a failed publish, and
  * (loudly) that the script was switched to git.
  * @param result What core's push returned
@@ -79,10 +87,7 @@ export function describePush(
     errors.push(`The draft was pushed but the platform did not publish it: ${result.publishError}`);
   }
   if (result.switchedToGit) {
-    notices.push(
-      "This script was switched from WebDAV to git publishing. The switch is one-way: its draft and snapshot " +
-        "no longer accept WebDAV writes, and its history is now its git history."
-    );
+    notices.push(SWITCHED_TO_GIT_NOTICE);
   }
   return { info, errors, notices };
 }
@@ -101,16 +106,17 @@ export function toPushJson(result: PushResult): PushJson {
  * The `--json` body for a push that stopped at the overwrite confirmation (core threw
  * `Err.OverwriteDeclinedError`): nothing was uploaded, so every other field reads as "did not run".
  * @param paths The files whose overwrite was not confirmed (`err.paths`)
+ * @param switchedToGit Whether the push had already switched the script to git before it stopped (the switch stands)
  * @returns A {@link PushJson} with `pushed: false` and the files in `declinedOverwrites`
  * @lastreviewed null
  */
-export function declinedPushJson(paths: string[]): PushJson {
+export function declinedPushJson(paths: string[], switchedToGit = false): PushJson {
   return {
     pushed: false,
     commitSha: null,
     publishedSha: null,
     publishError: null,
-    switchedToGit: false,
+    switchedToGit,
     typeCheckDiagnostics: null,
     liveVerified: null,
     liveMismatches: [],

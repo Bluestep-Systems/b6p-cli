@@ -19,6 +19,11 @@ export interface PushFailure {
    */
   notice?: string;
   /**
+   * Whether the push had switched the script to git before it stopped (also in `json.switchedToGit`).
+   * @lastreviewed null
+   */
+  switchedToGit?: boolean;
+  /**
    * The `--json` body: a push that did not run.
    * @lastreviewed null
    */
@@ -35,15 +40,17 @@ export interface PushFailure {
  * @lastreviewed null
  */
 export function pushFailureOf(e: unknown, args: string[], dialect: ShellDialect): PushFailure | undefined {
+  // Core marks an error thrown after it switched the script to git (the switch stands though nothing was pushed).
+  const switched = (e as { switchedToGit?: unknown } | null)?.switchedToGit === true;
   if (isMissingAuthorError(e)) {
-    return { message: missingAuthorMessage(e.message), json: declinedPushJson([]) };
+    return { message: missingAuthorMessage(e.message), json: declinedPushJson([], switched), switchedToGit: switched };
   }
   if (e instanceof AuthorFormatError) {
-    return { message: e.message, json: declinedPushJson([]) };
+    return { message: e.message, json: declinedPushJson([], switched), switchedToGit: switched };
   }
   const gitMessage = describeGitError(e);
   if (gitMessage !== undefined) {
-    return { message: gitMessage, json: declinedPushJson([]) };
+    return { message: gitMessage, json: declinedPushJson([], switched), switchedToGit: switched };
   }
   if (e instanceof Err.OverwriteDeclinedError) {
     const one = e.paths.length === 1;
@@ -52,7 +59,8 @@ export function pushFailureOf(e: unknown, args: string[], dialect: ShellDialect)
       notice:
         `After checking ${one ? "it" : "them"}, overwrite ${one ? "it" : "them"} ` +
         `with your local ${one ? "file" : "files"} with:\n  ${overwriteCommand(args, e.paths, dialect)}`,
-      json: declinedPushJson(e.paths),
+      json: declinedPushJson(e.paths, switched),
+      switchedToGit: switched,
     };
   }
   return undefined;

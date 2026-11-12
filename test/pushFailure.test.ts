@@ -1,7 +1,7 @@
 // What a push that threw reads as, and that a retry is judged on its own (CU-86bd2nrvf).
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { Err, type PushResult } from "@bluestep-systems/b6p-core";
+import { Err, GitSwitchDeclinedError, type PushResult } from "@bluestep-systems/b6p-core";
 import { pushFailureOf } from "../src/pushFailure";
 import { pushExitCode, toPushJson } from "../src/pushOutcome";
 
@@ -46,8 +46,21 @@ describe("pushFailureOf", () => {
   });
 
   it("a declined switch is a failure that says --enable-git and that --yes declines", () => {
-    const declined = Object.assign(new Error("not confirmed"), { name: "GitSwitchDeclinedError" });
-    assert.match(pushFailureOf(declined, [], "posix")?.message ?? "", /--enable-git/);
+    assert.match(pushFailureOf(new GitSwitchDeclinedError(), [], "posix")?.message ?? "", /--enable-git/);
+  });
+
+  it("a declined overwrite after the script was switched reports switchedToGit (the switch stands)", () => {
+    const declined = new Err.OverwriteDeclinedError("declined", ["a.ts"]);
+    assert.strictEqual(pushFailureOf(declined, [], "posix")?.json.switchedToGit, false);
+    declined.switchedToGit = true;
+    const failure = pushFailureOf(declined, [], "posix");
+    assert.strictEqual(failure?.json.switchedToGit, true);
+    assert.strictEqual(failure?.switchedToGit, true);
+  });
+
+  it("any error core marks as thrown after a switch reports it too", () => {
+    const e = Object.assign(new Error("publish refused"), { code: "IDENTITY_REQUIRED", switchedToGit: true });
+    assert.strictEqual(pushFailureOf(e, [], "posix")?.json.switchedToGit, true);
   });
 
   it("is undefined for any other error", () => {

@@ -2,7 +2,8 @@
 // first and counts what core reported.
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { deployExitCode, planDeploy, removeTempDir } from "../src/deployRun";
+import type { DeployTargetResult } from "@bluestep-systems/b6p-core";
+import { describeDeploy, planDeploy, removeTempDir } from "../src/deployRun";
 
 const CONFIG = JSON.stringify({ sourceRootPath: "/no/such/script", targets: [{ url: "u", snapshot: true }] });
 const missing = (): Promise<unknown> =>
@@ -53,11 +54,54 @@ describe("planDeploy", () => {
   });
 });
 
-describe("deployExitCode", () => {
-  it("is 0 with nothing reported and 1 when any target failed or any publish was refused", () => {
-    assert.strictEqual(deployExitCode(0), 0);
-    assert.strictEqual(deployExitCode(1), 1);
-    assert.strictEqual(deployExitCode(3), 1);
+const OK: DeployTargetResult = {
+  target: "https://a/",
+  pushed: true,
+  commitSha: "c".repeat(40),
+  publishedSha: "d".repeat(40),
+  publishError: null,
+  switchedToGit: false,
+};
+
+describe("describeDeploy", () => {
+  it("is 0 when every target pushed and published, and lists the SHAs", () => {
+    const out = describeDeploy([OK, { ...OK, target: "https://b/" }]);
+    assert.strictEqual(out.exitCode, 0);
+    assert.match(out.info[0], /https:\/\/a\/: pushed c+, published d+/);
+    assert.deepStrictEqual(out.errors, []);
+  });
+
+  it("is 1 when any target has an error, and says which", () => {
+    const out = describeDeploy([OK, { ...OK, target: "https://b/", pushed: false, error: new Error("no author") }]);
+    assert.strictEqual(out.exitCode, 1);
+    assert.match(out.errors[0], /https:\/\/b\/: failed: no author/);
+  });
+
+  it("is 1 when a target's publish failed, though its draft was pushed", () => {
+    const out = describeDeploy([{ ...OK, publishedSha: null, publishError: "refused" }]);
+    assert.strictEqual(out.exitCode, 1);
+    assert.match(out.errors[0], /not published: refused/);
+  });
+
+  it("is 1 when a target was not pushed", () => {
+    const out = describeDeploy([{ ...OK, pushed: false, commitSha: null, publishedSha: null }]);
+    assert.strictEqual(out.exitCode, 1);
+    assert.match(out.errors[0], /nothing was pushed/);
+  });
+
+  it("is 1 when core returned no results (bad config, already reported)", () => {
+    assert.strictEqual(describeDeploy(null).exitCode, 1);
+  });
+
+  it("reports a switch to git per target, as a notice", () => {
+    const out = describeDeploy([OK, { ...OK, target: "https://b/", switchedToGit: true }]);
+    assert.strictEqual(out.notices.length, 1);
+    assert.match(out.notices[0], /^https:\/\/b\/: .*one-way/);
+    assert.strictEqual(out.exitCode, 0);
+  });
+
+  it("a plain-push target (no published sha, no error) is fine", () => {
+    assert.strictEqual(describeDeploy([{ ...OK, publishedSha: null }]).exitCode, 0);
   });
 });
 
