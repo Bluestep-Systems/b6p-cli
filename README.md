@@ -2,7 +2,7 @@
 
 Command-line interface for managing [BlueStep](https://www.bluestep.net/) B6P
 scripts: pull components from the platform, push changes back, audit local vs.
-server, snapshot history, and deploy across targets.
+server, git history, and deploy across targets.
 
 The CLI shares its core implementation
 ([`@bluestep-systems/b6p-core`](https://github.com/Bluestep-Systems/b6p-core)) with the
@@ -79,10 +79,12 @@ means the token expired or its account lost access, not that it is the wrong kin
 
 | Command | Purpose |
 |---|---|
-| `b6p pull <webdav-url>` | Pull a script by URL |
+| `b6p pull <webdav-url>` | Pull a script by URL (clones its git draft) |
+| `b6p pull <webdav-url> --enable-git` | Same, and switch a script still on WebDAV to git without asking (one-way) |
 | `b6p pull --file <path>` | Pull using metadata stored with a local file |
 | `b6p push --file <path>` | Push local files to the platform |
-| `b6p push --file <path> --snapshot --message "…"` | Push and record a versioned snapshot |
+| `b6p push --file <path> --snapshot --message "…"` | Commit the draft with a message and publish it |
+| `b6p push --file <path> --author "Jane Doe <jane@example.com>"` | Push as a given commit author |
 | `b6p push --file <path> --overwrite <file>` | Push, overwriting a file that changed on the platform |
 | `b6p audit --file <path>` | Diff local vs. server |
 | `b6p audit --file <path> --pull` | Audit and pull if differences found |
@@ -119,15 +121,86 @@ question, in order (`printf 'Overwrite all\nYes\n' | b6p push --file <path>`, or
 in PowerShell, `'Overwrite all', 'Yes' | b6p push --file <path>`). The commands the CLI prints are
 written for your shell: POSIX, or PowerShell on Windows outside Git Bash.
 
-**Exit codes:** `0` when the push went through (keeping platform-only files is still `0`); `1` when
-nothing was uploaded, an overwrite was not confirmed, an upload was refused, or, on a snapshot, a
-live copy is still wrong after one re-send, the history entry wasn't recorded, or type-check
-diagnostics were reported.
+### Git, authors and switching
 
-**`--json`** prints one object on stdout: `pushed`, `historyRecorded`, `typeCheckDiagnostics`,
-`liveVerified`, `liveMismatches`, `keptPlatformOnly`, `declinedOverwrites`. A declined overwrite
-prints `pushed: false` with the files in `declinedOverwrites`. Questions, warnings and next steps
-go to stderr.
+A script's draft and its published snapshot are a git repository on the platform; a push commits your
+`draft/` folder to it, and `--snapshot` (or `--message`, which implies it) also publishes that
+commit. Its history is its git history. Requires a platform with git publishing for scripts (today's
+server: its `enableGitPublishing` switch); a script still on WebDAV is switched
+to git by its first push or by `b6p pull --enable-git`. **The switch is one-way**: afterwards the
+script's draft and snapshot refuse WebDAV writes. The CLI says so when it happens
+(`switchedToGit`).
+
+Every commit needs an author. In order, the first complete one is used: `--author "Name <email>"`;
+for `deploy`, the config file's `author`; the stored default (`b6p config set author "Name <email>"`);
+`git config user.name` and `user.email` for the script folder; then `GIT_AUTHOR_NAME` and
+`GIT_AUTHOR_EMAIL` (or the `GIT_COMMITTER_*` pair) in the environment. With none of them the push
+stops with exit `1` and prints those fixes; nothing is ever committed as nobody.
+
+`b6p pull` without `--enable-git` asks before switching a WebDAV script (`[Cancel]` first), and
+`--yes` declines, so an unattended pull never switches anything. `--enable-git` needs the script
+URL (`b6p pull <url> --enable-git`).
+
+### Exit codes
+
+| Result | Exit |
+|---|---|
+| Pushed; kept platform-only files, a switch to git, or a read-back that could not run (`liveVerified: null`) are still fine | `0` |
+| The user cancelled at the target-URL prompt | `0` |
+| Nothing was pushed (`pushed: false`): bad `--root`, empty draft, an overwrite not confirmed, no commit author, an upload refused | `1` |
+| Snapshot, and `publishedSha` is `null` (nothing was published) | `1` |
+| Snapshot, and `publishError` is set (the platform refused or failed the publish; the draft is still pushed) | `1` |
+| Snapshot, and `liveVerified` is `false` (the published branch reads back at another commit) | `1` |
+| Snapshot that compiled with type-check diagnostics (`typeCheckDiagnostics > 0`) | `1` |
+
+A plain push (no `--snapshot`) is judged by `pushed` alone.
+
+### `--json`
+
+`--json` prints one object on stdout, the same shape for every outcome (agents parse it):
+
+```json
+{
+  "pushed": true,
+  "commitSha": "3f2a…40 hex characters",
+  "publishedSha": "9c1b…40 hex characters",
+  "publishError": null,
+  "switchedToGit": false,
+  "typeCheckDiagnostics": 0,
+  "liveVerified": true,
+  "liveMismatches": [],
+  "keptPlatformOnly": [],
+  "declinedOverwrites": []
+}
+```
+
+- `commitSha`: the draft branch's head after the push (the commit this push made, or the one already
+  there); `null` when `pushed` is false.
+- `publishedSha`: the commit the platform published; `null` on a plain push, an aborted push or a
+  failed publish.
+- `publishError`: why the publish failed, else `null`.
+- `switchedToGit`: this push moved the script from WebDAV to git.
+- `historyRecorded` is gone (0.9.0): history is the git history, so `commitSha` and `publishedSha`
+  replace it.
+- A declined overwrite prints `pushed: false` with the files in `declinedOverwrites`; a missing
+  author prints `pushed: false` too (the reason is on stderr); a cancelled target-URL prompt prints
+  `{ "cancelled": true }`. Questions, warnings and next steps go to stderr.
+
+### Deploy
+
+`b6p deploy <config.json>` pushes the source draft to each target:
+
+```json
+{
+  "sourceRootPath": "./my-script",
+  "targets": [{ "url": "https://…/files/123/draft/", "snapshot": true }],
+  "author": { "name": "Jane Doe", "email": "jane@example.com" },
+  "message": "Deploy from CI"
+}
+```
+
+`author` (an object, or `"Jane Doe <jane@example.com>"`) and `message` are optional and apply to every
+target; `b6p deploy --author "…"` overrides the file's author.
 
 ## WebDAV URL format
 

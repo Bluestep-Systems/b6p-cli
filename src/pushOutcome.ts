@@ -17,33 +17,74 @@ export type PushJson = PushResult & {
 /**
  * The shell exit code for a finished push.
  *
- * A push that uploaded nothing (bad `--root`, empty draft, a compiled `scripts/app.js` that is
- * missing or has no code) or a snapshot that shipped without a history entry must not report
- * success: that is what let a typo'd `--root` mark a deploy green. A live copy that still reads
- * back wrong after core's one re-send (`liveVerified: false`) is a broken publish (ClickUp
- * 86bbqnrtp). Core already clears `historyRecorded` in that case; it is checked on its own so the
- * reason stays explicit. A snapshot that shipped with type-check diagnostics also fails: the
- * platform runs the emitted JS un-type-checked, so the push was the only gate.
+ * | Case | Exit |
+ * |---|---|
+ * | the user cancelled at the target-URL prompt (`null`) | 0 |
+ * | `pushed` is false (nothing reached the platform: bad `--root`, empty draft, missing or blank `scripts/app.js` on a snapshot) | 1 |
+ * | snapshot and `publishedSha` is `null` (the platform published nothing) | 1 |
+ * | snapshot and `publishError` is set (the platform refused or failed the publish; the draft is still pushed) | 1 |
+ * | snapshot and `liveVerified` is `false` (the published branch reads back at another commit) | 1 |
+ * | snapshot that compiled with type-check diagnostics (`typeCheckDiagnostics > 0`) | 1 |
+ * | everything else, including `liveVerified: null` (the read-back could not run; core warns) and kept platform-only files | 0 |
  *
- * Not failures: `null` (the user cancelled at the target-URL prompt), `liveVerified: null` (a copy
- * came back without a content hash and could not be compared; core warns on stderr, and failing
- * here would block every push if the platform's ETag format changed), and `typeCheckDiagnostics`
- * `null` (no compile ran) or `0`.
+ * A plain push is judged by `pushed` alone: it publishes nothing, so `publishedSha`, `publishError` and
+ * `liveVerified` do not apply to it. The type-check rule is unchanged from 0.8: the platform runs the emitted
+ * JS un-type-checked, so a snapshot's compile is the only gate.
  * @param result What core's push returned
+ * @param snapshot Whether the push asked to publish (`--snapshot`, or `--message`, which implies it)
  * @returns `1` when the push must read as failed, `0` otherwise
  * @lastreviewed null
  */
-export function pushExitCode(result: PushResult | null): 0 | 1 {
+export function pushExitCode(result: PushResult | null, snapshot: boolean): 0 | 1 {
   if (!result) {
     return 0;
   }
-  if (!result.pushed || !result.historyRecorded || result.liveVerified === false) {
+  if (!result.pushed) {
+    return 1;
+  }
+  if (snapshot && (result.publishedSha === null || result.publishError !== null || result.liveVerified === false)) {
     return 1;
   }
   if (result.typeCheckDiagnostics !== null && result.typeCheckDiagnostics > 0) {
     return 1;
   }
   return 0;
+}
+
+/**
+ * The plain-language lines a human reads after a push: the commit, the published commit, a failed publish, and
+ * (loudly) that the script was switched to git.
+ * @param result What core's push returned
+ * @param snapshot Whether the push asked to publish
+ * @returns `info` lines (hidden under `--json`), `errors` (a failed publish) and `notices` (shown in every
+ *   mode, because an agent must not miss a one-way change)
+ * @lastreviewed null
+ */
+export function describePush(
+  result: PushResult,
+  snapshot: boolean
+): { info: string[]; errors: string[]; notices: string[] } {
+  const info: string[] = [];
+  const errors: string[] = [];
+  const notices: string[] = [];
+  if (result.commitSha !== null) {
+    info.push(`Draft commit: ${result.commitSha}`);
+  }
+  if (result.publishedSha !== null) {
+    info.push(`Published commit: ${result.publishedSha}`);
+  } else if (snapshot && result.publishError === null && result.pushed) {
+    errors.push("The platform did not report a published commit; nothing was published.");
+  }
+  if (result.publishError !== null) {
+    errors.push(`The draft was pushed but the platform did not publish it: ${result.publishError}`);
+  }
+  if (result.switchedToGit) {
+    notices.push(
+      "This script was switched from WebDAV to git publishing. The switch is one-way: its draft and snapshot " +
+        "no longer accept WebDAV writes, and its history is now its git history."
+    );
+  }
+  return { info, errors, notices };
 }
 
 /**
@@ -66,7 +107,10 @@ export function toPushJson(result: PushResult): PushJson {
 export function declinedPushJson(paths: string[]): PushJson {
   return {
     pushed: false,
-    historyRecorded: false,
+    commitSha: null,
+    publishedSha: null,
+    publishError: null,
+    switchedToGit: false,
     typeCheckDiagnostics: null,
     liveVerified: null,
     liveMismatches: [],

@@ -14,11 +14,33 @@ import { resolveTsLibDirs } from "./tsLibs";
 import {
   declinedPushJson,
   deleteCommand,
+  describePush,
   detectShellDialect,
   overwriteCommand,
   pushExitCode,
   toPushJson,
 } from "./pushOutcome";
+import {
+  AUTHOR_SETTING,
+  AuthorFormatError,
+  chooseAuthor,
+  deployConfigWithAuthor,
+  isMissingAuthorError,
+  missingAuthorMessage,
+  parseAuthor,
+  type CommitAuthor,
+} from "./author";
+
+const AUTHOR_FLAG_HELP =
+  'Commit author, "Name <email>". Default: the "author" setting (b6p config set author "Name <email>"), ' +
+  "then git config user.name/user.email for the script folder, then GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL";
+
+/**
+ * The author the CLI chose for this run (`--author`, else the stored setting); `undefined` leaves it to core.
+ */
+async function chosenAuthor(core: B6PCore, flag: string | undefined): Promise<CommitAuthor | undefined> {
+  return chooseAuthor(flag, await core.getConfig<unknown>(AUTHOR_SETTING));
+}
 
 // Replaced at build time by esbuild's `define` with the package.json version.
 declare const __B6P_VERSION__: string;
@@ -144,25 +166,35 @@ Questions a push can ask (both default to the safe answer, which --yes and an em
     printf 'Overwrite all\\nYes\\n' | b6p push --file <path>
     'Overwrite all', 'Yes' | b6p push --file <path>        (PowerShell)
 
+A push is a git commit of the draft folder, made by --author (the flag has the fallbacks). A script
+still on WebDAV is switched to git by its first push; the switch is one-way, and is reported.
+--snapshot also publishes the draft commit; --message sets the commit message and implies --snapshot.
+
 Exit codes:
   0  pushed (keeping platform-only files is still 0)
-  1  nothing uploaded; an overwrite not confirmed; an upload refused; on a snapshot, a live copy
-     still wrong after one re-send, no history entry recorded, or type-check diagnostics
+  1  nothing pushed (pushed false: bad --root, empty draft, an overwrite not confirmed, a missing
+     author, an upload refused); on a snapshot also: no published commit (publishedSha null), the
+     platform refused or failed the publish (publishError), the published branch reads back at
+     another commit (liveVerified false), or type-check diagnostics
 
 --json prints one object on stdout:
-  { pushed, historyRecorded, typeCheckDiagnostics, liveVerified, liveMismatches,
-    keptPlatformOnly, declinedOverwrites }
-  A declined overwrite prints pushed: false with the files in declinedOverwrites; a cancelled
-  target-URL prompt prints { cancelled: true }. Questions, warnings and next steps go to stderr.
+  { pushed, commitSha, publishedSha, publishError, switchedToGit, typeCheckDiagnostics,
+    liveVerified, liveMismatches, keptPlatformOnly, declinedOverwrites }
+  commitSha: the draft commit after the push. publishedSha: the commit published (snapshot only,
+  else null). publishError: why the publish failed, else null. switchedToGit: this push moved the
+  script from WebDAV to git. A declined overwrite prints pushed: false with the files in
+  declinedOverwrites; a cancelled target-URL prompt prints { cancelled: true }. Questions, warnings
+  and next steps go to stderr.
 `;
 
 program
   .command("push [target-url]")
-  .description("Push a script to a WebDAV target")
+  .description("Push a script: commit its draft folder to the script's git repo (and publish it with --snapshot)")
   .option("--file <path>", "Derive target from local file metadata")
   .option("--root <path>", "Script root folder")
   .option("--snapshot", "Push as snapshot")
-  .option("--message <text>", "Commit message for snapshot history (implies --snapshot)")
+  .option("--message <text>", "Commit message (implies --snapshot)")
+  .option("--author <name-and-email>", AUTHOR_FLAG_HELP)
   .option(
     "--overwrite <path>",
     "Overwrite this file on the platform even though it changed there (repeatable; path as the question lists it)",
@@ -172,7 +204,14 @@ program
   .action(
     async (
       targetUrl: string | undefined,
-      opts: { file?: string; root?: string; snapshot?: boolean; message?: string; overwrite?: string[] }
+      opts: {
+        file?: string;
+        root?: string;
+        snapshot?: boolean;
+        message?: string;
+        author?: string;
+        overwrite?: string[];
+      }
     ) => {
       const globalOpts = program.opts();
       const { core, prompt, logger, spinner } = await createCore(globalOpts);
@@ -181,12 +220,14 @@ program
       const args = process.argv.slice(2);
       const dialect = detectShellDialect();
       try {
+        const author = await chosenAuthor(core, opts.author);
         const result = opts.file
           ? await core.script.pushCurrent({
               filePath: resolve(opts.file),
               snapshot: isSnapshot,
               message: opts.message,
               overwrite: opts.overwrite,
+              author,
             })
           : await core.script.push({
               targetUrl,
@@ -194,7 +235,14 @@ program
               snapshot: isSnapshot,
               message: opts.message,
               overwrite: opts.overwrite,
+              author,
             });
+        if (result) {
+          const lines = describePush(result, isSnapshot);
+          lines.info.forEach((line) => prompt.info(line));
+          lines.errors.forEach((line) => prompt.error(line));
+          lines.notices.forEach((line) => prompt.notice(line));
+        }
         if (globalOpts.json) {
           process.stdout.write(JSON.stringify(result ? toPushJson(result) : { cancelled: true }, null, 2) + "\n");
         }
@@ -207,10 +255,20 @@ program
         }
         // `exitCode` rather than `exit()` so an in-flight --json write still flushes.
         // The rule itself, and why each case fails or not, is in pushOutcome.ts.
-        if (pushExitCode(result) !== 0) {
+        if (pushExitCode(result, isSnapshot) !== 0) {
           process.exitCode = 1;
         }
       } catch (e) {
+        // No author anywhere (or a malformed one): nothing was committed. Say how to give one.
+        if (isMissingAuthorError(e) || e instanceof AuthorFormatError) {
+          spinner.stop();
+          prompt.error(isMissingAuthorError(e) ? missingAuthorMessage(e.message) : (e as Error).message);
+          if (globalOpts.json) {
+            process.stdout.write(JSON.stringify(declinedPushJson([]), null, 2) + "\n");
+          }
+          process.exitCode = 1;
+          return;
+        }
         // Nothing was uploaded. Core's message says which files and why; how to confirm them is ours.
         if (e instanceof Err.OverwriteDeclinedError) {
           spinner.stop();
@@ -245,10 +303,15 @@ program
 
 program
   .command("pull [formula-url]")
-  .description("Pull a script from a WebDAV location")
+  .description("Pull a script's draft (git clone, or fast-forward of an existing clone) into the workspace")
   .option("--file <path>", "Derive source from local file metadata")
   .option("--workspace <path>", "Target workspace folder (default: cwd)")
-  .action(async (formulaUrl: string | undefined, opts: { file?: string; workspace?: string }) => {
+  .option(
+    "--enable-git",
+    "Switch a script that still publishes over WebDAV to git without asking (needs <formula-url>). " +
+      "The switch is one-way. Without this flag a WebDAV script asks first, and --yes declines"
+  )
+  .action(async (formulaUrl: string | undefined, opts: { file?: string; workspace?: string; enableGit?: boolean }) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
     try {
@@ -256,6 +319,12 @@ program
       // use --file if provided, otherwise treat cwd as the file path so the
       // script root can be derived by walking up.
       let result;
+      if (!formulaUrl && opts.enableGit) {
+        throw new Error(
+          "--enable-git needs the script's URL: b6p pull <formula-url> --enable-git. " +
+            "(Without a URL, pull asks before switching a WebDAV script to git.)"
+        );
+      }
       if (!formulaUrl) {
         const filePath = resolve(opts.file ?? ".");
         const workspacePath = opts.workspace
@@ -266,7 +335,14 @@ program
         result = await core.script.pull({
           formulaUrl,
           workspacePath: resolve(opts.workspace || "."),
+          enableGit: opts.enableGit,
         });
+      }
+      if (result?.switchedToGit) {
+        prompt.notice(
+          "This script was switched from WebDAV to git publishing. The switch is one-way: its draft and " +
+            "snapshot no longer accept WebDAV writes."
+        );
       }
       if (globalOpts.json) {
         process.stdout.write(JSON.stringify(result ?? { cancelled: true }, null, 2) + "\n");
@@ -317,12 +393,49 @@ program
 program
   .command("deploy <config-file>")
   .description("Quick deploy from a config file to multiple targets")
-  .action(async (configFile: string) => {
+  .option(
+    "--author <name-and-email>",
+    AUTHOR_FLAG_HELP + '. The config file\'s own "author" is used when this is not given'
+  )
+  .addHelpText(
+    "after",
+    `
+Config file: { "sourceRootPath": "<script root>", "targets": [{ "url": "<formula url>", "snapshot": true }],
+  "author": { "name": "Jane Doe", "email": "jane@example.com" }  (or "Jane Doe <jane@example.com>"; optional),
+  "message": "<commit message for every target>" (optional) }
+Every target gets a git commit of the source draft; "snapshot": true also publishes it.
+`
+  )
+  .action(async (configFile: string, opts: { author?: string }) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
+    let tempDir: string | undefined;
     try {
-      await core.script.deploy({ configPath: resolve(configFile) });
+      let configPath = resolve(configFile);
+      try {
+        const flagAuthor = opts.author === undefined ? undefined : parseAuthor(opts.author, "--author");
+        const settingAuthor = chooseAuthor(undefined, await core.getConfig<unknown>(AUTHOR_SETTING));
+        const text = await fs.readFile(configPath, "utf-8").catch(() => null);
+        const merged = text === null ? null : deployConfigWithAuthor(text, flagAuthor, settingAuthor);
+        if (merged !== null) {
+          // Core reads the author from the config file, so hand it a copy that carries the chosen one.
+          tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "b6p-deploy-"));
+          configPath = path.join(tempDir, "deploy.json");
+          await fs.writeFile(configPath, merged, "utf-8");
+        }
+      } catch (e) {
+        if (e instanceof AuthorFormatError) {
+          prompt.error(e.message);
+          process.exitCode = 1;
+          return;
+        }
+        throw e;
+      }
+      await core.script.deploy({ configPath });
     } finally {
+      if (tempDir) {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      }
       spinner.stop();
       prompt.close();
     }

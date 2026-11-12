@@ -5,6 +5,38 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] — 2026-11-12
+
+Depends on b6p-core 0.9.0, which moves scripts to git: a script's draft and snapshot are a git repository,
+and its history is its git history. **Platform floor:** the platform's git publishing. Today's server works
+through its `enableGitPublishing` switch (the first push, or `pull --enable-git`, turns a script over); the
+release that moves script history to git makes it the only mode, and refuses WebDAV writes to a script's draft
+and snapshot. 0.8.x clients stop working against a script once it is on git: update them to this version.
+
+### Changed (breaking, user-visible)
+
+- **`push --json` lost `historyRecorded` and gained `commitSha`, `publishedSha`, `publishError` and
+  `switchedToGit`.** Every other field is unchanged. `commitSha` is the draft commit after the push,
+  `publishedSha` the commit a snapshot published, `publishError` why a publish failed, `switchedToGit` that this
+  push moved the script from WebDAV to git. Anything that reads `historyRecorded` must read `publishedSha`
+  (snapshot) or `commitSha` instead; the new shape is in the README.
+- **New exit-code rules.** `1` when `pushed` is false. On a snapshot, also `1` when `publishedSha` is `null`,
+  `publishError` is set, or `liveVerified` is `false` (type-check diagnostics still fail a snapshot). Otherwise
+  `0`. A plain push is judged by `pushed` alone.
+- **A push is a git commit and needs an author.** `--author "Name <email>"`, or `b6p config set author "Name
+  <email>"`, or (as before for git users) `git config user.name/user.email` or `GIT_AUTHOR_*` in the
+  environment. With none, the push exits `1` and says how to fix it.
+- **Pulls and pushes work on the script's git draft.** `pull` clones it (or fast-forwards an existing clone);
+  there is no WebDAV draft or snapshot transfer any more. `audit` needs a pulled git working copy.
+- **Switching a script from WebDAV to git is one-way,** and the CLI says so: a push prints it (`switchedToGit` in
+  `--json`), and `pull` asks first (`[Cancel]` first, so `--yes` declines).
+
+### Added
+
+- `b6p pull <url> --enable-git`: switch a script still on WebDAV to git without asking.
+- `b6p push --author` and `b6p deploy --author`; `author` and `message` in deploy config files.
+- A push prints the draft and published commit SHAs.
+
 ## [0.8.2] — 2026-10-20
 
 ### Fixed

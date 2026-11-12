@@ -1,15 +1,14 @@
-// The push exit rule and --json body (ClickUp 86bbqnrtp, 86bb94f3j).
+// The push exit rule and --json body (ClickUp 86bbqnrtp, 86bb94f3j; git-only in 0.9.0).
 //
-// Core 0.8.0 reads every live (snapshot/) copy back after a snapshot push and returns
-// `liveVerified: false` when one is still wrong after a re-send. Core already clears
-// `historyRecorded` then, so the old rule caught it by accident; the rule now names it, and this
-// table is what keeps a refactor from dropping either signal.
+// A snapshot fails on any of: nothing pushed, nothing published, a publish error, a failed read-back.
+// This table is what keeps a refactor from dropping a signal.
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import type { PushResult } from "@bluestep-systems/b6p-core";
 import {
   declinedPushJson,
   deleteCommand,
+  describePush,
   detectShellDialect,
   overwriteCommand,
   pushExitCode,
@@ -17,11 +16,17 @@ import {
   toPushJson,
 } from "../src/pushOutcome";
 
+const SHA_DRAFT = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const SHA_PUBLISHED = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
 /** A clean snapshot push; each case overrides what it tests. */
 function result(overrides: Partial<PushResult> = {}): PushResult {
   return {
     pushed: true,
-    historyRecorded: true,
+    commitSha: SHA_DRAFT,
+    publishedSha: SHA_PUBLISHED,
+    publishError: null,
+    switchedToGit: false,
     typeCheckDiagnostics: 0,
     liveVerified: true,
     liveMismatches: [],
@@ -32,51 +37,109 @@ function result(overrides: Partial<PushResult> = {}): PushResult {
 
 describe("pushExitCode", () => {
   it("is 0 for a clean snapshot push", () => {
-    assert.strictEqual(pushExitCode(result()), 0);
+    assert.strictEqual(pushExitCode(result(), true), 0);
   });
 
-  it("is 0 for a clean plain push (no compile, no read-back)", () => {
-    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: null, liveVerified: null })), 0);
+  it("is 0 for a clean plain push (no publish, no compile, no read-back)", () => {
+    const plain = result({ publishedSha: null, typeCheckDiagnostics: null, liveVerified: null });
+    assert.strictEqual(pushExitCode(plain, false), 0);
   });
 
   it("is 0 when the user cancelled at the target-URL prompt (null)", () => {
-    assert.strictEqual(pushExitCode(null), 0);
+    assert.strictEqual(pushExitCode(null, true), 0);
+    assert.strictEqual(pushExitCode(null, false), 0);
   });
 
-  it("is 1 when nothing was uploaded (pushed: false, e.g. app.js missing or without code)", () => {
-    assert.strictEqual(pushExitCode(result({ pushed: false, historyRecorded: false, liveVerified: null })), 1);
+  it("is 1 when nothing was pushed (pushed: false), plain or snapshot", () => {
+    const aborted = result({ pushed: false, commitSha: null, publishedSha: null, liveVerified: null });
+    assert.strictEqual(pushExitCode(aborted, false), 1);
+    assert.strictEqual(pushExitCode(aborted, true), 1);
   });
 
-  it("is 1 when the snapshot history entry was not recorded", () => {
-    assert.strictEqual(pushExitCode(result({ historyRecorded: false })), 1);
+  it("is 1 on a snapshot when nothing was published (publishedSha null)", () => {
+    assert.strictEqual(pushExitCode(result({ publishedSha: null, liveVerified: null }), true), 1);
   });
 
-  it("is 1 when a live copy is still wrong, even if historyRecorded were true", () => {
-    // Core never returns this combination today; the rule must not depend on it.
-    assert.strictEqual(pushExitCode(result({ liveVerified: false, liveMismatches: [".build/scripts/app.js"] })), 1);
+  it("is 1 on a snapshot when the platform refused the publish (publishError set)", () => {
+    const refused = result({ publishedSha: null, publishError: "refused", liveVerified: null });
+    assert.strictEqual(pushExitCode(refused, true), 1);
   });
 
-  it("is 1 for the combination core returns on a failed read-back", () => {
-    assert.strictEqual(
-      pushExitCode(result({ historyRecorded: false, liveVerified: false, liveMismatches: [".build/scripts/app.js"] })),
-      1
-    );
+  it("is 1 on a snapshot when publishError is set even if a published sha is present", () => {
+    assert.strictEqual(pushExitCode(result({ publishError: "refresh failed" }), true), 1);
   });
 
-  it("is 0 when a copy could not be compared (liveVerified: null): core warns instead", () => {
-    assert.strictEqual(pushExitCode(result({ liveVerified: null })), 0);
+  it("is 1 on a snapshot when the published branch reads back at another commit", () => {
+    const wrong = result({ liveVerified: false, liveMismatches: [".build/scripts/app.js"] });
+    assert.strictEqual(pushExitCode(wrong, true), 1);
+  });
+
+  it("is 0 on a snapshot when the read-back could not run (liveVerified: null): core warns instead", () => {
+    assert.strictEqual(pushExitCode(result({ liveVerified: null }), true), 0);
   });
 
   it("is 1 when the snapshot shipped with type-check diagnostics", () => {
-    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 3 })), 1);
+    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 3 }), true), 1);
   });
 
   it("is 0 when kept platform-only files are the only news", () => {
-    assert.strictEqual(pushExitCode(result({ keptPlatformOnly: ["scripts/old.ts"] })), 0);
+    assert.strictEqual(pushExitCode(result({ keptPlatformOnly: ["scripts/old.ts"] }), true), 0);
+  });
+
+  it("is 0 when the push switched the script to git (reported, not a failure)", () => {
+    assert.strictEqual(pushExitCode(result({ switchedToGit: true }), true), 0);
+  });
+
+  it("ignores publish fields on a plain push: they were not asked for", () => {
+    // Core leaves them null on a plain push; a stray value must not turn a pushed draft into a failure.
+    assert.strictEqual(pushExitCode(result({ publishedSha: null, publishError: "x", liveVerified: false }), false), 0);
+  });
+});
+
+describe("describePush", () => {
+  it("shows the commit and published SHAs", () => {
+    const lines = describePush(result(), true);
+    assert.deepStrictEqual(lines.info, [`Draft commit: ${SHA_DRAFT}`, `Published commit: ${SHA_PUBLISHED}`]);
+    assert.deepStrictEqual(lines.errors, []);
+    assert.deepStrictEqual(lines.notices, []);
+  });
+
+  it("says plainly, and as a notice, that the script was switched to git and that it is one-way", () => {
+    const lines = describePush(result({ switchedToGit: true }), true);
+    assert.strictEqual(lines.notices.length, 1);
+    assert.match(lines.notices[0], /switched from WebDAV to git/);
+    assert.match(lines.notices[0], /one-way/);
+  });
+
+  it("reports a failed publish as an error and omits the published line", () => {
+    const lines = describePush(result({ publishedSha: null, publishError: "refused by the platform" }), true);
+    assert.deepStrictEqual(lines.info, [`Draft commit: ${SHA_DRAFT}`]);
+    assert.strictEqual(lines.errors.length, 1);
+    assert.match(lines.errors[0], /refused by the platform/);
+  });
+
+  it("flags a snapshot with neither a published sha nor an error", () => {
+    const lines = describePush(result({ publishedSha: null }), true);
+    assert.strictEqual(lines.errors.length, 1);
+    assert.match(lines.errors[0], /nothing was published/);
+  });
+
+  it("a plain push only shows its draft commit", () => {
+    const lines = describePush(result({ publishedSha: null }), false);
+    assert.deepStrictEqual(lines.info, [`Draft commit: ${SHA_DRAFT}`]);
+    assert.deepStrictEqual(lines.errors, []);
   });
 });
 
 describe("toPushJson", () => {
+  it("has no historyRecorded and carries the git fields", () => {
+    const json = toPushJson(result()) as Record<string, unknown>;
+    assert.ok(!("historyRecorded" in json));
+    for (const key of ["commitSha", "publishedSha", "publishError", "switchedToGit"]) {
+      assert.ok(key in json, key);
+    }
+  });
+
   it("keeps every PushResult field and adds an empty declinedOverwrites", () => {
     const r = result({ liveVerified: false, liveMismatches: ["a.js"], keptPlatformOnly: ["b.ts"] });
     assert.deepStrictEqual(toPushJson(r), { ...r, declinedOverwrites: [] });
@@ -90,14 +153,17 @@ describe("declinedPushJson", () => {
     const json = declinedPushJson(["scripts/app.ts", "README.md"]);
     assert.deepStrictEqual(json, {
       pushed: false,
-      historyRecorded: false,
+      commitSha: null,
+      publishedSha: null,
+      publishError: null,
+      switchedToGit: false,
       typeCheckDiagnostics: null,
       liveVerified: null,
       liveMismatches: [],
       keptPlatformOnly: [],
       declinedOverwrites: ["scripts/app.ts", "README.md"],
     });
-    assert.strictEqual(pushExitCode(json), 1, "the same body must never read as success");
+    assert.strictEqual(pushExitCode(json, true), 1, "the same body must never read as success");
   });
 
   it("has exactly the keys of a normal push's JSON", () => {
