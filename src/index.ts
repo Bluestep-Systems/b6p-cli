@@ -20,6 +20,7 @@ import {
   pushExitCode,
   toPushJson,
 } from "./pushOutcome";
+import { describeGitError } from "./gitErrors";
 import {
   AUTHOR_SETTING,
   AuthorFormatError,
@@ -30,6 +31,10 @@ import {
   parseAuthor,
   type CommitAuthor,
 } from "./author";
+
+const ENABLE_GIT_HELP =
+  "Switch a script that still publishes over WebDAV to git without asking. The switch is one-way. " +
+  "Without this flag the switch is asked about first, and --yes (or an empty answer) declines it";
 
 const AUTHOR_FLAG_HELP =
   'Commit author, "Name <email>". Default: the "author" setting (b6p config set author "Name <email>"), ' +
@@ -195,6 +200,7 @@ program
   .option("--snapshot", "Push as snapshot")
   .option("--message <text>", "Commit message (implies --snapshot)")
   .option("--author <name-and-email>", AUTHOR_FLAG_HELP)
+  .option("--enable-git", ENABLE_GIT_HELP)
   .option(
     "--overwrite <path>",
     "Overwrite this file on the platform even though it changed there (repeatable; path as the question lists it)",
@@ -210,6 +216,7 @@ program
         snapshot?: boolean;
         message?: string;
         author?: string;
+        enableGit?: boolean;
         overwrite?: string[];
       }
     ) => {
@@ -228,6 +235,7 @@ program
               message: opts.message,
               overwrite: opts.overwrite,
               author,
+              enableGit: opts.enableGit,
             })
           : await core.script.push({
               targetUrl,
@@ -236,6 +244,7 @@ program
               message: opts.message,
               overwrite: opts.overwrite,
               author,
+              enableGit: opts.enableGit,
             });
         if (result) {
           const lines = describePush(result, isSnapshot);
@@ -263,6 +272,17 @@ program
         if (isMissingAuthorError(e) || e instanceof AuthorFormatError) {
           spinner.stop();
           prompt.error(isMissingAuthorError(e) ? missingAuthorMessage(e.message) : (e as Error).message);
+          if (globalOpts.json) {
+            process.stdout.write(JSON.stringify(declinedPushJson([]), null, 2) + "\n");
+          }
+          process.exitCode = 1;
+          return;
+        }
+        // A declined switch to git, a wrong branch checked out: nothing was committed. Say what to do.
+        const gitMessage = describeGitError(e);
+        if (gitMessage !== undefined) {
+          spinner.stop();
+          prompt.error(gitMessage);
           if (globalOpts.json) {
             process.stdout.write(JSON.stringify(declinedPushJson([]), null, 2) + "\n");
           }
@@ -306,11 +326,7 @@ program
   .description("Pull a script's draft (git clone, or fast-forward of an existing clone) into the workspace")
   .option("--file <path>", "Derive source from local file metadata")
   .option("--workspace <path>", "Target workspace folder (default: cwd)")
-  .option(
-    "--enable-git",
-    "Switch a script that still publishes over WebDAV to git without asking (needs <formula-url>). " +
-      "The switch is one-way. Without this flag a WebDAV script asks first, and --yes declines"
-  )
+  .option("--enable-git", ENABLE_GIT_HELP)
   .action(async (formulaUrl: string | undefined, opts: { file?: string; workspace?: string; enableGit?: boolean }) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
@@ -319,18 +335,12 @@ program
       // use --file if provided, otherwise treat cwd as the file path so the
       // script root can be derived by walking up.
       let result;
-      if (!formulaUrl && opts.enableGit) {
-        throw new Error(
-          "--enable-git needs the script's URL: b6p pull <formula-url> --enable-git. " +
-            "(Without a URL, pull asks before switching a WebDAV script to git.)"
-        );
-      }
       if (!formulaUrl) {
         const filePath = resolve(opts.file ?? ".");
         const workspacePath = opts.workspace
           ? resolve(opts.workspace)
           : (core.script.deriveWorkspacePath(filePath) ?? process.cwd());
-        result = await core.script.pullCurrent({ filePath, workspacePath });
+        result = await core.script.pullCurrent({ filePath, workspacePath, enableGit: opts.enableGit });
       } else {
         result = await core.script.pull({
           formulaUrl,
@@ -352,6 +362,18 @@ program
       // would make every pull in a tree with local edits exit non-zero forever.
       // The outcome reaches machines through --json and humans through the
       // warning core prints.
+    } catch (e) {
+      // Staged changes or a symlink in the way: nothing was changed. Say what to do.
+      const gitMessage = describeGitError(e);
+      if (gitMessage === undefined) {
+        throw e;
+      }
+      spinner.stop();
+      prompt.error(gitMessage);
+      if (globalOpts.json) {
+        process.stdout.write(JSON.stringify({ cancelled: true }, null, 2) + "\n");
+      }
+      process.exitCode = 1;
     } finally {
       spinner.stop();
       prompt.close();

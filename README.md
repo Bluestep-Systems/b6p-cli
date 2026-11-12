@@ -137,9 +137,13 @@ for `deploy`, the config file's `author`; the stored default (`b6p config set au
 `GIT_AUTHOR_EMAIL` (or the `GIT_COMMITTER_*` pair) in the environment. With none of them the push
 stops with exit `1` and prints those fixes; nothing is ever committed as nobody.
 
-`b6p pull` without `--enable-git` asks before switching a WebDAV script (`[Cancel]` first), and
-`--yes` declines, so an unattended pull never switches anything. `--enable-git` needs the script
-URL (`b6p pull <url> --enable-git`).
+`b6p pull` and `b6p push` without `--enable-git` ask before switching a WebDAV script (`[Cancel]` first),
+and `--yes` declines, so an unattended run never switches anything and exits `1` (push) with nothing changed.
+`--enable-git` works with a URL or with `--file`/the current folder.
+
+Refusals that change nothing and exit `1`: a declined switch, a draft folder with a branch other than
+`draft` checked out (push), staged-only changes that a pull would discard, and symbolic links that
+would let a pull write outside the draft folder. Each message says how to fix it.
 
 ### Exit codes
 

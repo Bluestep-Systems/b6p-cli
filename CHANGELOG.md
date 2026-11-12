@@ -33,7 +33,8 @@ and snapshot. 0.8.x clients stop working against a script once it is on git: upd
 
 ### Added
 
-- `b6p pull <url> --enable-git`: switch a script still on WebDAV to git without asking.
+- `--enable-git` on `pull` (with a URL, `--file` or the current folder) and `push`: switch a script still on WebDAV to git without asking. Without it the switch is asked about and `--yes` declines.
+- Clear messages, each exiting `1` with nothing changed, for a declined switch, a wrong branch checked out, staged-only changes and symlinks that escape the draft folder.
 - `b6p push --author` and `b6p deploy --author`; `author` and `message` in deploy config files.
 - A push prints the draft and published commit SHAs.
 
