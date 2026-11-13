@@ -107,6 +107,8 @@ describe("deploy", () => {
         publishError: STALE,
         publishRefusal: STALE_REFUSAL,
         switchedToGit: false,
+        typeCheckDiagnostics: null,
+        typeCheckErrors: [],
       },
     ]);
     assert.strictEqual(out.exitCode, 1);
@@ -123,6 +125,8 @@ describe("deploy", () => {
         publishError: null,
         publishRefusal: null,
         switchedToGit: false,
+        typeCheckDiagnostics: null,
+        typeCheckErrors: [],
         error: new bsjsGit.PublishBuildManifestMissingError({ withheld: [".build/.b6p-build.json"] }, "m"),
       },
     ]);
