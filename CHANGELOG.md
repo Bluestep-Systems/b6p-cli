@@ -5,6 +5,45 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] — 2026-11-12
+
+Depends on b6p-core 0.9.0, which moves scripts to git: a script's draft and snapshot are a git repository,
+and its history is its git history. **Platform floor:** the platform's git publishing. Today's server works
+through its `enableGitPublishing` switch (the first push, or `pull --enable-git`, turns a script over); the
+release that moves script history to git makes it the only mode, and refuses WebDAV writes to a script's draft
+and snapshot. 0.8.x clients stop working against a script once it is on git: update them to this version.
+
+### Changed (breaking, user-visible)
+
+- **`push --json` lost `historyRecorded` and gained `commitSha`, `publishedSha`, `publishError` and
+  `switchedToGit`.** Every other field is unchanged. `commitSha` is the draft commit after the push,
+  `publishedSha` the commit a snapshot published, `publishError` why a publish failed, `switchedToGit` that this
+  push moved the script from WebDAV to git. Anything that reads `historyRecorded` must read `publishedSha`
+  (snapshot) or `commitSha` instead; the new shape is in the README.
+- **New exit-code rules.** `1` when `pushed` is false. On a snapshot, also `1` when `publishedSha` is `null`,
+  `publishError` is set, or `liveVerified` is `false` . Otherwise
+  `0`. A plain push is judged by `pushed` alone.
+- A push that stops after switching a script to git (a declined overwrite, for instance) reports `switchedToGit: true`; the switch stands.
+- **A push is a git commit and needs an author.** `--author "Name <email>"`, or `b6p config set author "Name
+  <email>"`, or (as before for git users) `git config user.name/user.email` or `GIT_AUTHOR_*` in the
+  environment. With none, the push exits `1` and says how to fix it.
+- **Pulls and pushes work on the script's git draft.** `pull` clones it (or fast-forwards an existing clone);
+  there is no WebDAV draft or snapshot transfer any more. `audit` needs a pulled git working copy.
+- **Switching a script from WebDAV to git is one-way,** and the CLI says so: a push prints it (`switchedToGit` in
+  `--json`), and `pull` asks first (`[Cancel]` first, so `--yes` declines).
+
+### Added
+
+- `--fail-on-type-errors` on `push` and `deploy` (and `failOnTypeErrors` in deploy configs). Type errors in a script's own sources are now warnings that exit `0` by default (0.8 failed a snapshot on them); errors in `.d.ts` files never count; syntax and emit errors still exit `1`.
+
+- Build manifest: a push that builds writes `<outDir>/.b6p-build.json` with the build output (a draft with no TypeScript source needs none), and the platform refuses to publish a draft whose sources changed since the build. The refusal (`BUILD_STALE`, `BUILD_MANIFEST_MISSING`, `BUILD_MANIFEST_INVALID`) exits `1`, lists the files, says to rebuild and push, and appears in `--json` as `publishRefusal`. `--externally-built` (push) and `externallyBuilt` (deploy config) mark a script a bundler builds.
+
+- `--enable-git` on `pull` (with a URL, `--file` or the current folder) and `push`: switch a script still on WebDAV to git without asking. Without it the switch is asked about and `--yes` declines.
+- Clear messages, each exiting `1` with nothing changed, for a declined switch, a wrong branch checked out, staged-only changes and symlinks that escape the draft folder.
+- `b6p push --author` and `b6p deploy --author`; `author` and `message` in deploy config files.
+- A push prints the draft and published commit SHAs.
+- `deploy` exits `1` when no author resolves (checked before anything is pushed) or when any target failed, was not pushed, or had its publish refused, and prints a line per target with its commit and published SHAs (and a switch to git). Before, it printed "Deploy complete!" and exited `0` whatever happened.
+
 ## [0.8.2] — 2026-10-20
 
 ### Fixed

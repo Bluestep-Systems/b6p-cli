@@ -39,7 +39,8 @@ point [src/index.ts](src/index.ts); terminal adapters for core's provider interf
   a line that arrives with no question pending and never settles at end of input.
 - **`push`'s exit code and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**, as
   pure functions with their own tests. `--json` is one shape for every push outcome (core's
-  `PushResult` plus `declinedOverwrites`); add fields there, never a second shape. Core says what
+  `PushResult` plus `declinedOverwrites`; 0.9.0 dropped `historyRecorded` for `commitSha`, `publishedSha`,
+  `publishError`, `switchedToGit`, and `pushExitCode` takes whether the push was a snapshot); add fields there, never a second shape. Core says what
   happened and why; the "how to go on" lines (the `--overwrite` and delete commands) are the CLI's,
   quoted per `ShellDialect` (POSIX, or PowerShell on Windows without `MSYSTEM`/`SHELL`).
 

@@ -11,7 +11,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { LockHolder } from "@bluestep-systems/b6p-core";
-import { WindowsRestartManagerLockDiagnoser, parseHolders } from "../src/lockDiagnoser/WindowsRestartManagerLockDiagnoser";
+import {
+  WindowsRestartManagerLockDiagnoser,
+  parseHolders,
+} from "../src/lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 
 test("diagnose returns [] on non-Windows without invoking the probe", async () => {
   let probeCalled = false;
