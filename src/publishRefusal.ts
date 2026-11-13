@@ -44,7 +44,7 @@ export function describePublishRefusal(refusal: PublishRefusal): string {
       );
     case "BUILD_MANIFEST_MISSING":
       return (
-        "The draft was pushed but not published: it has a tsconfig.json but no build manifest" +
+        "The draft was pushed but not published: it has TypeScript sources but no build manifest" +
         `${refusal.withheld.length > 0 ? ` (expected at ${refusal.withheld[0]})` : ""}.\n` +
         "Rebuild and push again (a push builds the script and writes the manifest). If a bundler outside b6p builds " +
         "this script, push with --externally-built."
