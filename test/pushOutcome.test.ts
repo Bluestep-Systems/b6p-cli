@@ -142,7 +142,7 @@ describe("toPushJson", () => {
 
   it("keeps every PushResult field and adds an empty declinedOverwrites", () => {
     const r = result({ liveVerified: false, liveMismatches: ["a.js"], keptPlatformOnly: ["b.ts"] });
-    assert.deepStrictEqual(toPushJson(r), { ...r, declinedOverwrites: [] });
+    assert.deepStrictEqual(toPushJson(r), { ...r, declinedOverwrites: [], publishRefusal: null });
   });
 });
 
@@ -162,6 +162,7 @@ describe("declinedPushJson", () => {
       liveMismatches: [],
       keptPlatformOnly: [],
       declinedOverwrites: ["scripts/app.ts", "README.md"],
+      publishRefusal: null,
     });
     assert.strictEqual(pushExitCode(json, true), 1, "the same body must never read as success");
   });

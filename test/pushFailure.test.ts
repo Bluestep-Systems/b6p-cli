@@ -83,7 +83,7 @@ describe("two consecutive pushes, the first declined", () => {
     assert.strictEqual(first.exit, 1);
     assert.strictEqual((first.json as { pushed: boolean }).pushed, false);
     assert.strictEqual(second.exit, 0);
-    assert.deepStrictEqual(second.json, { ...GOOD, declinedOverwrites: [] });
+    assert.deepStrictEqual(second.json, { ...GOOD, declinedOverwrites: [], publishRefusal: null });
     assert.strictEqual(calls, 2, "the CLI calls core again; it does not short-cut a retry");
   });
 

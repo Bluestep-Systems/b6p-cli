@@ -1,6 +1,7 @@
 import { Err } from "@bluestep-systems/b6p-core";
 import { AuthorFormatError, isMissingAuthorError, missingAuthorMessage } from "./author";
 import { describeGitError } from "./gitErrors";
+import { describePublishRefusal, publishRefusalOfError } from "./publishRefusal";
 import { declinedPushJson, overwriteCommand, type PushJson, type ShellDialect } from "./pushOutcome";
 
 /**
@@ -47,6 +48,14 @@ export function pushFailureOf(e: unknown, args: string[], dialect: ShellDialect)
   }
   if (e instanceof AuthorFormatError) {
     return { message: e.message, json: declinedPushJson([], switched), switchedToGit: switched };
+  }
+  const refusal = publishRefusalOfError(e);
+  if (refusal) {
+    return {
+      message: describePublishRefusal(refusal),
+      json: { ...declinedPushJson([], switched), publishRefusal: refusal },
+      switchedToGit: switched,
+    };
   }
   const gitMessage = describeGitError(e);
   if (gitMessage !== undefined) {

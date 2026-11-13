@@ -10,6 +10,7 @@ import {
   type DeployAuthorPlan,
 } from "./author";
 import { SWITCHED_TO_GIT_NOTICE } from "./pushOutcome";
+import { describePublishRefusal, publishRefusalOf, publishRefusalOfError } from "./publishRefusal";
 
 /**
  * What to do with a deploy config.
@@ -98,13 +99,23 @@ export function describeDeploy(results: readonly DeployTargetResult[] | null): {
   for (const r of results) {
     if (r.error !== undefined) {
       failed += 1;
-      errors.push(`${r.target}: failed: ${r.error instanceof Error ? r.error.message : String(r.error)}`);
+      const refusal = publishRefusalOfError(r.error);
+      errors.push(
+        refusal
+          ? `${r.target}: ${describePublishRefusal(refusal)}`
+          : `${r.target}: failed: ${r.error instanceof Error ? r.error.message : String(r.error)}`
+      );
     } else if (!r.pushed) {
       failed += 1;
       errors.push(`${r.target}: nothing was pushed`);
     } else if (r.publishError !== null) {
       failed += 1;
-      errors.push(`${r.target}: pushed (commit ${r.commitSha}) but not published: ${r.publishError}`);
+      const refusal = publishRefusalOf(r.publishError);
+      errors.push(
+        refusal
+          ? `${r.target}: ${describePublishRefusal(refusal)}\nPlatform message: ${r.publishError}`
+          : `${r.target}: pushed (commit ${r.commitSha}) but not published: ${r.publishError}`
+      );
     } else {
       info.push(`${r.target}: pushed ${r.commitSha}${r.publishedSha !== null ? `, published ${r.publishedSha}` : ""}`);
     }

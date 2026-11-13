@@ -175,10 +175,12 @@ Exit codes:
      another commit (liveVerified false), or type-check diagnostics
 
 --json prints one object on stdout:
-  { pushed, commitSha, publishedSha, publishError, switchedToGit, typeCheckDiagnostics,
-    liveVerified, liveMismatches, keptPlatformOnly, declinedOverwrites }
+  { pushed, commitSha, publishedSha, publishError, publishRefusal, switchedToGit,
+    typeCheckDiagnostics, liveVerified, liveMismatches, keptPlatformOnly, declinedOverwrites }
   commitSha: the draft commit after the push. publishedSha: the commit published (snapshot only,
-  else null). publishError: why the publish failed, else null. switchedToGit: this push moved the
+  else null). publishError: why the publish failed, else null. publishRefusal: { reason, withheld } when the platform
+  refused because the build is missing, unreadable or stale (BUILD_STALE, BUILD_MANIFEST_MISSING,
+  BUILD_MANIFEST_INVALID): rebuild and push; else null. switchedToGit: this push moved the
   script from WebDAV to git. A declined overwrite prints pushed: false with the files in
   declinedOverwrites; a cancelled target-URL prompt prints { cancelled: true }. Questions, warnings
   and next steps go to stderr.
@@ -193,6 +195,11 @@ program
   .option("--message <text>", "Commit message (implies --snapshot)")
   .option("--author <name-and-email>", AUTHOR_FLAG_HELP)
   .option("--enable-git", ENABLE_GIT_HELP)
+  .option(
+    "--externally-built",
+    "The script is built by a bundler outside b6p (its externallyBuilt flag on the platform): the push writes no " +
+      "build manifest and the platform skips its stale-build check"
+  )
   .option(
     "--overwrite <path>",
     "Overwrite this file on the platform even though it changed there (repeatable; path as the question lists it)",
@@ -209,6 +216,7 @@ program
         message?: string;
         author?: string;
         enableGit?: boolean;
+        externallyBuilt?: boolean;
         overwrite?: string[];
       }
     ) => {
@@ -228,6 +236,7 @@ program
               overwrite: opts.overwrite,
               author,
               enableGit: opts.enableGit,
+              externallyBuilt: opts.externallyBuilt,
             })
           : await core.script.push({
               targetUrl,
@@ -237,6 +246,7 @@ program
               overwrite: opts.overwrite,
               author,
               enableGit: opts.enableGit,
+              externallyBuilt: opts.externallyBuilt,
             });
         if (result) {
           const lines = describePush(result, isSnapshot);
@@ -401,7 +411,8 @@ program
     `
 Config file: { "sourceRootPath": "<script root>", "targets": [{ "url": "<formula url>", "snapshot": true }],
   "author": { "name": "Jane Doe", "email": "jane@example.com" }  (or "Jane Doe <jane@example.com>"; optional),
-  "message": "<commit message for every target>" (optional) }
+  "message": "<commit message for every target>" (optional),
+  "externallyBuilt": true  (optional: a bundler builds these scripts, so no build manifest is written) }
 Every target gets a git commit of the source draft; "snapshot": true also publishes it.
 `
   )
