@@ -14,6 +14,7 @@ import {
   pushExitCode,
   shellQuote,
   toPushJson,
+  typeErrorWarnings,
 } from "../src/pushOutcome";
 
 const SHA_DRAFT = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -29,6 +30,7 @@ function result(overrides: Partial<PushResult> = {}): PushResult {
     publishRefusal: null,
     switchedToGit: false,
     typeCheckDiagnostics: 0,
+    typeCheckErrors: [],
     liveVerified: true,
     liveMismatches: [],
     keptPlatformOnly: [],
@@ -143,6 +145,34 @@ describe("describePush", () => {
   });
 });
 
+describe("type errors in a push", () => {
+  const errors = [{ file: "scripts/app.ts", line: 3, column: 5, code: 2345, message: "bad argument" }];
+
+  it("--json carries the count and the list as core gave them", () => {
+    const json = toPushJson(result({ typeCheckDiagnostics: 1, typeCheckErrors: errors }));
+    assert.strictEqual(json.typeCheckDiagnostics, 1);
+    assert.deepStrictEqual(json.typeCheckErrors, errors);
+  });
+
+  it("the human output warns with file, position, code and message, and says how to make them fail", () => {
+    const lines = describePush(result({ typeCheckDiagnostics: 1, typeCheckErrors: errors }), true);
+    assert.match(lines.warnings[0], /1 type error\(s\) in the script's own sources/);
+    assert.match(lines.warnings[0], /scripts\/app\.ts\(3,5\): TS2345: bad argument/);
+    assert.match(lines.warnings[0], /--fail-on-type-errors/);
+    assert.deepStrictEqual(lines.errors, []);
+  });
+
+  it("lists at most 20 and counts the rest; says nothing when there are none", () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ ...errors[0], line: i + 1 }));
+    assert.match(typeErrorWarnings(many)[0], /\.\.\. and 5 more/);
+    assert.deepStrictEqual(typeErrorWarnings([]), []);
+  });
+
+  it("a declined push's JSON has the same keys as a normal one", () => {
+    assert.deepStrictEqual(Object.keys(declinedPushJson([])).sort(), Object.keys(toPushJson(result())).sort());
+  });
+});
+
 describe("toPushJson", () => {
   it("has no historyRecorded and carries the git fields", () => {
     const json = toPushJson(result()) as Record<string, unknown>;
@@ -170,6 +200,7 @@ describe("declinedPushJson", () => {
       publishError: null,
       switchedToGit: false,
       typeCheckDiagnostics: null,
+      typeCheckErrors: [],
       liveVerified: null,
       liveMismatches: [],
       keptPlatformOnly: [],

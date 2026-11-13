@@ -21,6 +21,7 @@ const REFUSED: PushResult = {
   publishRefusal: STALE_REFUSAL,
   switchedToGit: false,
   typeCheckDiagnostics: 0,
+  typeCheckErrors: [],
   liveVerified: null,
   liveMismatches: [],
   keptPlatformOnly: [],

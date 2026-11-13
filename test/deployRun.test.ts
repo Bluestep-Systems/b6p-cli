@@ -62,6 +62,8 @@ const OK: DeployTargetResult = {
   publishError: null,
   publishRefusal: null,
   switchedToGit: false,
+  typeCheckDiagnostics: 0,
+  typeCheckErrors: [],
 };
 
 describe("describeDeploy", () => {
@@ -130,7 +132,14 @@ describe("removeTempDir", () => {
 });
 
 describe("type errors in a deploy", () => {
-  const withTypeErrors = { ...OK, typeCheckDiagnostics: 2 } as DeployTargetResult;
+  const withTypeErrors: DeployTargetResult = {
+    ...OK,
+    typeCheckDiagnostics: 2,
+    typeCheckErrors: [
+      { file: "scripts/app.ts", line: 3, column: 5, code: 2345, message: "bad" },
+      { file: "scripts/x.ts", line: 1, column: 1, code: 2304, message: "no name" },
+    ],
+  };
 
   it("are warnings by default: exit 0", () => {
     assert.strictEqual(describeDeploy([withTypeErrors]).exitCode, 0);
@@ -141,6 +150,14 @@ describe("type errors in a deploy", () => {
     const out = describeDeploy([OK, { ...withTypeErrors, target: "https://b/" }], true);
     assert.strictEqual(out.exitCode, 1);
     assert.match(out.errors[0], /https:\/\/b\/: 2 type error/);
+  });
+
+  it("prints the type errors as warnings under the target, whatever the flag", () => {
+    for (const flag of [false, true]) {
+      const out = describeDeploy([withTypeErrors], flag);
+      assert.match(out.warnings[0], /^https:\/\/a\/: 2 type error\(s\)/);
+      assert.match(out.warnings[0], /scripts\/app\.ts\(3,5\): TS2345: bad/);
+    }
   });
 
   it("a clean target is fine under failOnTypeErrors", () => {

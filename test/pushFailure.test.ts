@@ -14,6 +14,7 @@ const GOOD: PushResult = {
   publishRefusal: null,
   switchedToGit: false,
   typeCheckDiagnostics: 0,
+  typeCheckErrors: [],
   liveVerified: true,
   liveMismatches: [],
   keptPlatformOnly: [],

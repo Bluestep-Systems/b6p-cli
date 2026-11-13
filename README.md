@@ -176,6 +176,7 @@ runs the emitted JavaScript and valid JS often comes from imperfect TypeScript. 
   "publishRefusal": null,
   "switchedToGit": false,
   "typeCheckDiagnostics": 0,
+  "typeCheckErrors": [],
   "liveVerified": true,
   "liveMismatches": [],
   "keptPlatformOnly": [],
@@ -192,6 +193,9 @@ runs the emitted JavaScript and valid JS often comes from imperfect TypeScript. 
   a build that is missing, unreadable or older than its sources (`BUILD_MANIFEST_MISSING`,
   `BUILD_MANIFEST_INVALID`, `BUILD_STALE`) `withheld` lists the stale files or the manifest's path: rebuild
   and push. The draft is pushed, the published script unchanged, and the exit code is `1`. Else `null`.
+- `typeCheckDiagnostics` / `typeCheckErrors`: the count and the list (`{ file, line, column, code, message }`) of
+  type errors in the script's own sources; `.d.ts` diagnostics are never included. Warnings unless
+  `--fail-on-type-errors`.
 - `switchedToGit`: this push moved the script from WebDAV to git.
 - `historyRecorded` is gone (0.9.0): history is the git history, so `commitSha` and `publishedSha`
   replace it.

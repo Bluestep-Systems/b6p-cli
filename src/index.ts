@@ -179,7 +179,7 @@ Exit codes:
      another commit (liveVerified false). Type errors only warn (exit 0) unless --fail-on-type-errors
 
 --json prints one object on stdout:
-  { pushed, commitSha, publishedSha, publishError, publishRefusal, switchedToGit,
+  { pushed, commitSha, publishedSha, publishError, publishRefusal, switchedToGit, typeCheckErrors,
     typeCheckDiagnostics, liveVerified, liveMismatches, keptPlatformOnly, declinedOverwrites }
   commitSha: the draft commit after the push. publishedSha: the commit published (snapshot only,
   else null). publishError: why the publish failed, else null. publishRefusal: { reason, withheld } when the platform
@@ -257,6 +257,7 @@ program
         if (result) {
           const lines = describePush(result, isSnapshot);
           lines.info.forEach((line) => prompt.info(line));
+          lines.warnings.forEach((line) => prompt.warn(line));
           lines.errors.forEach((line) => prompt.error(line));
           lines.notices.forEach((line) => prompt.notice(line));
         }
@@ -450,6 +451,7 @@ Every target gets a git commit of the source draft; "snapshot": true also publis
         const results = await core.script.deploy({ configPath });
         const outcome = describeDeploy(results, deployFailsOnTypeErrors(opts.failOnTypeErrors, text));
         outcome.info.forEach((line) => prompt.info(line));
+        outcome.warnings.forEach((line) => prompt.warn(line));
         outcome.errors.forEach((line) => prompt.error(line));
         outcome.notices.forEach((line) => prompt.notice(line));
         if (outcome.exitCode !== 0) {

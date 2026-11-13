@@ -9,7 +9,7 @@ import {
   planDeployAuthor,
   type DeployAuthorPlan,
 } from "./author";
-import { SWITCHED_TO_GIT_NOTICE } from "./pushOutcome";
+import { SWITCHED_TO_GIT_NOTICE, typeErrorWarnings } from "./pushOutcome";
 import { describePublishRefusal, publishRefusalOfError } from "./publishRefusal";
 
 /**
@@ -80,7 +80,7 @@ export function nearestExistingDir(dir: string): string {
  * (`error`), had its publish refused or failed (`publishError`), or was not pushed. `null` (no results: the config file
  * was missing, unreadable or invalid, which core has already reported) is a failure too.
  * @param results What core's deploy returned
- * @param failOnTypeErrors Whether a target with type errors in its own sources fails the deploy (`--fail-on-type-errors`, or `failOnTypeErrors` in the config). Read from `typeCheckDiagnostics` on the target result when core reports it.
+ * @param failOnTypeErrors Whether a target with type errors in its own sources fails the deploy (`--fail-on-type-errors`, or `failOnTypeErrors` in the config).
  * @returns `info` lines (hidden under `--json`), `errors`, `notices` (a switch to git, shown in every mode) and the exit code
  * @lastreviewed null
  */
@@ -91,16 +91,19 @@ export function describeDeploy(
   info: string[];
   errors: string[];
   notices: string[];
+  warnings: string[];
   exitCode: 0 | 1;
 } {
   const info: string[] = [];
   const errors: string[] = [];
   const notices: string[] = [];
+  const warnings: string[] = [];
   if (results === null) {
-    return { info, errors: ["Deploy did not run: see the error above."], notices, exitCode: 1 };
+    return { info, errors: ["Deploy did not run: see the error above."], notices, warnings, exitCode: 1 };
   }
   let failed = 0;
   for (const r of results) {
+    warnings.push(...typeErrorWarnings(r.typeCheckErrors).map((w) => `${r.target}: ${w}`));
     if (r.error !== undefined) {
       failed += 1;
       const refusal = publishRefusalOfError(r.error);
@@ -120,9 +123,11 @@ export function describeDeploy(
           ? `${r.target}: ${describePublishRefusal(refusal)}\nPlatform message: ${r.publishError}`
           : `${r.target}: pushed (commit ${r.commitSha}) but not published: ${r.publishError}`
       );
-    } else if (failOnTypeErrors && typeErrorCount(r) > 0) {
+    } else if (failOnTypeErrors && r.typeCheckDiagnostics !== null && r.typeCheckDiagnostics > 0) {
       failed += 1;
-      errors.push(`${r.target}: ${typeErrorCount(r)} type error(s) in the script's sources (--fail-on-type-errors)`);
+      errors.push(
+        `${r.target}: ${r.typeCheckDiagnostics} type error(s) in the script's sources (--fail-on-type-errors)`
+      );
     } else {
       info.push(`${r.target}: pushed ${r.commitSha}${r.publishedSha !== null ? `, published ${r.publishedSha}` : ""}`);
     }
@@ -133,7 +138,7 @@ export function describeDeploy(
   info.push(
     failed === 0 ? "Deploy complete." : `Deploy finished with ${failed} of ${results.length} target(s) failed.`
   );
-  return { info, errors, notices, exitCode: failed === 0 ? 0 : 1 };
+  return { info, errors, notices, warnings, exitCode: failed === 0 ? 0 : 1 };
 }
 
 /**
@@ -154,15 +159,6 @@ export async function removeTempDir(
   } catch (e) {
     warn(`Could not remove the temporary deploy config in ${dir}: ${e instanceof Error ? e.message : e}`);
   }
-}
-
-/**
- * The type errors core counted for a deploy target (own sources only), 0 when it reports none.
- * @lastreviewed null
- */
-function typeErrorCount(r: DeployTargetResult): number {
-  const n = (r as { typeCheckDiagnostics?: number | null }).typeCheckDiagnostics;
-  return typeof n === "number" ? n : 0;
 }
 
 /**

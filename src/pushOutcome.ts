@@ -1,4 +1,4 @@
-import type { PushResult } from "@bluestep-systems/b6p-core";
+import type { PushResult, TypeCheckError } from "@bluestep-systems/b6p-core";
 import { describePublishRefusal } from "./publishRefusal";
 
 /**
@@ -55,6 +55,25 @@ export function pushExitCode(result: PushResult | null, snapshot: boolean, failO
 }
 
 /**
+ * The warning lines for type errors in a script's own sources (at most 20 listed): they do not stop a push unless
+ * `--fail-on-type-errors` is given.
+ * @param errors Core's `typeCheckErrors`
+ * @returns One block of text, or none when there are no errors
+ * @lastreviewed null
+ */
+export function typeErrorWarnings(errors: readonly TypeCheckError[]): string[] {
+  if (errors.length === 0) {
+    return [];
+  }
+  const shown = errors.slice(0, 20).map((e) => `  ${e.file}(${e.line},${e.column}): TS${e.code}: ${e.message}`);
+  const more = errors.length > shown.length ? `\n  ... and ${errors.length - shown.length} more` : "";
+  return [
+    `${errors.length} type error(s) in the script's own sources (a warning: the JavaScript was built; ` +
+      `--fail-on-type-errors makes them fail):\n${shown.join("\n")}${more}`,
+  ];
+}
+
+/**
  * What a human is told when a script was switched from WebDAV to git.
  * @lastreviewed null
  */
@@ -74,10 +93,11 @@ export const SWITCHED_TO_GIT_NOTICE =
 export function describePush(
   result: PushResult,
   snapshot: boolean
-): { info: string[]; errors: string[]; notices: string[] } {
+): { info: string[]; errors: string[]; notices: string[]; warnings: string[] } {
   const info: string[] = [];
   const errors: string[] = [];
   const notices: string[] = [];
+  const warnings = typeErrorWarnings(result.typeCheckErrors);
   if (result.commitSha !== null) {
     info.push(`Draft commit: ${result.commitSha}`);
   }
@@ -97,7 +117,7 @@ export function describePush(
   if (result.switchedToGit) {
     notices.push(SWITCHED_TO_GIT_NOTICE);
   }
-  return { info, errors, notices };
+  return { info, errors, notices, warnings };
 }
 
 /**
@@ -126,6 +146,7 @@ export function declinedPushJson(paths: string[], switchedToGit = false): PushJs
     publishError: null,
     switchedToGit,
     typeCheckDiagnostics: null,
+    typeCheckErrors: [],
     liveVerified: null,
     liveMismatches: [],
     keptPlatformOnly: [],
