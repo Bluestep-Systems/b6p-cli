@@ -2,7 +2,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import { bsjsGit, Err, type PushResult } from "@bluestep-systems/b6p-core";
-import { describePublishRefusal, publishRefusalOf, publishRefusalOfError } from "../src/publishRefusal";
+import { describePublishRefusal, publishRefusalOfError } from "../src/publishRefusal";
 import { describePush, pushExitCode, toPushJson } from "../src/pushOutcome";
 import { pushFailureOf } from "../src/pushFailure";
 import { describeDeploy } from "../src/deployRun";
@@ -10,41 +10,21 @@ import { describeDeploy } from "../src/deployRun";
 const STALE =
   "Publish refused (BUILD_STALE): The script was not published: its build is stale against scripts/app.ts, tsconfig.json; " +
   "rebuild and push the draft. The published script is unchanged.";
-const MISSING =
-  "Publish refused (BUILD_MANIFEST_MISSING): The script was not published: no build manifest at .build/.b6p-build.json";
-const INVALID =
-  "Publish refused (BUILD_MANIFEST_INVALID): The script was not published: .build/.b6p-build.json is not valid";
+
+const STALE_REFUSAL = { reason: "BUILD_STALE", withheld: ["scripts/app.ts", "tsconfig.json"] };
 
 const REFUSED: PushResult = {
   pushed: true,
   commitSha: "a".repeat(40),
   publishedSha: null,
   publishError: STALE,
+  publishRefusal: STALE_REFUSAL,
   switchedToGit: false,
   typeCheckDiagnostics: 0,
   liveVerified: null,
   liveMismatches: [],
   keptPlatformOnly: [],
 };
-
-describe("publishRefusalOf (what a push reports)", () => {
-  it("recognizes the three reasons and reads the stale paths", () => {
-    assert.deepStrictEqual(publishRefusalOf(STALE), {
-      reason: "BUILD_STALE",
-      withheld: ["scripts/app.ts", "tsconfig.json"],
-    });
-    assert.strictEqual(publishRefusalOf(MISSING)?.reason, "BUILD_MANIFEST_MISSING");
-    assert.strictEqual(publishRefusalOf(INVALID)?.reason, "BUILD_MANIFEST_INVALID");
-  });
-
-  it("drops an 'and N more' tail and ignores other publish errors", () => {
-    const more = STALE.replace("tsconfig.json;", "tsconfig.json, and 5 more;");
-    assert.deepStrictEqual(publishRefusalOf(more)?.withheld, ["scripts/app.ts", "tsconfig.json"]);
-    assert.strictEqual(publishRefusalOf("Publish failed: 500"), null);
-    assert.strictEqual(publishRefusalOf("Publish refused (DRAFT_MOVED): x"), null);
-    assert.strictEqual(publishRefusalOf(null), null);
-  });
-});
 
 describe("publishRefusalOfError (what is thrown)", () => {
   it("takes the platform's withheld list from the three classes", () => {
@@ -76,21 +56,28 @@ describe("messages", () => {
 describe("push, --json and exit code", () => {
   it("a refused publish exits 1 on a snapshot, with publishRefusal in the JSON and the paths in the text", () => {
     assert.strictEqual(pushExitCode(REFUSED, true), 1);
-    assert.deepStrictEqual(toPushJson(REFUSED).publishRefusal, {
-      reason: "BUILD_STALE",
-      withheld: ["scripts/app.ts", "tsconfig.json"],
-    });
     const lines = describePush(REFUSED, true);
     assert.match(lines.errors[0], /Rebuild and push again/);
     assert.match(lines.errors[0], /scripts\/app\.ts/);
   });
 
-  it("publishRefusal is null for a clean push and for another publish error", () => {
+  it("--json carries core's publishRefusal as is, and a refusal that is not a build one gets a generic message", () => {
+    assert.deepStrictEqual(toPushJson(REFUSED).publishRefusal, STALE_REFUSAL);
+    const moved = { reason: "DRAFT_MOVED", withheld: ["a.ts"] };
+    assert.deepStrictEqual(toPushJson({ ...REFUSED, publishRefusal: moved }).publishRefusal, moved);
+    assert.match(describePublishRefusal(moved), /DRAFT_MOVED/);
+  });
+
+  it("publishRefusal is null for a clean push and for a publish failure that is not a refusal", () => {
+    assert.strictEqual(toPushJson({ ...REFUSED, publishError: null, publishRefusal: null }).publishRefusal, null);
     assert.strictEqual(
-      toPushJson({ ...REFUSED, publishError: null, publishedSha: "b".repeat(40) }).publishRefusal,
+      toPushJson({ ...REFUSED, publishError: "Publish failed: 500", publishRefusal: null }).publishRefusal,
       null
     );
-    assert.strictEqual(toPushJson({ ...REFUSED, publishError: "Publish failed: 500" }).publishRefusal, null);
+    assert.doesNotMatch(
+      describePush({ ...REFUSED, publishError: "Publish failed: 500", publishRefusal: null }, true).errors[0],
+      /Rebuild/
+    );
   });
 
   it("a thrown refusal is a failure with the paths and publishRefusal in the JSON", () => {
@@ -117,6 +104,7 @@ describe("deploy", () => {
         commitSha: "c".repeat(40),
         publishedSha: null,
         publishError: STALE,
+        publishRefusal: STALE_REFUSAL,
         switchedToGit: false,
       },
     ]);
@@ -132,6 +120,7 @@ describe("deploy", () => {
         commitSha: null,
         publishedSha: null,
         publishError: null,
+        publishRefusal: null,
         switchedToGit: false,
         error: new bsjsGit.PublishBuildManifestMissingError({ withheld: [".build/.b6p-build.json"] }, "m"),
       },

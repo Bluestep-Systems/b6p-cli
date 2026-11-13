@@ -169,6 +169,7 @@ A plain push (no `--snapshot`) is judged by `pushed` alone.
   "commitSha": "3f2a…40 hex characters",
   "publishedSha": "9c1b…40 hex characters",
   "publishError": null,
+  "publishRefusal": null,
   "switchedToGit": false,
   "typeCheckDiagnostics": 0,
   "liveVerified": true,
@@ -183,6 +184,10 @@ A plain push (no `--snapshot`) is judged by `pushed` alone.
 - `publishedSha`: the commit the platform published; `null` on a plain push, an aborted push or a
   failed publish.
 - `publishError`: why the publish failed, else `null`.
+- `publishRefusal`: `{ "reason", "withheld" }`, straight from the platform, when it refused the publish. For
+  a build that is missing, unreadable or older than its sources (`BUILD_MANIFEST_MISSING`,
+  `BUILD_MANIFEST_INVALID`, `BUILD_STALE`) `withheld` lists the stale files or the manifest's path: rebuild
+  and push. The draft is pushed, the published script unchanged, and the exit code is `1`. Else `null`.
 - `switchedToGit`: this push moved the script from WebDAV to git.
 - `historyRecorded` is gone (0.9.0): history is the git history, so `commitSha` and `publishedSha`
   replace it.
@@ -199,11 +204,13 @@ A plain push (no `--snapshot`) is judged by `pushed` alone.
   "sourceRootPath": "./my-script",
   "targets": [{ "url": "https://…/files/123/draft/", "snapshot": true }],
   "author": { "name": "Jane Doe", "email": "jane@example.com" },
-  "message": "Deploy from CI"
+  "message": "Deploy from CI",
+  "externallyBuilt": false
 }
 ```
 
-`author` (an object, or `"Jane Doe <jane@example.com>"`) and `message` are optional and apply to every
+`externallyBuilt: true` is for scripts a bundler outside b6p builds (no build manifest is written and the
+platform skips its stale-build check); `b6p push --externally-built` is the same for a push. `author` (an object, or `"Jane Doe <jane@example.com>"`) and `message` are optional and apply to every
 target; `b6p deploy --author "…"` overrides the file's author. `deploy` exits `1` if no author resolves
 (nothing is pushed then) or if any target failed or its publish was refused.
 

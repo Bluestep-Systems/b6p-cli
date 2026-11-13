@@ -11,6 +11,7 @@ const GOOD: PushResult = {
   commitSha: SHA,
   publishedSha: SHA,
   publishError: null,
+  publishRefusal: null,
   switchedToGit: false,
   typeCheckDiagnostics: 0,
   liveVerified: true,

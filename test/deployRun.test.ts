@@ -60,6 +60,7 @@ const OK: DeployTargetResult = {
   commitSha: "c".repeat(40),
   publishedSha: "d".repeat(40),
   publishError: null,
+  publishRefusal: null,
   switchedToGit: false,
 };
 

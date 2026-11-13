@@ -34,6 +34,8 @@ and snapshot. 0.8.x clients stop working against a script once it is on git: upd
 
 ### Added
 
+- Build manifest: a push that builds writes `<outDir>/.b6p-build.json` with the build output, and the platform refuses to publish a draft whose sources changed since the build. The refusal (`BUILD_STALE`, `BUILD_MANIFEST_MISSING`, `BUILD_MANIFEST_INVALID`) exits `1`, lists the files, says to rebuild and push, and appears in `--json` as `publishRefusal`. `--externally-built` (push) and `externallyBuilt` (deploy config) mark a script a bundler builds.
+
 - `--enable-git` on `pull` (with a URL, `--file` or the current folder) and `push`: switch a script still on WebDAV to git without asking. Without it the switch is asked about and `--yes` declines.
 - Clear messages, each exiting `1` with nothing changed, for a declined switch, a wrong branch checked out, staged-only changes and symlinks that escape the draft folder.
 - `b6p push --author` and `b6p deploy --author`; `author` and `message` in deploy config files.

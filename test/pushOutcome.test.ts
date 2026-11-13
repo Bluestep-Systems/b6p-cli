@@ -26,6 +26,7 @@ function result(overrides: Partial<PushResult> = {}): PushResult {
     commitSha: SHA_DRAFT,
     publishedSha: SHA_PUBLISHED,
     publishError: null,
+    publishRefusal: null,
     switchedToGit: false,
     typeCheckDiagnostics: 0,
     liveVerified: true,

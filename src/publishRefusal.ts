@@ -1,55 +1,17 @@
-import { bsjsGit } from "@bluestep-systems/b6p-core";
+import { bsjsGit, type PublishRefusal } from "@bluestep-systems/b6p-core";
 
 /**
- * A publish the platform refused because of the build manifest (contract v1): the draft's compiled output is missing,
- * unreadable, or older than its sources. The draft stays pushed; the published script is unchanged.
+ * The platform's structured refusal of a publish, as core reports it on a push, a deploy target, or a thrown error:
+ * `reason` (`BUILD_STALE`, `BUILD_MANIFEST_MISSING`, `BUILD_MANIFEST_INVALID`, or another such as `DRAFT_MOVED`) and
+ * `withheld`, the stale source paths or the manifest's path.
  * @lastreviewed null
  */
-export interface PublishRefusal {
-  /**
-   * `BUILD_STALE` (sources changed since the build), `BUILD_MANIFEST_MISSING` (a `tsconfig.json` but no manifest) or
-   * `BUILD_MANIFEST_INVALID` (the manifest cannot be read).
-   * @lastreviewed null
-   */
-  reason: "BUILD_STALE" | "BUILD_MANIFEST_MISSING" | "BUILD_MANIFEST_INVALID";
-  /**
-   * The stale source paths (`BUILD_STALE`) or the manifest's path (the other two), when known. Core reports a failed
-   * publish to a push only as text, so for a push this is read out of the platform's message and is empty when the
-   * message names none; a thrown error carries the platform's list itself.
-   * @lastreviewed null
-   */
-  withheld: string[];
-}
-
-const REASONS: ReadonlySet<string> = new Set(["BUILD_STALE", "BUILD_MANIFEST_MISSING", "BUILD_MANIFEST_INVALID"]);
-
-/**
- * Recognizes a build-manifest refusal in what a push reports as `publishError`
- * (`Publish refused (BUILD_STALE): The script was not published: its build is stale against a.ts, b.ts; rebuild and push ...`).
- * @param publishError core's `PushResult.publishError`
- * @returns The refusal, or `null` for any other (or no) publish error
- * @lastreviewed null
- */
-export function publishRefusalOf(publishError: string | null): PublishRefusal | null {
-  const reason = publishError === null ? undefined : /\((BUILD_[A-Z_]+)\)/.exec(publishError)?.[1];
-  if (publishError === null || reason === undefined || !REASONS.has(reason)) {
-    return null;
-  }
-  const named = /stale against (.+?);/.exec(publishError)?.[1];
-  const withheld =
-    reason === "BUILD_STALE" && named !== undefined
-      ? named
-          .split(",")
-          .map((p) => p.trim())
-          .filter((p) => p.length > 0 && !/^and \d+ more$/.test(p))
-      : [];
-  return { reason: reason as PublishRefusal["reason"], withheld };
-}
+export type { PublishRefusal };
 
 /**
  * Recognizes a build-manifest refusal that was thrown (core's classes, each carrying the platform's `withheld` list).
  * @param e Anything thrown
- * @returns The refusal, or `null`
+ * @returns The refusal, or `null` (any other error)
  * @lastreviewed null
  */
 export function publishRefusalOfError(e: unknown): PublishRefusal | null {
@@ -93,5 +55,7 @@ export function describePublishRefusal(refusal: PublishRefusal): string {
         `${refusal.withheld.length > 0 ? ` (${refusal.withheld[0]})` : ""}.\n` +
         "Rebuild and push again to write a fresh one."
       );
+    default:
+      return `The draft was pushed but the platform refused to publish it (${refusal.reason})${paths}`;
   }
 }

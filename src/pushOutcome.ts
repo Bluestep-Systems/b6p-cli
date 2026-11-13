@@ -1,5 +1,5 @@
 import type { PushResult } from "@bluestep-systems/b6p-core";
-import { publishRefusalOf, describePublishRefusal, type PublishRefusal } from "./publishRefusal";
+import { describePublishRefusal } from "./publishRefusal";
 
 /**
  * What `b6p push --json` prints: core's {@link PushResult} plus the files a declined overwrite
@@ -13,12 +13,6 @@ export type PushJson = PushResult & {
    * @lastreviewed null
    */
   declinedOverwrites: string[];
-  /**
-   * Set when the platform refused to publish because the build manifest says the compiled output is missing, unreadable
-   * or stale (`publishError` carries the platform's text); `null` otherwise. `withheld` lists the paths when known.
-   * @lastreviewed null
-   */
-  publishRefusal: PublishRefusal | null;
 };
 
 /**
@@ -91,7 +85,7 @@ export function describePush(
     errors.push("The platform did not report a published commit; nothing was published.");
   }
   if (result.publishError !== null) {
-    const refusal = publishRefusalOf(result.publishError);
+    const refusal = result.publishRefusal;
     errors.push(
       refusal
         ? `${describePublishRefusal(refusal)}\nPlatform message: ${result.publishError}`
@@ -111,7 +105,7 @@ export function describePush(
  * @lastreviewed null
  */
 export function toPushJson(result: PushResult): PushJson {
-  return { ...result, declinedOverwrites: [], publishRefusal: publishRefusalOf(result.publishError) };
+  return { ...result, declinedOverwrites: [] };
 }
 
 /**

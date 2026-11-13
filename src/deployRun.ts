@@ -10,7 +10,7 @@ import {
   type DeployAuthorPlan,
 } from "./author";
 import { SWITCHED_TO_GIT_NOTICE } from "./pushOutcome";
-import { describePublishRefusal, publishRefusalOf, publishRefusalOfError } from "./publishRefusal";
+import { describePublishRefusal, publishRefusalOfError } from "./publishRefusal";
 
 /**
  * What to do with a deploy config.
@@ -110,7 +110,7 @@ export function describeDeploy(results: readonly DeployTargetResult[] | null): {
       errors.push(`${r.target}: nothing was pushed`);
     } else if (r.publishError !== null) {
       failed += 1;
-      const refusal = publishRefusalOf(r.publishError);
+      const refusal = r.publishRefusal;
       errors.push(
         refusal
           ? `${r.target}: ${describePublishRefusal(refusal)}\nPlatform message: ${r.publishError}`
