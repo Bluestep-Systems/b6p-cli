@@ -21,12 +21,16 @@ import {
 } from "./pushOutcome";
 import { describeGitError } from "./gitErrors";
 import { pushFailureOf } from "./pushFailure";
-import { describeDeploy, planDeploy, removeTempDir } from "./deployRun";
+import { deployFailsOnTypeErrors, describeDeploy, planDeploy, removeTempDir } from "./deployRun";
 import { AUTHOR_SETTING, chooseAuthor, type CommitAuthor } from "./author";
 
 const ENABLE_GIT_HELP =
   "Switch a script that still publishes over WebDAV to git without asking. The switch is one-way. " +
   "Without this flag the switch is asked about first, and --yes (or an empty answer) declines it";
+
+const FAIL_ON_TYPE_ERRORS_HELP =
+  "Exit 1 when type-checking reports errors in the script's own sources. Default: they are printed as warnings " +
+  "and the exit code stays 0 (errors in .d.ts files never count). Syntax and emit errors always exit 1";
 
 const AUTHOR_FLAG_HELP =
   'Commit author, "Name <email>". Default: the "author" setting (b6p config set author "Name <email>"), ' +
@@ -171,8 +175,8 @@ Exit codes:
   0  pushed (keeping platform-only files is still 0)
   1  nothing pushed (pushed false: bad --root, empty draft, an overwrite not confirmed, a missing
      author, an upload refused); on a snapshot also: no published commit (publishedSha null), the
-     platform refused or failed the publish (publishError), the published branch reads back at
-     another commit (liveVerified false), or type-check diagnostics
+     platform refused or failed the publish (publishError), or the published branch reads back at
+     another commit (liveVerified false). Type errors only warn (exit 0) unless --fail-on-type-errors
 
 --json prints one object on stdout:
   { pushed, commitSha, publishedSha, publishError, publishRefusal, switchedToGit,
@@ -195,6 +199,7 @@ program
   .option("--message <text>", "Commit message (implies --snapshot)")
   .option("--author <name-and-email>", AUTHOR_FLAG_HELP)
   .option("--enable-git", ENABLE_GIT_HELP)
+  .option("--fail-on-type-errors", FAIL_ON_TYPE_ERRORS_HELP)
   .option(
     "--externally-built",
     "The script is built by a bundler outside b6p (its externallyBuilt flag on the platform): the push writes no " +
@@ -217,6 +222,7 @@ program
         author?: string;
         enableGit?: boolean;
         externallyBuilt?: boolean;
+        failOnTypeErrors?: boolean;
         overwrite?: string[];
       }
     ) => {
@@ -266,7 +272,7 @@ program
         }
         // `exitCode` rather than `exit()` so an in-flight --json write still flushes.
         // The rule itself, and why each case fails or not, is in pushOutcome.ts.
-        if (pushExitCode(result, isSnapshot) !== 0) {
+        if (pushExitCode(result, isSnapshot, opts.failOnTypeErrors === true) !== 0) {
           process.exitCode = 1;
         }
       } catch (e) {
@@ -406,17 +412,19 @@ program
     "--author <name-and-email>",
     AUTHOR_FLAG_HELP + '. The config file\'s own "author" is used when this is not given'
   )
+  .option("--fail-on-type-errors", FAIL_ON_TYPE_ERRORS_HELP)
   .addHelpText(
     "after",
     `
 Config file: { "sourceRootPath": "<script root>", "targets": [{ "url": "<formula url>", "snapshot": true }],
   "author": { "name": "Jane Doe", "email": "jane@example.com" }  (or "Jane Doe <jane@example.com>"; optional),
   "message": "<commit message for every target>" (optional),
-  "externallyBuilt": true  (optional: a bundler builds these scripts, so no build manifest is written) }
+  "externallyBuilt": true  (optional: a bundler builds these scripts, so no build manifest is written),
+  "failOnTypeErrors": true  (optional: type errors in the script's sources fail the deploy; same as --fail-on-type-errors) }
 Every target gets a git commit of the source draft; "snapshot": true also publishes it.
 `
   )
-  .action(async (configFile: string, opts: { author?: string }) => {
+  .action(async (configFile: string, opts: { author?: string; failOnTypeErrors?: boolean }) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
     try {
@@ -440,7 +448,7 @@ Every target gets a git commit of the source draft; "snapshot": true also publis
           await fs.writeFile(configPath, plan.configText, "utf-8");
         }
         const results = await core.script.deploy({ configPath });
-        const outcome = describeDeploy(results);
+        const outcome = describeDeploy(results, deployFailsOnTypeErrors(opts.failOnTypeErrors, text));
         outcome.info.forEach((line) => prompt.info(line));
         outcome.errors.forEach((line) => prompt.error(line));
         outcome.notices.forEach((line) => prompt.notice(line));

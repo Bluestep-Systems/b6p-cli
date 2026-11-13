@@ -25,18 +25,20 @@ export type PushJson = PushResult & {
  * | snapshot and `publishedSha` is `null` (the platform published nothing) | 1 |
  * | snapshot and `publishError` is set (the platform refused or failed the publish; the draft is still pushed) | 1 |
  * | snapshot and `liveVerified` is `false` (the published branch reads back at another commit) | 1 |
- * | snapshot that compiled with type-check diagnostics (`typeCheckDiagnostics > 0`) | 1 |
+ * | `--fail-on-type-errors` and `typeCheckDiagnostics > 0` | 1 |
  * | everything else, including `liveVerified: null` (the read-back could not run; core warns) and kept platform-only files | 0 |
  *
  * A plain push is judged by `pushed` alone: it publishes nothing, so `publishedSha`, `publishError` and
- * `liveVerified` do not apply to it. The type-check rule is unchanged from 0.8: the platform runs the emitted
- * JS un-type-checked, so a snapshot's compile is the only gate.
+ * `liveVerified` do not apply to it. Type errors in the script's own sources are warnings by default (the platform
+ * runs the emitted JS un-type-checked, and valid JS often comes from imperfect TS); `failOnTypeErrors` makes them
+ * fail. Syntax and emit errors never reach here: core throws and the push stops with exit 1.
  * @param result What core's push returned
  * @param snapshot Whether the push asked to publish (`--snapshot`, or `--message`, which implies it)
+ * @param failOnTypeErrors Whether type errors fail the push (`--fail-on-type-errors`)
  * @returns `1` when the push must read as failed, `0` otherwise
  * @lastreviewed null
  */
-export function pushExitCode(result: PushResult | null, snapshot: boolean): 0 | 1 {
+export function pushExitCode(result: PushResult | null, snapshot: boolean, failOnTypeErrors = false): 0 | 1 {
   if (!result) {
     return 0;
   }
@@ -46,7 +48,7 @@ export function pushExitCode(result: PushResult | null, snapshot: boolean): 0 | 
   if (snapshot && (result.publishedSha === null || result.publishError !== null || result.liveVerified === false)) {
     return 1;
   }
-  if (result.typeCheckDiagnostics !== null && result.typeCheckDiagnostics > 0) {
+  if (failOnTypeErrors && result.typeCheckDiagnostics !== null && result.typeCheckDiagnostics > 0) {
     return 1;
   }
   return 0;

@@ -79,8 +79,19 @@ describe("pushExitCode", () => {
     assert.strictEqual(pushExitCode(result({ liveVerified: null }), true), 0);
   });
 
-  it("is 1 when the snapshot shipped with type-check diagnostics", () => {
-    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 3 }), true), 1);
+  it("is 0 by default when the snapshot has type errors in its sources: they are warnings", () => {
+    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 3 }), true), 0);
+    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 3 }), true, false), 0);
+  });
+
+  it("is 1 with failOnTypeErrors when there are type errors, 0 when there are none or none were checked", () => {
+    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 3 }), true, true), 1);
+    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 0 }), true, true), 0);
+    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: null }), false, true), 0);
+  });
+
+  it("failOnTypeErrors applies to a plain push that reports a count too", () => {
+    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 2, publishedSha: null }), false, true), 1);
   });
 
   it("is 0 when kept platform-only files are the only news", () => {

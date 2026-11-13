@@ -3,7 +3,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import type { DeployTargetResult } from "@bluestep-systems/b6p-core";
-import { describeDeploy, planDeploy, removeTempDir } from "../src/deployRun";
+import { deployFailsOnTypeErrors, describeDeploy, planDeploy, removeTempDir } from "../src/deployRun";
 
 const CONFIG = JSON.stringify({ sourceRootPath: "/no/such/script", targets: [{ url: "u", snapshot: true }] });
 const missing = (): Promise<unknown> =>
@@ -126,5 +126,35 @@ describe("removeTempDir", () => {
       (m) => warnings.push(m)
     );
     assert.deepStrictEqual(warnings, []);
+  });
+});
+
+describe("type errors in a deploy", () => {
+  const withTypeErrors = { ...OK, typeCheckDiagnostics: 2 } as DeployTargetResult;
+
+  it("are warnings by default: exit 0", () => {
+    assert.strictEqual(describeDeploy([withTypeErrors]).exitCode, 0);
+    assert.strictEqual(describeDeploy([withTypeErrors], false).exitCode, 0);
+  });
+
+  it("fail the deploy with failOnTypeErrors, naming the target", () => {
+    const out = describeDeploy([OK, { ...withTypeErrors, target: "https://b/" }], true);
+    assert.strictEqual(out.exitCode, 1);
+    assert.match(out.errors[0], /https:\/\/b\/: 2 type error/);
+  });
+
+  it("a clean target is fine under failOnTypeErrors", () => {
+    assert.strictEqual(describeDeploy([OK], true).exitCode, 0);
+  });
+});
+
+describe("deployFailsOnTypeErrors", () => {
+  it("is the flag, else the config's failOnTypeErrors: true", () => {
+    assert.strictEqual(deployFailsOnTypeErrors(true, null), true);
+    assert.strictEqual(deployFailsOnTypeErrors(undefined, '{"failOnTypeErrors":true}'), true);
+    assert.strictEqual(deployFailsOnTypeErrors(undefined, '{"failOnTypeErrors":false}'), false);
+    assert.strictEqual(deployFailsOnTypeErrors(undefined, '{"failOnTypeErrors":"yes"}'), false);
+    assert.strictEqual(deployFailsOnTypeErrors(undefined, "{not json"), false);
+    assert.strictEqual(deployFailsOnTypeErrors(undefined, null), false);
   });
 });

@@ -155,9 +155,13 @@ would let a pull write outside the draft folder. Each message says how to fix it
 | Snapshot, and `publishedSha` is `null` (nothing was published) | `1` |
 | Snapshot, and `publishError` is set (the platform refused or failed the publish; the draft is still pushed) | `1` |
 | Snapshot, and `liveVerified` is `false` (the published branch reads back at another commit) | `1` |
-| Snapshot that compiled with type-check diagnostics (`typeCheckDiagnostics > 0`) | `1` |
+| `--fail-on-type-errors` (or `failOnTypeErrors: true` in a deploy config), and the build reported type errors in the script's own sources (`typeCheckDiagnostics > 0`) | `1` |
 
-A plain push (no `--snapshot`) is judged by `pushed` alone.
+A plain push (no `--snapshot`) is judged by `pushed` alone. Type errors are **warnings by default**: they
+are printed, counted in `--json` (`typeCheckDiagnostics`) and the exit code stays `0`, because the platform
+runs the emitted JavaScript and valid JS often comes from imperfect TypeScript. Errors located in a `.d.ts`
+(the generated platform declarations) never count. Syntax and emit errors always stop the push with exit
+`1`. Add `--fail-on-type-errors` to push, snapshot or deploy to make type errors fail instead.
 
 ### `--json`
 
@@ -205,7 +209,8 @@ A plain push (no `--snapshot`) is judged by `pushed` alone.
   "targets": [{ "url": "https://…/files/123/draft/", "snapshot": true }],
   "author": { "name": "Jane Doe", "email": "jane@example.com" },
   "message": "Deploy from CI",
-  "externallyBuilt": false
+  "externallyBuilt": false,
+  "failOnTypeErrors": false
 }
 ```
 

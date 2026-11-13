@@ -80,10 +80,14 @@ export function nearestExistingDir(dir: string): string {
  * (`error`), had its publish refused or failed (`publishError`), or was not pushed. `null` (no results: the config file
  * was missing, unreadable or invalid, which core has already reported) is a failure too.
  * @param results What core's deploy returned
+ * @param failOnTypeErrors Whether a target with type errors in its own sources fails the deploy (`--fail-on-type-errors`, or `failOnTypeErrors` in the config). Read from `typeCheckDiagnostics` on the target result when core reports it.
  * @returns `info` lines (hidden under `--json`), `errors`, `notices` (a switch to git, shown in every mode) and the exit code
  * @lastreviewed null
  */
-export function describeDeploy(results: readonly DeployTargetResult[] | null): {
+export function describeDeploy(
+  results: readonly DeployTargetResult[] | null,
+  failOnTypeErrors = false
+): {
   info: string[];
   errors: string[];
   notices: string[];
@@ -116,6 +120,9 @@ export function describeDeploy(results: readonly DeployTargetResult[] | null): {
           ? `${r.target}: ${describePublishRefusal(refusal)}\nPlatform message: ${r.publishError}`
           : `${r.target}: pushed (commit ${r.commitSha}) but not published: ${r.publishError}`
       );
+    } else if (failOnTypeErrors && typeErrorCount(r) > 0) {
+      failed += 1;
+      errors.push(`${r.target}: ${typeErrorCount(r)} type error(s) in the script's sources (--fail-on-type-errors)`);
     } else {
       info.push(`${r.target}: pushed ${r.commitSha}${r.publishedSha !== null ? `, published ${r.publishedSha}` : ""}`);
     }
@@ -146,5 +153,40 @@ export async function removeTempDir(
     await remove(dir);
   } catch (e) {
     warn(`Could not remove the temporary deploy config in ${dir}: ${e instanceof Error ? e.message : e}`);
+  }
+}
+
+/**
+ * The type errors core counted for a deploy target (own sources only), 0 when it reports none.
+ * @lastreviewed null
+ */
+function typeErrorCount(r: DeployTargetResult): number {
+  const n = (r as { typeCheckDiagnostics?: number | null }).typeCheckDiagnostics;
+  return typeof n === "number" ? n : 0;
+}
+
+/**
+ * Whether a deploy fails on type errors: the `--fail-on-type-errors` flag, else the config file's
+ * `failOnTypeErrors: true`.
+ * @param flag The command-line flag
+ * @param configText The config file's text (`null` when unreadable)
+ * @lastreviewed null
+ */
+export function deployFailsOnTypeErrors(flag: boolean | undefined, configText: string | null): boolean {
+  if (flag === true) {
+    return true;
+  }
+  if (configText === null) {
+    return false;
+  }
+  try {
+    const parsed: unknown = JSON.parse(configText);
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      (parsed as { failOnTypeErrors?: unknown }).failOnTypeErrors === true
+    );
+  } catch {
+    return false;
   }
 }

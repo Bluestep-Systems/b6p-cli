@@ -21,7 +21,7 @@ and snapshot. 0.8.x clients stop working against a script once it is on git: upd
   push moved the script from WebDAV to git. Anything that reads `historyRecorded` must read `publishedSha`
   (snapshot) or `commitSha` instead; the new shape is in the README.
 - **New exit-code rules.** `1` when `pushed` is false. On a snapshot, also `1` when `publishedSha` is `null`,
-  `publishError` is set, or `liveVerified` is `false` (type-check diagnostics still fail a snapshot). Otherwise
+  `publishError` is set, or `liveVerified` is `false` . Otherwise
   `0`. A plain push is judged by `pushed` alone.
 - A push that stops after switching a script to git (a declined overwrite, for instance) reports `switchedToGit: true`; the switch stands.
 - **A push is a git commit and needs an author.** `--author "Name <email>"`, or `b6p config set author "Name
@@ -33,6 +33,8 @@ and snapshot. 0.8.x clients stop working against a script once it is on git: upd
   `--json`), and `pull` asks first (`[Cancel]` first, so `--yes` declines).
 
 ### Added
+
+- `--fail-on-type-errors` on `push` and `deploy` (and `failOnTypeErrors` in deploy configs). Type errors in a script's own sources are now warnings that exit `0` by default (0.8 failed a snapshot on them); errors in `.d.ts` files never count; syntax and emit errors still exit `1`.
 
 - Build manifest: a push that builds writes `<outDir>/.b6p-build.json` with the build output (a draft with no TypeScript source needs none), and the platform refuses to publish a draft whose sources changed since the build. The refusal (`BUILD_STALE`, `BUILD_MANIFEST_MISSING`, `BUILD_MANIFEST_INVALID`) exits `1`, lists the files, says to rebuild and push, and appears in `--json` as `publishRefusal`. `--externally-built` (push) and `externallyBuilt` (deploy config) mark a script a bundler builds.
 
