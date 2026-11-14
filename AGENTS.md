@@ -11,7 +11,7 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
 ## Hard constraints
 
 - **The command tree is noun-first: `b6p <subsystem> <verb>`.** The top level is a namespace of platform
-  subsystems (`script`, `auth`, `sessions`, `config`), each owning its verbs. **Never add a top-level
+  subsystems (`script`, `auth`, `kb`, `marketplace`, `sessions`, `config`), each owning its verbs. **Never add a top-level
   verb for platform work** (`b6p push` re-creates the collision the noun-first tree removed); `report`
   and `check-updates` are the two grandfathered exceptions, since they act on this installation. Add a
   command by writing `src/commands/<noun>.ts` exporting `register<Noun>Commands(program)` and adding one
@@ -52,6 +52,17 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
   hang off core's `ScriptService` at `core.script` (`push`/`pull`/`audit`/`deploy`/`getSetupUrl`);
   account-level operations (`updateCredentials`, `report`, `setConfig`, `checkForUpdates`) stay
   directly on `core`.
+- **Gateway commands (`kb`, `marketplace`, `auth token`) wrap their body in `runGateway`**
+  ([src/gatewayRun.ts](src/gatewayRun.ts)), which turns a core `Err.Gateway*` into
+  `ctx.fail(describeGatewayError(err))` so the exit code is non-zero. The "how to fix" text lives only in
+  [src/gatewayErrors.ts](src/gatewayErrors.ts); core's messages never say how to respond. A new gateway
+  error class needs a branch there and a line in its test. A minted token secret is printed once, alone,
+  to stdout (a field under `--json`), is never put in a log, error text or stderr, and a
+  `GatewayTokenStoreError`'s `replacement` and a `GatewayOffContractTokenError`'s `secret` are printed the same way (`runMinting`) before the command fails. `auth token revoke` of the stored token asks via `confirmRevokeCurrent` (Cancel first, `destructive`; `--yes` alone
+  declines). Stdout writes go through `writeStdout`, which pauses the spinner first. Every `--json` body that carries a
+  secret has it in a top-level `secret` field. `--expires
+  never` runs through `confirmNeverExpires` ([src/tokenExpiry.ts](src/tokenExpiry.ts)): safe option first
+  and `destructive`, and proceeds under `--yes` only because the flag was typed.
 - **Durable state is core's**, via its `SharedFilePersistence`. The CLI only adapts I/O, prompting,
   logging and progress to a terminal. The one platform-specific piece injected into it is
   `WindowsRestartManagerLockDiagnoser` ([src/lockDiagnoser/](src/lockDiagnoser/)), which names the

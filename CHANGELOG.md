@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `b6p kb list` shows a STATUS column and, after the table, one note per non-ok status present; `--json` carries `id`,
+  `status` and `rawStatus`. `b6p kb pull` of a `row-only` knowledge base says it has no repository yet.
+- `b6p auth token rotate`: when the rotation's outcome is unknown, the message now says b6p already sent the request a
+  second time (core retries an unanswered rotation once with the same idempotency key).
+
 ### Changed (breaking)
 
 - **Node.js 24 or newer is required** (`engines.node` is `>=24`); Node 18 to 22 are no longer supported.
@@ -17,6 +24,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   missing.json`). A pipeline that relied on `b6p` never failing will go red. See Fixed below.
 
 ### Added
+
+- **Gateway: `409 live-branch-unprotected`** on `b6p kb push` says nothing was pushed, that the knowledge base's live branch is not protected on the forge, and to ask a Bluestep administrator to restore the protection before pushing again; under `--json` the failure document carries `code`.
+- **Gateway contract delta (2026-11-10)**: `auth token create` without `--expires` mints for the sooner of 90 days and the stored token's own expiry and prints a note with the date when it cut it; a `--expires` (or `never`) past the stored token's expiry is explained, and so are the 400 (`invalid-request`), 409 `token-limit` (revoke an unused token) and 503 `registry-unavailable` answers. a 403 `restricted-mints-disabled` says token creation for that scope set is not enabled yet (only `mcp`-scoped tokens can be minted for now). `auth token list` shows expired tokens, `CREATED` (`unknown` when the gateway has no creation time) and an approximate `LAST USED`. A 403 `rewrite-not-permitted` (a `kb:rewrite` mint or rotate the account may not hold) says to ask an administrator or create the token without that scope, and under `--json` the failure document carries `reason` and `scope`.
+- **`b6p kb list|pull|push`** - browse, clone and push the knowledge bases (global and tenant) the stored
+  `b6pt_` token may reach, through the BlueStep gateway. Pulls fast-forward an existing clone and never
+  overwrite local changes; pushes are fast-forward only, to the live branch.
+- **`b6p marketplace list|pull`** - list marketplace repositories and clone one (optionally at a tag or
+  branch with `--ref`) into a folder.
+- **`b6p auth token list|create|revoke|rotate`** - manage your own gateway tokens. `create` and `rotate`
+  print the secret once on stdout; `--expires` takes `90d` (default), another day count, an ISO date or
+  `never` (asks first). Needs the `tokens:self` scope.
+- A token the gateway minted but answered malformedly (`off-contract`) still has its secret printed once, with what to do next.
+- `auth token create --expires` takes a day count, a date (start of that day, UTC) or a full ISO date-time
+  with `Z` or an offset; anything else is refused before a request is sent. `marketplace pull --ref` also
+  accepts full ref names (`refs/tags/v1.0.0`).
+- `auth token revoke` of the token b6p itself is using asks first (Cancel by default; `--yes` alone declines).
+  Under `--json` every secret-bearing body carries the secret in a top-level `secret` field. `kb push` works
+  from a subfolder of a clone. The spinner is cleared before any stdout write.
+- Gateway errors come with the fix: the scope to mint, `b6p auth set`, the dirty paths, "pull first",
+  "choose another folder", "switch to the live branch".
 
 - **`b6p script <verb>`** - script-tree operations now live under a `script` namespace:
   `b6p script push`, `pull`, `audit`, `deploy`, `setup`. The top level of `b6p` is becoming a namespace of

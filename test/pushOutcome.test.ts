@@ -217,7 +217,10 @@ describe("canonicalPushArgs", () => {
   });
 
   it("is what the printed commands use", () => {
-    assert.match(overwriteCommand(canonicalPushArgs(["push"]), ["a.ts"], "posix"), /^b6p script push --overwrite a\.ts$/);
+    assert.match(
+      overwriteCommand(canonicalPushArgs(["push"]), ["a.ts"], "posix"),
+      /^b6p script push --overwrite a\.ts$/
+    );
     assert.match(deleteCommand(canonicalPushArgs(["--yes", "push"]), "posix"), /b6p script push$/);
   });
 });

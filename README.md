@@ -107,6 +107,61 @@ platform; the verbs beneath it act on that part.
 | `b6p auth set` | Set or update the access token |
 | `b6p auth status` | Report whether a token is stored (never prompts) |
 | `b6p auth clear` | Clear the stored token |
+| `b6p auth token list` | List your own tokens, expired ones included, marked `(expired)` (the secret is never shown) |
+| `b6p auth token create --alias <a> --scopes <s,…> [--expires <90d\|date\|date-time\|never>]` | Mint a token; the secret is printed once |
+| `b6p auth token revoke --tokenid <alias\|id>` | Revoke one of your tokens |
+| `b6p auth token rotate --tokenid <alias\|id>` | Replace a token (same alias, scopes and end date); the old one dies at once |
+
+`auth token` manages only your **own** tokens and needs the `tokens:self` scope. `create` and `rotate`
+print the new secret **once**, alone on stdout (so `TOKEN=$(b6p auth token create …)` captures it), with
+the details and a "store it now" note on stderr. Under `--json` the secret is the top-level `secret`
+field of the body, on success (`create`, `rotate`) and on the failure bodies that still carry one (a token
+that could not be stored, a malformed gateway answer), which also have `error`, `errors`, `operation`
+and `stored`. A new token's
+scopes can never exceed the token b6p is using. The default lifetime is 90 days, or until the token b6p is using expires if that comes first (the command says so and gives the date); `--expires 30d`, a date
+(`2027-03-01`, the start of that day UTC) or a full date-time with `Z` or an offset
+(`2027-03-01T12:00Z`, `2027-03-01T12:00:00+02:00`) picks another. `--expires never` warns and asks first (the safe answer, Cancel, is the
+default); under `--yes` it goes ahead only because you typed `never` yourself. Rotating the token b6p is
+using runs at once and stores the new secret for b6p. Revoking it asks first (Cancel is the default, so
+`--yes` alone declines, and `--json` with no input fails) because it leaves b6p holding a dead token until
+you run `b6p auth set`; revoking any other token runs at once.
+
+A new token can never outlive the token that creates it: an explicit `--expires` (or `never`) past that date is refused (`403`), and the error says when the stored token expires. Until the gateway's rollout switch is flipped, only tokens with just the `mcp` scope can be minted (`not enabled yet`). You may hold at most 50 live tokens; past that, revoke one you no longer use. `list` shows a token whose creation time the gateway never recorded as `unknown`, and `LAST USED` is approximate (the gateway stamps it at most every 12 hours).
+
+### `b6p kb` — knowledge bases
+
+| Command | Purpose |
+|---|---|
+| `b6p kb list [--scope global\|tenant] [--tenant U…]` | List the knowledge bases you may read, whether you may push, and each one's STATUS (`ok`, `branch-mismatch`, `repo-only`, `row-only`, `unconfirmed`, `undescribed`; a note under the table explains each one present) |
+| `b6p kb pull <ref> [dir]` | Clone a knowledge base into a folder (default `./<name>`, or `./<tenant>-<name>` for a tenant's), or fast-forward an existing clone |
+| `b6p kb push [dir]` | Push a clone (default: the current folder, or the clone that contains it) to the knowledge base's live branch |
+
+`<ref>` is `<name>` for a global knowledge base or `U<number>/<name>` for a tenant's; names and the tenant match in any letter case, and the local folder uses the canonical name. Pulls never
+overwrite local changes (the dirty paths are listed) and pushes are fast-forward only: if the knowledge
+base moved on, pull first. Pushing needs push rights on that knowledge base as well as the `kb:push` scope.
+
+### `b6p marketplace` — marketplace repositories
+
+| Command | Purpose |
+|---|---|
+| `b6p marketplace list` | List repositories with their default branch and tags |
+| `b6p marketplace pull <name> [dir] [--ref <tag\|branch>]` | Clone a repository into a folder (default `./<name>`), or fast-forward an existing clone |
+
+A plain working clone, unrelated to any script. There is no push.
+
+### Gateway token scopes
+
+`kb` and `marketplace` talk to the BlueStep gateway (`gatewayUrl`, default `https://gateway.bluestep.net`;
+change it with `b6p config set gatewayUrl <url>`) using the same stored `b6pt_` token. Mint a token with
+the scopes you need:
+
+| Scope | For |
+|---|---|
+| `kb:read` | `kb list`, `kb pull` |
+| `kb:push` | `kb push` |
+| `registry:read` | `marketplace list`, `marketplace pull` |
+| `tokens:self` | `auth token …` |
+| `kb:rewrite` | rewriting a knowledge base's history (not a `b6p` command); mintable and rotatable here only if the token b6p uses holds it |
 
 ### Everything else
 
