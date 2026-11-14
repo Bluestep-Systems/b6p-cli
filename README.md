@@ -136,7 +136,7 @@ A new token can never outlive the token that creates it: an explicit `--expires`
 | `b6p kb pull <ref> [dir]` | Clone a knowledge base into a folder (default `./<name>`, or `./<tenant>-<name>` for a tenant's), or fast-forward an existing clone |
 | `b6p kb push [dir]` | Push a clone (default: the current folder, or the clone that contains it) to the knowledge base's live branch |
 
-`<ref>` is `<name>` for a global knowledge base or `U<number>/<name>` for a tenant's. Pulls never
+`<ref>` is `<name>` for a global knowledge base or `U<number>/<name>` for a tenant's; names and the tenant match in any letter case, and the local folder uses the canonical name. Pulls never
 overwrite local changes (the dirty paths are listed) and pushes are fast-forward only: if the knowledge
 base moved on, pull first. Pushing needs push rights on that knowledge base as well as the `kb:push` scope.
 
