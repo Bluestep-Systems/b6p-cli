@@ -100,3 +100,10 @@ path. See [scripts/build-sea.mjs](../../scripts/build-sea.mjs) and
   freshly built binary and gates the upload — a broken binary is never attached.
 - **npm distribution unchanged.** `publish.yml`, the `dist/cli.js` artifact, the `bin` mapping,
   and the `files` allowlist are untouched; the binary pipeline is purely additive.
+
+## Update 2026-11-06
+
+Two details above have changed; the decision itself has not. The Intel macOS runner is now
+`macos-15-intel` (`macos-13` was retired and that job never ran), and the build is pinned to
+**Node 24** rather than Node 22, matching the `engines` floor (`>=24`) and the CI matrix (24, 26).
+The asset names are unchanged.

@@ -86,8 +86,8 @@ export function missingAuthorMessage(coreMessage: string): string {
   return (
     `${coreMessage}.\n` +
     "A push is a git commit and must say who made it. Give an author any one of these ways:\n" +
-    '  b6p push ... --author "Jane Doe <jane@example.com>"     (this run)\n' +
-    '  b6p config set author "Jane Doe <jane@example.com>"     (every run on this machine)\n' +
+    '  b6p script push ... --author "Jane Doe <jane@example.com>"     (this run)\n' +
+    '  b6p config set author "Jane Doe <jane@example.com>"            (every run on this machine)\n' +
     '  git config --global user.name "Jane Doe" && git config --global user.email jane@example.com\n' +
     "  or set GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL in the environment"
   );

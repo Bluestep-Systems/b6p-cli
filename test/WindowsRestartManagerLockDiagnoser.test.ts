@@ -3,7 +3,7 @@
 // The CLI ships as a single esbuild bundle, so there are no per-module dist/
 // files to require (unlike b6p-core's tests). This file is authored in TS and
 // bundled to dist-test/ by esbuild.test.js, then run with `node --test` — which
-// works on the whole CI Node matrix (18/20/22) since the runnable artifact is
+// works on the whole CI Node matrix (24/26) since the runnable artifact is
 // plain compiled .cjs, not type-stripped TS.
 //
 // Pins the LockDiagnoser contract: never throws; returns [] off Windows,
