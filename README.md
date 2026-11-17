@@ -3,7 +3,7 @@
 Headless command-line interface for the [BlueStep](https://www.bluestep.net/) platform.
 
 Script management is the subsystem it covers today — pull components from the platform,
-push changes back, audit local vs. server, snapshot history, and deploy across targets —
+push changes back, audit local vs. server, git history, and deploy across targets —
 under `b6p script`. Further subsystems will appear alongside it as top-level names.
 
 The CLI shares its core implementation
@@ -61,12 +61,6 @@ clear it with `xattr -d com.apple.quarantine ~/.bluestep/bin/b6p` and make it ex
 
 The npm install above is unchanged and remains the recommended path wherever Node is available.
 
-**The 0.9 binaries are a GitHub pre-release.** 0.9 compiles on the platform, which needs a server
-version that supports it (see [Pushing](#pushing)); until every organization runs one, the 0.9 Release
-is marked pre-release, so `releases/latest` keeps serving 0.8.x, which works against every server. To
-use 0.9 now, download it from its Release page by tag. `b6p check-updates` only offers non-pre-release
-versions, so it will not suggest 0.9 either.
-
 ## Signing in
 
 `b6p` signs in with your BlueStep platform access token, which starts with `b6pt_`. It is the same
@@ -92,10 +86,12 @@ platform; the verbs beneath it act on that part.
 
 | Command | Purpose |
 |---|---|
-| `b6p script pull <webdav-url>` | Pull a script by URL |
+| `b6p script pull <webdav-url>` | Pull a script by URL (clones its git draft) |
+| `b6p script pull <webdav-url> --enable-git` | Same, and switch a script still on WebDAV to git without asking (one-way) |
 | `b6p script pull --file <path>` | Pull using metadata stored with a local file |
 | `b6p script push --file <path>` | Push local files to the platform |
-| `b6p script push --file <path> --snapshot --message "…"` | Push and record a versioned snapshot |
+| `b6p script push --file <path> --snapshot --message "…"` | Commit the draft with a message and publish it |
+| `b6p script push --file <path> --author "Jane Doe <jane@example.com>"` | Push as a given commit author |
 | `b6p script push --file <path> --overwrite <file>` | Push, overwriting a file that changed on the platform |
 | `b6p script audit --file <path>` | Diff local vs. server |
 | `b6p script audit --file <path> --pull` | Audit and pull if differences found |
@@ -152,38 +148,107 @@ question, in order (`printf 'Overwrite all\nYes\n' | b6p script push --file <pat
 in PowerShell, `'Overwrite all', 'Yes' | b6p script push --file <path>`). The commands the CLI prints are
 written for your shell: POSIX, or PowerShell on Windows outside Git Bash.
 
-### What a push does, by server version
+### Git, authors and switching
 
-A push saves your sources to `draft/`; the **platform** compiles them (the CLI and core bundle no
-compiler). `b6p` asks the server for its version first (`--verbose` prints the route it took, `--json`
-carries it as `route`):
+A script's draft and its published snapshot are a git repository on the platform; a push commits your
+`draft/` folder to it, and `--snapshot` (or `--message`, which implies it) also publishes that
+commit. Its history is its git history. Requires a platform with git publishing for scripts (today's
+server: its `enableGitPublishing` switch); a script still on WebDAV is switched
+to git by its first push or by `b6p script pull --enable-git`. **The switch is one-way**: afterwards the
+script's draft and snapshot refuse WebDAV writes. The CLI says so when it happens
+(`switchedToGit`).
 
-| Server | `b6p script push` | `b6p script push --snapshot` |
-|---|---|---|
-| Has server-side compile (or a `dev` build) | sources saved, then the platform compiles the draft | the same, then the platform recompiles and publishes the snapshot |
-| Older, unreadable version, or no minimum known | sources saved to `draft/`; nothing compiled (exit `0`) | sources saved, **no snapshot**: prints `cannot snapshot, only push saves` and exits `1` |
+Every commit needs an author. In order, the first complete one is used: `--author "Name <email>"`;
+for `deploy`, the config file's `author`; the stored default (`b6p config set author "Name <email>"`);
+`git config user.name` and `user.email` for the script folder; then `GIT_AUTHOR_NAME` and
+`GIT_AUTHOR_EMAIL` (or the `GIT_COMMITTER_*` pair) in the environment. With none of them the push
+stops with exit `1` and prints those fixes; nothing is ever committed as nobody.
 
-The diagnostics, save-gate problems and withheld projects the platform reports are printed on stderr
-(capped, with "N more omitted"). A compile that stops at the save gate, withholds its output
-(`noEmitOnError`) or does not build leaves your sources saved but the platform's output not updated,
-and exits `1`; a compile that finishes with type errors but produced output exits `0` on a plain push.
-There is no `b6p script check` (a dry-run compile is waiting on a platform endpoint).
+`b6p script pull` and `b6p script push` without `--enable-git` ask before switching a WebDAV script (`[Cancel]` first),
+and `--yes` declines, so an unattended run never switches anything and exits `1` (push) with nothing changed.
+`--enable-git` works with a URL or with `--file`/the current folder.
 
-**Exit codes:** `0` when the push went through (keeping platform-only files is still `0`; so is a
-plain push to a server without server-side compile); `1` when nothing was uploaded, an overwrite was
-not confirmed, an upload was refused, a snapshot was asked of a server that cannot snapshot, the
-platform's compile stopped at its save gate, withheld its output or did not build, the platform
-refused to publish the snapshot (the error line names the reason and what to do), a compile or
-publish request failed (a network failure says to run the push again), or a snapshot published
-nothing or has no history entry.
+Refusals that change nothing and exit `1`: a declined switch, a draft folder with a branch other than
+`draft` checked out (push), staged-only changes that a pull would discard, and symbolic links that
+would let a pull write outside the draft folder. Each message says how to fix it.
 
-**`--json`** prints one object on stdout: `pushed`, `route`, `snapshotRefused`, `compile`, `publish`,
-`historyRecorded`, `keptPlatformOnly`, `declinedOverwrites`, `error`. `error` is `null` on success, else
-`{ kind, message }` (the sentence printed on stderr), plus `reason` / `rawReason` for a refused
-publish and `networkFailure` / `messages` for a failed request. When core threw instead of
-returning, `route` and `compile` are `null` ("not known"). A declined overwrite prints
-`pushed: false` with the files in `declinedOverwrites`. Questions, warnings and next steps go to
-stderr.
+### Exit codes
+
+| Result | Exit |
+|---|---|
+| Pushed; kept platform-only files, a switch to git, or a read-back that could not run (`liveVerified: null`) are still fine | `0` |
+| The user cancelled at the target-URL prompt | `0` |
+| Nothing was pushed (`pushed: false`): bad `--root`, empty draft, an overwrite not confirmed, no commit author, an upload refused | `1` |
+| Snapshot, and `publishedSha` is `null` (nothing was published) | `1` |
+| Snapshot, and `publishError` is set (the platform refused or failed the publish; the draft is still pushed) | `1` |
+| Snapshot, and `liveVerified` is `false` (the published branch reads back at another commit) | `1` |
+| `--fail-on-type-errors` (or `failOnTypeErrors: true` in a deploy config), and the build reported type errors in the script's own sources (`typeCheckDiagnostics > 0`) | `1` |
+
+A plain push (no `--snapshot`) is judged by `pushed` alone. Type errors are **warnings by default**: they
+are printed, counted in `--json` (`typeCheckDiagnostics`) and the exit code stays `0`, because the platform
+runs the emitted JavaScript and valid JS often comes from imperfect TypeScript. Errors located in a `.d.ts`
+(the generated platform declarations) never count. Syntax and emit errors always stop the push with exit
+`1`. Add `--fail-on-type-errors` to push, snapshot or deploy to make type errors fail instead.
+
+### `--json`
+
+`--json` prints one object on stdout, the same shape for every outcome (agents parse it):
+
+```json
+{
+  "pushed": true,
+  "commitSha": "3f2a…40 hex characters",
+  "publishedSha": "9c1b…40 hex characters",
+  "publishError": null,
+  "publishRefusal": null,
+  "switchedToGit": false,
+  "typeCheckDiagnostics": 0,
+  "typeCheckErrors": [],
+  "liveVerified": true,
+  "liveMismatches": [],
+  "keptPlatformOnly": [],
+  "declinedOverwrites": []
+}
+```
+
+- `commitSha`: the draft branch's head after the push (the commit this push made, or the one already
+  there); `null` when `pushed` is false.
+- `publishedSha`: the commit the platform published; `null` on a plain push, an aborted push or a
+  failed publish.
+- `publishError`: why the publish failed, else `null`.
+- `publishRefusal`: `{ "reason", "withheld" }`, straight from the platform, when it refused the publish. For
+  a build that is missing, unreadable or older than its sources (`BUILD_MANIFEST_MISSING`,
+  `BUILD_MANIFEST_INVALID`, `BUILD_STALE`) `withheld` lists the stale files or the manifest's path: rebuild
+  and push. The draft is pushed, the published script unchanged, and the exit code is `1`. Else `null`.
+- `typeCheckDiagnostics` / `typeCheckErrors`: the count and the list (`{ file, line, column, code, message }`) of
+  type errors in the script's own sources; `.d.ts` diagnostics are never included. Warnings unless
+  `--fail-on-type-errors`.
+- `switchedToGit`: this push moved the script from WebDAV to git.
+- `historyRecorded` is gone (0.9.0): history is the git history, so `commitSha` and `publishedSha`
+  replace it.
+- A declined overwrite prints `pushed: false` with the files in `declinedOverwrites`; a missing
+  author prints `pushed: false` too (the reason is on stderr); a cancelled target-URL prompt prints
+  `{ "cancelled": true }`. Questions, warnings and next steps go to stderr.
+
+### Deploy
+
+`b6p script deploy <config.json>` pushes the source draft to each target:
+
+```json
+{
+  "sourceRootPath": "./my-script",
+  "targets": [{ "url": "https://…/files/123/draft/", "snapshot": true }],
+  "author": { "name": "Jane Doe", "email": "jane@example.com" },
+  "message": "Deploy from CI",
+  "externallyBuilt": false,
+  "failOnTypeErrors": false
+}
+```
+
+`externallyBuilt: true` is for scripts a bundler outside b6p builds (no build manifest is written and the
+platform skips its stale-build check); `b6p script push --externally-built` is the same for a push. `author` (an object, or `"Jane Doe <jane@example.com>"`) and `message` are optional and apply to every
+target; `b6p script deploy --author "…"` overrides the file's author. `deploy` exits `1` if no author resolves
+(nothing is pushed then) or if any target failed or its publish was refused.
 
 ## Exit codes
 
@@ -218,11 +283,8 @@ or not a token is stored. Branch on its output, not its exit code:
 b6p --json auth status | jq -e .authenticated >/dev/null
 ```
 
-> **Changed in 0.9.0.** Failing commands previously exited `0`. If a pipeline was relying on
+> **Changed after 0.9.0.** Failing commands previously exited `0`. If a pipeline was relying on
 > `b6p` never failing, it will now correctly go red.
-
-**Known gap:** a multi-target `b6p script deploy` in which some targets fail still exits `0` and
-prints "Deploy complete!". Check the log output until this is fixed upstream.
 
 ## Unattended use
 

@@ -28,13 +28,21 @@ name: Release Binaries
 on:
   release:
     types: [published]
+  # Rebuild an existing release's binaries with this branch's workflow (e.g. after a runner label is retired).
+  # The source is still the tag; only the workflow comes from the dispatched ref.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and attach binaries for (e.g. v0.9.0)
+        required: true
+        type: string
 
 # Least privilege: uploading Release assets needs write access to repo contents.
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event.release.tag_name }}
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false # Never cancel an in-flight asset upload.
 
 env:
@@ -75,9 +83,9 @@ jobs:
         include:
           - os: windows-latest # x64
             asset: b6p-windows-x64.exe
-          - os: macos-15-intel # Intel
+          - os: macos-15-intel # Intel (macos-13 retired)
             asset: b6p-macos-x64
-          - os: macos-14 # Apple Silicon
+          - os: macos-15 # Apple Silicon (macos-14 retired)
             asset: b6p-macos-arm64
 
     defaults:
@@ -85,13 +93,13 @@ jobs:
         shell: bash # Uniform shell across Windows/macOS runners.
 
     env:
-      TAG: ${{ github.event.release.tag_name }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
           persist-credentials: false
 
       - name: Setup Node.js 24
