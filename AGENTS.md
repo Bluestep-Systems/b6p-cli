@@ -30,9 +30,9 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
   `Logger.error`**: it is diagnostic and core logs recoverable conditions to it; counting it once made
   a successful first `script pull` exit `1`. Never make the exit code depend on `--json`/`--quiet`/
   `--verbose`; prefer `process.exitCode` to `process.exit()`, which can truncate a stdout write. Exit
-  codes: `0`, `1`, and `130` for Ctrl-C at a prompt (`PromptCancelledError`). Known gap:
-  `ScriptService.deploy` logs each target's failure to `logger.error` and still prints "Deploy
-  complete!", so an all-failed deploy exits `0`; fixing it needs core.
+  codes: `0`, `1`, and `130` for Ctrl-C at a prompt (`PromptCancelledError`). `script deploy` exits `1`
+  when any target failed: core reports it through `Prompt.error`, and [src/deployRun.ts](src/deployRun.ts) reads
+  its per-target results.
 - **Cross-package code goes through `@bluestep-systems/b6p-core`** — never relative paths into the
   core source. Shared orchestration belongs in core; this repo only adapts it to a terminal.
 - **`b6p-core` is a bundled `devDependency`**, not a runtime one: esbuild inlines it (and
@@ -63,7 +63,8 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
   a line that arrives with no question pending and never settles at end of input.
 - **`push`'s exit code and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**, as
   pure functions with their own tests. `--json` is one shape for every push outcome (core's
-  `PushResult` plus `declinedOverwrites`); add fields there, never a second shape. Core says what
+  `PushResult` plus `declinedOverwrites`; 0.9.0 dropped `historyRecorded` for `commitSha`, `publishedSha`,
+  `publishError`, `switchedToGit`, and `pushExitCode` takes whether the push was a snapshot); add fields there, never a second shape. Core says what
   happened and why; the "how to go on" lines (the `--overwrite` and delete commands) are the CLI's,
   quoted per `ShellDialect` (POSIX, or PowerShell on Windows without `MSYSTEM`/`SHELL`).
 
