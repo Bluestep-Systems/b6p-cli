@@ -62,9 +62,8 @@ function main() {
   const out = assetName();
   console.error(`Building standalone binary: ${out}`);
 
-  // 1. Build the same bundle npm ships. `typescript` stays external to it and is NOT embedded:
-  //    the SEA carries no native tsc (ruling 45), so a local-path snapshot push in the binary
-  //    throws core's LocalCompilerUnavailableError. Nothing requires it at startup.
+  // 1. Build the same bundle npm ships. It contains no TypeScript compiler: the platform builds every
+  //    push, and core bundles no compiler (test/noCompiler.test.ts checks the bundle).
   run("npm run compile");
 
   // 2. Generate the SEA blob from dist/cli.js.

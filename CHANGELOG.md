@@ -5,24 +5,31 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] (1.0.0)
 
 ### Changed (breaking)
 
-- **Pushes are compiled on the platform; the CLI bundles no compiler** (needs `@bluestep-systems/b6p-core`
-  0.9.0, [ADR 0003](docs/adr/0003-server-side-compile.md)). `b6p script push` saves your sources and the
-  platform compiles them; `--snapshot` also publishes the result. The local type-check a snapshot push
-  ran is gone, and with it `typeCheckDiagnostics`, `liveVerified` and `liveMismatches` from `--json`
-  (new: `route`, `snapshotRefused`, `compile`, `publish`, `error`; see the README). Against a server
-  without server-side compile a plain push only saves `draft/`, and `--snapshot` saves the draft, takes
-  no snapshot, prints `cannot snapshot, only push saves` and exits `1`.
-- **A compile that stops at the platform's save gate, withholds its output or does not build exits `1`**,
-  as does a snapshot the platform refuses to publish; each prints one error line saying what to do and
-  lists the platform's diagnostics, capped with "N more omitted". A failed compile or publish request
-  says to run the push again when it was a network failure.
-- **The standalone binaries for 0.9 are a GitHub pre-release** until every server supports server-side
-  compile (`release.yml`'s `PRERELEASE_LINES` marks a listed line pre-release before its binaries attach).
-  `releases/latest` keeps serving 0.8.x meanwhile, and `b6p check-updates` does not offer a pre-release.
+- **The platform builds every push; the CLI bundles no compiler** (b6p-core 1.0.0,
+  [ADR 0003](docs/adr/0003-server-side-compile.md)). `b6p script push` commits and pushes the draft over git, the
+  platform builds that commit, and the draft folder is moved to its build commit; `--snapshot` publishes the build.
+  Against a server that predates the git build a plain push is the git push alone (exit `0`), and `--snapshot`
+  pushes the draft, takes no snapshot, prints `cannot snapshot, only push saves` and exits `1`.
+- **New exit-`1` cases** (push and each deploy target): the server cannot take the snapshot; the build was not asked
+  for (the platform's draft moved), its request failed, its outcome is unknown, or it ended in a status that does
+  not publish (busy, gate tripped, output withheld, ...); local files block taking in the build commit. Each prints
+  a "To go on:" line naming the command to run. An unclean build on a plain push still exits `0` with a warning: a
+  snapshot of it is refused until it builds cleanly.
+- **`--json`**: core 1.0's push result (new `route`, `snapshotRefused`, `build`, `buildCommitSha`, `buildVouched`,
+  `buildError`, `buildErrorKind`, `buildIncomplete`, `buildFastForward`) plus `declinedOverwrites` and a new
+  `error` (`null`, or `{ kind, message, howTo }`, the same verdict as the exit code). `typeCheckDiagnostics` is now
+  the platform's whole ERROR + WARNING count; `typeCheckErrors` lists the ones in the script's own sources, with
+  `severity`.
+- **`--fail-on-type-errors` / `failOnTypeErrors`** fail on any diagnostic the platform's build reports in the
+  script's own sources (`typeCheckErrors`).
+- **`--externally-built` is removed** (an unknown option): the platform reads each script's own `externallyBuilt`
+  flag. A deploy config's `externallyBuilt` key, like any other unknown key at the top level or in a target, is
+  refused by name before anything is pushed.
+- **The standalone binaries are a normal release** again: `release.yml` no longer marks any line pre-release.
 - **Node.js 24 or newer is required** (`engines.node` is `>=24`); Node 18 to 22 are no longer supported.
   CI tests Node 24 and 26, the publish and release builds run on Node 24, and `@types/node` is `^24`.
   The standalone binaries bundle their own Node and are unaffected. `engines` is only advisory to npm,
@@ -36,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `b6p script push`, `pull`, `audit`, `deploy`, `setup`. The top level of `b6p` is becoming a namespace of
   platform subsystems (nouns), so later commands such as `b6p kb ...` can be added without colliding with
   a verb. It mirrors `B6PCore`, where each subsystem hangs off the composition root as its own service.
-  The 0.9.0 flags (`--author`, `--enable-git`, `--fail-on-type-errors`, `--externally-built`) and the 0.9.0
+  The 0.9.0 flags (`--author`, `--enable-git`, `--fail-on-type-errors`) and the 0.9.0
   `--json` fields live on `b6p script push` / `pull` / `deploy`, and so on their deprecated aliases too.
 - **`b6p auth status`** - reports whether an access token is stored (`{"authenticated": bool}` under
   `--json`). It never prompts, so unattended scripts can check for credentials without risking a hang.
@@ -49,6 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `copy-ts-libs`, the SEA `ts-libs` asset, `typescriptLibDirs` and the TypeScript lib invariant test:
   nothing compiles in the CLI any more.
+- `--externally-built` (see above).
+
+### Build
+
+- `typescript` is an exact `7.0.2` devDependency, for `check-types` only; `test/noCompiler.test.ts` checks that
+  `dist/cli.js` contains no compiler.
 
 ### Changed
 

@@ -1,10 +1,10 @@
-// The push exit rule and --json body (ClickUp 86bbqnrtp, 86bb94f3j; git-only in 0.9.0).
+// The push verdict, exit rule and --json body on core 1.0 (the platform builds every git push).
 //
-// A snapshot fails on any of: nothing pushed, nothing published, a publish error, a failed read-back.
-// This table is what keeps a refactor from dropping a signal.
+// pushProblem is the one rule behind the exit code, the CLI's error line and --json's `error`. This table is what
+// keeps a refactor from dropping a signal.
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import type { PushResult } from "@bluestep-systems/b6p-core";
+import { bsjsGit, type PushResult } from "@bluestep-systems/b6p-core";
 import {
   declinedPushJson,
   canonicalPushArgs,
@@ -12,17 +12,20 @@ import {
   describePush,
   detectShellDialect,
   overwriteCommand,
+  pushAdvice,
   pushExitCode,
-  pushFailureNotice,
+  pushProblem,
+  routeVerboseLines,
   shellQuote,
+  SNAPSHOT_REFUSED_LINE,
   toPushJson,
-  typeErrorWarnings,
 } from "../src/pushOutcome";
 
 const SHA_DRAFT = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const SHA_BUILD = "cccccccccccccccccccccccccccccccccccccccc";
 const SHA_PUBLISHED = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-/** A clean snapshot push; each case overrides what it tests. */
+/** A clean, built snapshot push; each case overrides what it tests. */
 function result(overrides: Partial<PushResult> = {}): PushResult {
   return {
     pushed: true,
@@ -31,6 +34,15 @@ function result(overrides: Partial<PushResult> = {}): PushResult {
     publishError: null,
     publishRefusal: null,
     switchedToGit: false,
+    route: { mode: "server-build", reason: "at-or-above-floor", serverVersion: "26.12.01.00", required: "26.12.01.00" },
+    snapshotRefused: null,
+    build: null,
+    buildCommitSha: SHA_BUILD,
+    buildVouched: true,
+    buildError: null,
+    buildErrorKind: null,
+    buildIncomplete: null,
+    buildFastForward: { state: "fast-forwarded", blockedPaths: [], error: null },
     typeCheckDiagnostics: 0,
     typeCheckErrors: [],
     liveVerified: true,
@@ -40,180 +52,215 @@ function result(overrides: Partial<PushResult> = {}): PushResult {
   };
 }
 
-describe("pushExitCode", () => {
-  it("is 0 for a clean snapshot push", () => {
+const kind = (r: PushResult, snapshot: boolean, failOnTypeErrors = false) =>
+  pushProblem(r, snapshot, failOnTypeErrors)?.kind ?? null;
+
+const TYPE_ERROR = { file: "scripts/app.ts", line: 3, column: 7, code: 2322, message: "x", severity: "WARNING" };
+
+describe("pushProblem / pushExitCode", () => {
+  it("a clean built snapshot, and a clean plain push, succeed", () => {
+    assert.strictEqual(kind(result(), true), null);
     assert.strictEqual(pushExitCode(result(), true), 0);
+    assert.strictEqual(pushExitCode(result({ publishedSha: null, liveVerified: null }), false), 0);
   });
 
-  it("is 0 for a clean plain push (no publish, no compile, no read-back)", () => {
-    const plain = result({ publishedSha: null, typeCheckDiagnostics: null, liveVerified: null });
-    assert.strictEqual(pushExitCode(plain, false), 0);
-  });
-
-  it("is 0 when the user cancelled at the target-URL prompt (null)", () => {
+  it("a cancelled target-URL prompt (null) is 0", () => {
     assert.strictEqual(pushExitCode(null, true), 0);
     assert.strictEqual(pushExitCode(null, false), 0);
   });
 
-  it("is 1 when nothing was pushed (pushed: false), plain or snapshot", () => {
-    const aborted = result({ pushed: false, commitSha: null, publishedSha: null, liveVerified: null });
-    assert.strictEqual(pushExitCode(aborted, false), 1);
-    assert.strictEqual(pushExitCode(aborted, true), 1);
+  it("nothing pushed fails, plain or snapshot", () => {
+    assert.strictEqual(kind(result({ pushed: false }), false), "NOTHING_PUSHED");
+    assert.strictEqual(pushExitCode(result({ pushed: false }), true), 1);
   });
 
-  it("is 1 on a snapshot when nothing was published (publishedSha null)", () => {
-    assert.strictEqual(pushExitCode(result({ publishedSha: null, liveVerified: null }), true), 1);
+  it("a snapshot the server cannot take fails with the pinned line (ruling 46)", () => {
+    const refused = result({
+      publishedSha: null,
+      route: { mode: "push-only", reason: "below-floor", serverVersion: "26.11.01.00", required: "26.12.01.00" },
+      snapshotRefused: { reason: "too-old", serverVersion: "26.11.01.00", required: "26.12.01.00" },
+      build: null,
+      buildCommitSha: null,
+      buildVouched: null,
+      buildFastForward: null,
+    });
+    const p = pushProblem(refused, true);
+    assert.strictEqual(p?.kind, "SNAPSHOT_REFUSED");
+    assert.strictEqual(p?.message, "cannot snapshot, only push saves");
+    assert.strictEqual(SNAPSHOT_REFUSED_LINE, "cannot snapshot, only push saves");
+    assert.match(p?.howTo ?? "", /26\.12\.01\.00/);
   });
 
-  it("is 1 on a snapshot when the platform refused the publish (publishError set)", () => {
-    const refused = result({ publishedSha: null, publishError: "refused", liveVerified: null });
-    assert.strictEqual(pushExitCode(refused, true), 1);
+  it("a plain push to a server without the git build succeeds (push-only route)", () => {
+    const old = result({
+      publishedSha: null,
+      liveVerified: null,
+      route: { mode: "push-only", reason: "below-floor", serverVersion: "26.11.01.00", required: "26.12.01.00" },
+      buildCommitSha: null,
+      buildVouched: null,
+      buildFastForward: null,
+    });
+    assert.strictEqual(pushExitCode(old, false), 0);
   });
 
-  it("is 1 on a snapshot when publishError is set even if a published sha is present", () => {
-    assert.strictEqual(pushExitCode(result({ publishError: "refresh failed" }), true), 1);
+  it("a build that was not asked for says pull, then push; a failed request says push again", () => {
+    const notAsked = pushProblem(result({ buildError: "draft moved", buildErrorKind: "not-requested" }), false);
+    assert.strictEqual(notAsked?.kind, "BUILD_NOT_REQUESTED");
+    assert.match(notAsked?.howTo ?? "", /b6p script pull/);
+    const failed = pushProblem(result({ buildError: "500", buildErrorKind: "request-failed" }), false);
+    assert.strictEqual(failed?.kind, "BUILD_REQUEST_FAILED");
+    assert.match(failed?.howTo ?? "", /b6p script push/);
   });
 
-  it("is 1 on a snapshot when the published branch reads back at another commit", () => {
-    const wrong = result({ liveVerified: false, liveMismatches: [".build/scripts/app.js"] });
-    assert.strictEqual(pushExitCode(wrong, true), 1);
+  it("an unknown build outcome says pull, then push (ruling 71); an unknown status says update b6p", () => {
+    const unknownOutcome = pushProblem(
+      result({
+        buildIncomplete: {
+          status: "UNKNOWN",
+          rawStatus: bsjsGit.BUILD_OUTCOME_UNKNOWN_REASON,
+          description: "the platform could not tell whether its build landed",
+        },
+      }),
+      false
+    );
+    assert.strictEqual(unknownOutcome?.kind, "BUILD_OUTCOME_UNKNOWN");
+    assert.match(unknownOutcome?.howTo ?? "", /b6p script pull`, then `b6p script push/);
+    assert.doesNotMatch(unknownOutcome?.howTo ?? "", /Update b6p/);
+    const unknownStatus = pushProblem(
+      result({ buildIncomplete: { status: "UNKNOWN", rawStatus: "NEW_THING", description: "unknown status" } }),
+      false
+    );
+    assert.strictEqual(unknownStatus?.kind, "BUILD_INCOMPLETE");
+    assert.match(unknownStatus?.howTo ?? "", /Update b6p/);
   });
 
-  it("is 0 on a snapshot when the read-back could not run (liveVerified: null): core warns instead", () => {
-    assert.strictEqual(pushExitCode(result({ liveVerified: null }), true), 0);
+  it("a build status that does not publish fails a plain push too, with a status-specific how-to", () => {
+    const busy = pushProblem(result({ buildIncomplete: { status: "BUSY", rawStatus: "BUSY", description: "busy" } }), false);
+    assert.strictEqual(busy?.kind, "BUILD_INCOMPLETE");
+    assert.match(busy?.howTo ?? "", /again in a minute/);
+    const gate = pushProblem(
+      result({ buildIncomplete: { status: "GATE_TRIPPED", rawStatus: "GATE_TRIPPED", description: "gate" } }),
+      false
+    );
+    assert.match(gate?.howTo ?? "", /save-gate/);
   });
 
-  it("is 0 by default when the snapshot has type errors in its sources: they are warnings", () => {
-    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 3 }), true), 0);
-    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 3 }), true, false), 0);
+  it("local files in the way of the build fail, and name the files and the next push", () => {
+    const blocked = pushProblem(
+      result({ buildFastForward: { state: "blocked", blockedPaths: ["dist/app.js"], error: null } }),
+      false
+    );
+    assert.strictEqual(blocked?.kind, "BUILD_BLOCKED");
+    assert.match(blocked?.howTo ?? "", /dist\/app\.js/);
+    assert.match(blocked?.howTo ?? "", /b6p script push/);
+    const failed = pushProblem(result({ buildFastForward: { state: "failed", blockedPaths: [], error: "boom" } }), false);
+    assert.strictEqual(failed?.kind, "BUILD_TAKE_IN_FAILED");
+    assert.strictEqual(kind(result({ buildFastForward: { state: "unchanged", blockedPaths: [], error: null } }), true), null);
   });
 
-  it("is 1 with failOnTypeErrors when there are type errors, 0 when there are none or none were checked", () => {
-    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 3 }), true, true), 1);
-    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 0 }), true, true), 0);
-    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: null }), false, true), 0);
+  it("a snapshot that was refused, failed, published nothing or reads back wrong fails", () => {
+    assert.strictEqual(
+      kind(
+        result({
+          publishedSha: null,
+          publishError: "refused",
+          publishRefusal: { reason: "BUILD_STALE", withheld: ["scripts/app.ts"] },
+        }),
+        true
+      ),
+      "PUBLISH_REFUSED"
+    );
+    assert.strictEqual(kind(result({ publishedSha: null, publishError: "500" }), true), "PUBLISH_FAILED");
+    assert.strictEqual(kind(result({ publishedSha: null }), true), "NOT_PUBLISHED");
+    assert.strictEqual(kind(result({ liveVerified: false }), true), "LIVE_MISMATCH");
+    assert.strictEqual(kind(result({ liveVerified: null }), true), null);
   });
 
-  it("failOnTypeErrors applies to a plain push that reports a count too", () => {
-    assert.strictEqual(pushExitCode(result({ typeCheckDiagnostics: 2, publishedSha: null }), false, true), 1);
+  it("publish fields are ignored on a plain push", () => {
+    assert.strictEqual(kind(result({ publishedSha: null, publishError: "x", liveVerified: false }), false), null);
   });
 
-  it("is 0 when kept platform-only files are the only news", () => {
+  it("an unclean plain push succeeds (ruling 62) and advises how to make it publishable", () => {
+    const unclean = result({ publishedSha: null, liveVerified: null, buildVouched: false, typeCheckDiagnostics: 1 });
+    assert.strictEqual(pushExitCode(unclean, false), 0);
+    assert.match(pushAdvice(unclean) ?? "", /snapshot is refused/);
+    assert.strictEqual(pushAdvice(result()), null);
+  });
+
+  it("diagnostics in the script's own sources warn, unless --fail-on-type-errors", () => {
+    const r = result({ typeCheckDiagnostics: 3, typeCheckErrors: [TYPE_ERROR] });
+    assert.strictEqual(pushExitCode(r, true), 0);
+    assert.strictEqual(kind(r, true, true), "TYPE_ERRORS");
+    // Diagnostics only outside the script's own sources (a .d.ts) never count.
+    assert.strictEqual(kind(result({ typeCheckDiagnostics: 2, typeCheckErrors: [] }), true, true), null);
+  });
+
+  it("kept platform-only files and a switch to git are still success", () => {
     assert.strictEqual(pushExitCode(result({ keptPlatformOnly: ["scripts/old.ts"] }), true), 0);
-  });
-
-  it("is 0 when the push switched the script to git (reported, not a failure)", () => {
     assert.strictEqual(pushExitCode(result({ switchedToGit: true }), true), 0);
-  });
-
-  it("ignores publish fields on a plain push: they were not asked for", () => {
-    // Core leaves them null on a plain push; a stray value must not turn a pushed draft into a failure.
-    assert.strictEqual(pushExitCode(result({ publishedSha: null, publishError: "x", liveVerified: false }), false), 0);
   });
 });
 
 describe("describePush", () => {
-  it("shows the commit and published SHAs", () => {
+  it("prints the commit ids", () => {
     const lines = describePush(result(), true);
-    assert.deepStrictEqual(lines.info, [`Draft commit: ${SHA_DRAFT}`, `Published commit: ${SHA_PUBLISHED}`]);
-    assert.deepStrictEqual(lines.errors, []);
+    assert.deepStrictEqual(lines.info, [
+      `Draft commit: ${SHA_DRAFT}`,
+      `Build commit: ${SHA_BUILD}`,
+      `Published commit: ${SHA_PUBLISHED}`,
+    ]);
     assert.deepStrictEqual(lines.notices, []);
   });
 
-  it("says plainly, and as a notice, that the script was switched to git and that it is one-way", () => {
-    const lines = describePush(result({ switchedToGit: true }), true);
-    assert.strictEqual(lines.notices.length, 1);
-    assert.match(lines.notices[0], /switched from WebDAV to git/);
-    assert.match(lines.notices[0], /one-way/);
-  });
-
-  it("reports a failed publish as an error and omits the published line", () => {
-    const lines = describePush(result({ publishedSha: null, publishError: "refused by the platform" }), true);
-    assert.deepStrictEqual(lines.info, [`Draft commit: ${SHA_DRAFT}`]);
-    assert.strictEqual(lines.errors.length, 1);
-    assert.match(lines.errors[0], /refused by the platform/);
-  });
-
-  it("flags a snapshot with neither a published sha nor an error", () => {
-    const lines = describePush(result({ publishedSha: null }), true);
-    assert.strictEqual(lines.errors.length, 1);
-    assert.match(lines.errors[0], /nothing was published/);
-  });
-
-  it("a plain push only shows its draft commit", () => {
-    const lines = describePush(result({ publishedSha: null }), false);
-    assert.deepStrictEqual(lines.info, [`Draft commit: ${SHA_DRAFT}`]);
-    assert.deepStrictEqual(lines.errors, []);
+  it("adds one 'To go on' notice for a failed push, and the git switch loudly", () => {
+    const lines = describePush(result({ publishedSha: null, switchedToGit: true }), true);
+    assert.strictEqual(lines.notices.length, 2);
+    assert.match(lines.notices[0], /^To go on: Run `b6p script push --snapshot` again/);
+    assert.match(lines.notices[1], /switched from WebDAV to git/);
   });
 });
 
-describe("type errors in a push", () => {
-  const errors = [{ file: "scripts/app.ts", line: 3, column: 5, code: 2345, message: "bad argument" }];
-
-  it("--json carries the count and the list as core gave them", () => {
-    const json = toPushJson(result({ typeCheckDiagnostics: 1, typeCheckErrors: errors }));
-    assert.strictEqual(json.typeCheckDiagnostics, 1);
-    assert.deepStrictEqual(json.typeCheckErrors, errors);
-  });
-
-  it("the human output warns with file, position, code and message, and says how to make them fail", () => {
-    const lines = describePush(result({ typeCheckDiagnostics: 1, typeCheckErrors: errors }), true);
-    assert.match(lines.warnings[0], /1 type error\(s\) in the script's own sources/);
-    assert.match(lines.warnings[0], /scripts\/app\.ts\(3,5\): TS2345: bad argument/);
-    assert.match(lines.warnings[0], /--fail-on-type-errors/);
-    assert.deepStrictEqual(lines.errors, []);
-  });
-
-  it("lists at most 20 and counts the rest; says nothing when there are none", () => {
-    const many = Array.from({ length: 25 }, (_, i) => ({ ...errors[0], line: i + 1 }));
-    assert.match(typeErrorWarnings(many)[0], /\.\.\. and 5 more/);
-    assert.deepStrictEqual(typeErrorWarnings([]), []);
-  });
-
-  it("a declined push's JSON has the same keys as a normal one", () => {
-    assert.deepStrictEqual(Object.keys(declinedPushJson([])).sort(), Object.keys(toPushJson(result())).sort());
+describe("routeVerboseLines", () => {
+  it("names the route and the versions, and nothing when no route was taken", () => {
+    assert.match(routeVerboseLines(result())[0], /^Push route: server-build \(at-or-above-floor; server version 26\.12\.01\.00/);
+    assert.deepStrictEqual(routeVerboseLines(result({ route: null })), []);
   });
 });
 
 describe("toPushJson", () => {
-  it("has no historyRecorded and carries the git fields", () => {
-    const json = toPushJson(result()) as Record<string, unknown>;
-    assert.ok(!("historyRecorded" in json));
-    for (const key of ["commitSha", "publishedSha", "publishError", "switchedToGit"]) {
-      assert.ok(key in json, key);
-    }
+  it("is core's result plus declinedOverwrites and the verdict", () => {
+    const r = result();
+    assert.deepStrictEqual(toPushJson(r, true), { ...r, declinedOverwrites: [], error: null });
+    const failed = toPushJson(result({ publishedSha: null }), true);
+    assert.strictEqual(failed.error?.kind, "NOT_PUBLISHED");
+    assert.ok(failed.error?.howTo);
   });
 
-  it("keeps every PushResult field and adds an empty declinedOverwrites", () => {
-    const r = result({ liveVerified: false, liveMismatches: ["a.js"], keptPlatformOnly: ["b.ts"] });
-    assert.deepStrictEqual(toPushJson(r), { ...r, declinedOverwrites: [], publishRefusal: null });
+  it("carries the core 1.0 build fields and no historyRecorded", () => {
+    const json = toPushJson(result(), true) as Record<string, unknown>;
+    for (const key of ["route", "snapshotRefused", "build", "buildCommitSha", "buildVouched", "buildError", "buildErrorKind", "buildIncomplete", "buildFastForward"]) {
+      assert.ok(key in json, key);
+    }
+    assert.ok(!("historyRecorded" in json));
   });
 });
 
-// ClickUp 86bc2h3ef: a declined overwrite throws, so no PushResult exists. --json used to print
-// nothing at all; it now prints the same shape as every other push, marked as not pushed.
 describe("declinedPushJson", () => {
-  it("reads as a push that did not run, with the declined files", () => {
-    const json = declinedPushJson(["scripts/app.ts", "README.md"]);
-    assert.deepStrictEqual(json, {
-      pushed: false,
-      commitSha: null,
-      publishedSha: null,
-      publishError: null,
-      switchedToGit: false,
-      typeCheckDiagnostics: null,
-      typeCheckErrors: [],
-      liveVerified: null,
-      liveMismatches: [],
-      keptPlatformOnly: [],
-      declinedOverwrites: ["scripts/app.ts", "README.md"],
-      publishRefusal: null,
-    });
+  it("reads as did-not-run, with the files and the verdict, and never as success", () => {
+    const json = declinedPushJson(
+      { kind: "OVERWRITE_DECLINED", message: "declined", howTo: "overwrite them" },
+      ["scripts/app.ts", "README.md"]
+    );
+    assert.strictEqual(json.pushed, false);
+    assert.deepStrictEqual(json.declinedOverwrites, ["scripts/app.ts", "README.md"]);
+    assert.strictEqual(json.error?.kind, "OVERWRITE_DECLINED");
+    assert.strictEqual(json.buildFastForward, null);
     assert.strictEqual(pushExitCode(json, true), 1, "the same body must never read as success");
   });
 
   it("has exactly the keys of a normal push's JSON", () => {
-    assert.deepStrictEqual(Object.keys(declinedPushJson([])).sort(), Object.keys(toPushJson(result())).sort());
+    const declined = declinedPushJson({ kind: "NO_AUTHOR", message: "x", howTo: null });
+    assert.deepStrictEqual(Object.keys(declined).sort(), Object.keys(toPushJson(result(), true)).sort());
   });
 });
 
@@ -288,21 +335,6 @@ describe("deleteCommand", () => {
 
   it("PowerShell: pipes the string 'Yes' (no printf there)", () => {
     assert.strictEqual(deleteCommand(args, "powershell"), "'Yes' | b6p --json push --file d/app.ts --message 'v2 fix'");
-  });
-});
-
-describe("pushFailureNotice", () => {
-  it("adds no second error line when core already reported the failure", () => {
-    assert.strictEqual(pushFailureNotice(result({ pushed: false }), true), null);
-  });
-
-  it("speaks once when core said nothing", () => {
-    assert.match(pushFailureNotice(result({ pushed: false }), false) ?? "", /^Nothing was pushed/);
-  });
-
-  it("stays silent for a clean push, and the exit code is independent of it", () => {
-    assert.strictEqual(pushFailureNotice(result(), false), null);
-    assert.strictEqual(pushExitCode(result({ pushed: false }), false), 1);
   });
 });
 

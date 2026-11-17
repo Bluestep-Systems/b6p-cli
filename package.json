@@ -43,7 +43,7 @@
     "commander": "^14.0.3",
     "esbuild": "^0.27.4",
     "prettier": "^3.9.6",
-    "typescript": "5.9.2"
+    "typescript": "7.0.2"
   },
   "overrides": {
     "@bluestep-systems/b6p-core-bsjs-git": "file:vendor/bluestep-systems-b6p-core-bsjs-git-0.3.0.tgz"

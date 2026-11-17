@@ -61,12 +61,18 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
   and queues lines: one line answers one prompt, however they arrive, and end of input with the
   queue empty throws `NonInteractiveInputError`. Don't go back to `question()` per prompt: it drops
   a line that arrives with no question pending and never settles at end of input.
-- **`push`'s exit code and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**, as
-  pure functions with their own tests. `--json` is one shape for every push outcome (core's
-  `PushResult` plus `declinedOverwrites`; 0.9.0 dropped `historyRecorded` for `commitSha`, `publishedSha`,
-  `publishError`, `switchedToGit`, and `pushExitCode` takes whether the push was a snapshot); add fields there, never a second shape. Core says what
-  happened and why; the "how to go on" lines (the `--overwrite` and delete commands) are the CLI's,
-  quoted per `ShellDialect` (POSIX, or PowerShell on Windows without `MSYSTEM`/`SHELL`).
+- **`push`'s exit code, error line and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**,
+  as pure functions with their own tests: `pushProblem` is the one verdict (exit code, `--json`'s
+  `error` `{ kind, message, howTo }` and the "To go on:" line), and a deploy target is judged by the same
+  function. `--json` is one shape for every push outcome (core's `PushResult` plus `declinedOverwrites`
+  and `error`); add fields there, never a second shape. A snapshot push to a server without the git
+  build prints exactly `cannot snapshot, only push saves` (`SNAPSHOT_REFUSED_LINE`, exit 1); scripts
+  match on it, so do not reword it. Core says what happened and why; the "how to go on" lines (the
+  commands to run, `--overwrite` and delete commands) are the CLI's, quoted per `ShellDialect` (POSIX,
+  or PowerShell on Windows without `MSYSTEM`/`SHELL`).
+- **A deploy config with an unknown key is refused by name** before anything is pushed
+  (`deployConfigKeyProblem` in [src/deployRun.ts](src/deployRun.ts)), at the top level and in each
+  target. Adding a config key means adding it to `DEPLOY_CONFIG_KEYS` / `DEPLOY_TARGET_KEYS`.
 
 ## Commands
 
@@ -89,12 +95,10 @@ the whole CI Node matrix.
 
 - Node **>=24** (`engines`; CI matrix 24 and 26, publish/release build on 24; `@types/node` stays on ^24 so no newer APIs creep in). ES2022 / Node16, `strict`. Base options in `tsconfig.base.json`, `noEmit: true` in `tsconfig.json`
   — esbuild produces the artifact, not the compiler. `types: ["node"]` is set deliberately.
-- **`typescript` is exact-pinned at 5.9.2**, matching the version core bundles, so npm dedupes to one
-  copy. Do not float it to a range or a newer major without reading
-  [docs/adr/0002-typescript-version-strategy.md](docs/adr/0002-typescript-version-strategy.md).
-- **`copy-ts-libs` resolves `typescript` from core's directory, never the repo root** — the shipped
-  `dist/lib/lib.*.d.ts` are read at runtime by the compiler esbuild inlined, so they must match *that*
-  compiler. The failure mode is silent; the lib-set invariant test is what makes a mismatch red.
+- **`typescript` is an exact-pinned 7.0.2 devDependency, a build tool only** (`check-types`). Nothing in
+  `dist/cli.js` or the SEA bundles a compiler: the platform builds every push
+  ([docs/adr/0003-server-side-compile.md](docs/adr/0003-server-side-compile.md)), and
+  [test/noCompiler.test.ts](test/noCompiler.test.ts) fails the build if a compiler reaches the bundle.
 - Two artifacts from the same `dist/cli.js`: the npm package (primary) and standalone SEA binaries per
   OS/arch attached to each GitHub Release. → [docs/adr/0001-standalone-binary-toolchain.md](docs/adr/0001-standalone-binary-toolchain.md)
 

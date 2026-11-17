@@ -44,31 +44,60 @@ export function pushFailureOf(e: unknown, args: string[], dialect: ShellDialect)
   // Core marks an error thrown after it switched the script to git (the switch stands though nothing was pushed).
   const switched = (e as { switchedToGit?: unknown } | null)?.switchedToGit === true;
   if (isMissingAuthorError(e)) {
-    return { message: missingAuthorMessage(e.message), json: declinedPushJson([], switched), switchedToGit: switched };
+    const message = missingAuthorMessage(e.message);
+    return {
+      message,
+      json: declinedPushJson({ kind: "NO_AUTHOR", message: e.message, howTo: message }, [], switched),
+      switchedToGit: switched,
+    };
   }
   if (e instanceof AuthorFormatError) {
-    return { message: e.message, json: declinedPushJson([], switched), switchedToGit: switched };
+    return {
+      message: e.message,
+      json: declinedPushJson({ kind: "AUTHOR_INVALID", message: e.message, howTo: null }, [], switched),
+      switchedToGit: switched,
+    };
   }
   const refusal = publishRefusalOfError(e);
   if (refusal) {
     return {
       message: describePublishRefusal(refusal),
-      json: { ...declinedPushJson([], switched), publishRefusal: refusal },
+      json: {
+        ...declinedPushJson(
+          {
+            kind: "PUBLISH_REFUSED",
+            message: e instanceof Error ? e.message : String(e),
+            howTo: describePublishRefusal(refusal),
+          },
+          [],
+          switched
+        ),
+        publishRefusal: refusal,
+      },
       switchedToGit: switched,
     };
   }
   const gitMessage = describeGitError(e);
   if (gitMessage !== undefined) {
-    return { message: gitMessage, json: declinedPushJson([], switched), switchedToGit: switched };
+    return {
+      message: gitMessage,
+      json: declinedPushJson(
+        { kind: "GIT_REFUSED", message: e instanceof Error ? e.message : String(e), howTo: gitMessage },
+        [],
+        switched
+      ),
+      switchedToGit: switched,
+    };
   }
   if (e instanceof Err.OverwriteDeclinedError) {
     const one = e.paths.length === 1;
+    const notice =
+      `After checking ${one ? "it" : "them"}, overwrite ${one ? "it" : "them"} ` +
+      `with your local ${one ? "file" : "files"} with:\n  ${overwriteCommand(args, e.paths, dialect)}`;
     return {
       message: e.message,
-      notice:
-        `After checking ${one ? "it" : "them"}, overwrite ${one ? "it" : "them"} ` +
-        `with your local ${one ? "file" : "files"} with:\n  ${overwriteCommand(args, e.paths, dialect)}`,
-      json: declinedPushJson(e.paths, switched),
+      notice,
+      json: declinedPushJson({ kind: "OVERWRITE_DECLINED", message: e.message, howTo: notice }, e.paths, switched),
       switchedToGit: switched,
     };
   }

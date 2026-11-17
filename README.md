@@ -172,67 +172,97 @@ Refusals that change nothing and exit `1`: a declined switch, a draft folder wit
 `draft` checked out (push), staged-only changes that a pull would discard, and symbolic links that
 would let a pull write outside the draft folder. Each message says how to fix it.
 
+### What the platform does with a push
+
+A push commits the draft and pushes it over git; then the **platform** builds that commit (b6p bundles no
+compiler) and commits its output, plus a build manifest when the build is clean, as one build commit. The
+draft folder is moved to that build commit, and `--snapshot` publishes it. `b6p` asks the server for its
+version first (`--verbose` prints the route; `--json` carries it as `route`):
+
+| Server | `b6p script push` | `b6p script push --snapshot` |
+|---|---|---|
+| Builds git drafts (at or above core's minimum, or a `dev` build) | pushed, then built | pushed, built, and the build published |
+| Older, unreadable version, or no minimum known | pushed; nothing built (exit `0`) | pushed, **no snapshot**: prints `cannot snapshot, only push saves` and exits `1` |
+
+The platform's diagnostics are printed on stderr. An unclean build (an `ERROR` diagnostic: syntax, emit
+or configuration) commits its output without a manifest: the push still exits `0` with a warning, and a
+snapshot of that draft is refused until it builds cleanly. There is no `b6p script check` (a dry-run
+build is waiting on a platform endpoint).
+
 ### Exit codes
 
 | Result | Exit |
 |---|---|
-| Pushed; kept platform-only files, a switch to git, or a read-back that could not run (`liveVerified: null`) are still fine | `0` |
+| Pushed and built; kept platform-only files, a switch to git, a plain push to an older server, an unclean plain push, or a read-back that could not run (`liveVerified: null`) are still fine | `0` |
 | The user cancelled at the target-URL prompt | `0` |
 | Nothing was pushed (`pushed: false`): bad `--root`, empty draft, an overwrite not confirmed, no commit author, an upload refused | `1` |
-| Snapshot, and `publishedSha` is `null` (nothing was published) | `1` |
-| Snapshot, and `publishError` is set (the platform refused or failed the publish; the draft is still pushed) | `1` |
-| Snapshot, and `liveVerified` is `false` (the published branch reads back at another commit) | `1` |
-| `--fail-on-type-errors` (or `failOnTypeErrors: true` in a deploy config), and the build reported type errors in the script's own sources (`typeCheckDiagnostics > 0`) | `1` |
+| Snapshot, and the server cannot take one (`snapshotRefused`) | `1` |
+| The build was not asked for (`buildErrorKind: "not-requested"`: the platform's draft moved) or its request failed (`buildError`) | `1` |
+| The build ended in a status that does not publish, or its outcome is unknown (`buildIncomplete`) | `1` |
+| Local files block moving the draft folder to the build commit, or the move failed (`buildFastForward.state` `blocked` / `failed`) | `1` |
+| Snapshot, and the publish was refused or failed (`publishError`), published nothing (`publishedSha: null`), or reads back at another commit (`liveVerified: false`) | `1` |
+| `--fail-on-type-errors` (or `failOnTypeErrors: true` in a deploy config), and the build reported diagnostics in the script's own sources (`typeCheckErrors` not empty) | `1` |
 
-A plain push (no `--snapshot`) is judged by `pushed` alone. Type errors are **warnings by default**: they
-are printed, counted in `--json` (`typeCheckDiagnostics`) and the exit code stays `0`, because the platform
-runs the emitted JavaScript and valid JS often comes from imperfect TypeScript. Errors located in a `.d.ts`
-(the generated platform declarations) never count. Syntax and emit errors always stop the push with exit
-`1`. Add `--fail-on-type-errors` to push, snapshot or deploy to make type errors fail instead.
+Every failure prints a `To go on:` line saying what to run: for example `b6p script pull`, then push again,
+after the platform's draft moved or when the build's outcome is unknown; push again after a busy or
+incomplete build; move or delete the listed files when they block the build commit; update b6p for a build
+status it does not know. Diagnostics are **warnings by default** (the platform runs the emitted JavaScript);
+those in a `.d.ts` never count. Add `--fail-on-type-errors` to push, snapshot or deploy to make them fail.
 
 ### `--json`
 
-`--json` prints one object on stdout, the same shape for every outcome (agents parse it):
+`--json` prints one object on stdout, the same shape for every outcome (agents parse it): core's push result
+plus `declinedOverwrites` and `error`.
 
 ```json
 {
   "pushed": true,
-  "commitSha": "3f2a…40 hex characters",
-  "publishedSha": "9c1b…40 hex characters",
+  "commitSha": "3f2a…",
+  "publishedSha": "9c1b…",
   "publishError": null,
   "publishRefusal": null,
   "switchedToGit": false,
+  "route": { "mode": "server-build", "reason": "at-or-above-floor", "serverVersion": "…", "required": "…" },
+  "snapshotRefused": null,
+  "build": { "status": "COMPILED", "rawStatus": "COMPILED", "errors": 0, "warnings": 0, "…": "…" },
+  "buildCommitSha": "7d4e…",
+  "buildVouched": true,
+  "buildError": null,
+  "buildErrorKind": null,
+  "buildIncomplete": null,
+  "buildFastForward": { "state": "fast-forwarded", "blockedPaths": [], "error": null },
   "typeCheckDiagnostics": 0,
   "typeCheckErrors": [],
   "liveVerified": true,
   "liveMismatches": [],
   "keptPlatformOnly": [],
-  "declinedOverwrites": []
+  "declinedOverwrites": [],
+  "error": null
 }
 ```
 
-- `commitSha`: the draft branch's head after the push (the commit this push made, or the one already
-  there); `null` when `pushed` is false.
-- `publishedSha`: the commit the platform published; `null` on a plain push, an aborted push or a
-  failed publish.
-- `publishError`: why the publish failed, else `null`.
-- `publishRefusal`: `{ "reason", "withheld" }`, straight from the platform, when it refused the publish. For
-  a build that is missing, unreadable or older than its sources (`BUILD_MANIFEST_MISSING`,
-  `BUILD_MANIFEST_INVALID`, `BUILD_STALE`) `withheld` lists the stale files or the manifest's path: rebuild
-  and push. The draft is pushed, the published script unchanged, and the exit code is `1`. Else `null`.
-- `typeCheckDiagnostics` / `typeCheckErrors`: the count and the list (`{ file, line, column, code, message }`) of
-  type errors in the script's own sources; `.d.ts` diagnostics are never included. Warnings unless
-  `--fail-on-type-errors`.
-- `switchedToGit`: this push moved the script from WebDAV to git.
-- `historyRecorded` is gone (0.9.0): history is the git history, so `commitSha` and `publishedSha`
-  replace it.
-- A declined overwrite prints `pushed: false` with the files in `declinedOverwrites`; a missing
-  author prints `pushed: false` too (the reason is on stderr); a cancelled target-URL prompt prints
-  `{ "cancelled": true }`. Questions, warnings and next steps go to stderr.
+- `commitSha`: the draft commit this push made (or the one already there); `buildCommitSha`: the platform's
+  build commit after it, `null` when it made none. `publishedSha`: the commit published (snapshot only).
+- `route` / `snapshotRefused`: which route the push took, and why a snapshot was refused (`too-old`,
+  `unknown`, `floor-unset`, with the versions).
+- `build`, `buildVouched`, `buildError` / `buildErrorKind`, `buildIncomplete` (`{ status, rawStatus, description }`)
+  and `buildFastForward` (`{ state, blockedPaths, error }`): what the platform's build came to.
+- `publishRefusal`: `{ "reason", "withheld" }`, straight from the platform, when it refused the publish
+  (`BUILD_STALE`, `BUILD_MANIFEST_MISSING`, `BUILD_MANIFEST_INVALID`, `DRAFT_MOVED`, ...).
+- `typeCheckDiagnostics`: the platform's whole `ERROR` + `WARNING` count. `typeCheckErrors`: those in the
+  script's own sources (`{ file, line, column, code, message, severity }`, at most 20); `.d.ts` diagnostics are
+  never included.
+- `error`: `null` when the push succeeded, else `{ "kind", "message", "howTo" }`, the same verdict as the exit
+  code. `kind` is one of `NOTHING_PUSHED`, `SNAPSHOT_REFUSED`, `BUILD_NOT_REQUESTED`, `BUILD_REQUEST_FAILED`,
+  `BUILD_OUTCOME_UNKNOWN`, `BUILD_INCOMPLETE`, `BUILD_BLOCKED`, `BUILD_TAKE_IN_FAILED`, `PUBLISH_REFUSED`,
+  `PUBLISH_FAILED`, `NOT_PUBLISHED`, `LIVE_MISMATCH`, `TYPE_ERRORS`, `OVERWRITE_DECLINED`, `NO_AUTHOR`,
+  `AUTHOR_INVALID`, `GIT_REFUSED`.
+- A declined overwrite prints `pushed: false` with the files in `declinedOverwrites`; a cancelled target-URL
+  prompt prints `{ "cancelled": true }`. Questions, warnings and next steps go to stderr.
 
 ### Deploy
 
-`b6p script deploy <config.json>` pushes the source draft to each target:
+`b6p script deploy <config.json>` pushes the source draft to each target, and each target's platform builds it:
 
 ```json
 {
@@ -240,15 +270,16 @@ runs the emitted JavaScript and valid JS often comes from imperfect TypeScript. 
   "targets": [{ "url": "https://…/files/123/draft/", "snapshot": true }],
   "author": { "name": "Jane Doe", "email": "jane@example.com" },
   "message": "Deploy from CI",
-  "externallyBuilt": false,
+  "enableGit": false,
   "failOnTypeErrors": false
 }
 ```
 
-`externallyBuilt: true` is for scripts a bundler outside b6p builds (no build manifest is written and the
-platform skips its stale-build check); `b6p script push --externally-built` is the same for a push. `author` (an object, or `"Jane Doe <jane@example.com>"`) and `message` are optional and apply to every
-target; `b6p script deploy --author "…"` overrides the file's author. `deploy` exits `1` if no author resolves
-(nothing is pushed then) or if any target failed or its publish was refused.
+Those are the only keys (and `url` / `snapshot` in a target): any other key is refused by name before anything is
+pushed. `externallyBuilt` was removed in 1.0.0, since the platform reads each script's own flag. `author` (an object,
+or `"Jane Doe <jane@example.com>"`) and `message` are optional and apply to every target; `b6p script deploy
+--author "…"` overrides the file's author. `deploy` exits `1` if no author resolves (nothing is pushed then) or if
+any target fails by the push rules above.
 
 ## Exit codes
 
