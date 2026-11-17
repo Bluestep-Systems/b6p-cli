@@ -78,8 +78,8 @@ path. See [scripts/build-sea.mjs](../../scripts/build-sea.mjs) and
 ## Consequences
 
 - **Per-OS CI matrix.** SEA cannot cross-compile — it injects the blob into a copy of the
-  *host* Node binary — so binaries are built on `windows-latest` (x64), `macos-13` (x64), and
-  `macos-14` (arm64, native — not Rosetta). arm64 macOS is therefore in scope for v1.
+  *host* Node binary — so binaries are built on `windows-latest` (x64), `macos-15-intel` (x64), and
+  `macos-15` (arm64, native — not Rosetta). arm64 macOS is therefore in scope for v1.
 - **Asset naming contract** (stable; the bspecs installer depends on it):
   `b6p-windows-x64.exe`, `b6p-macos-x64`, `b6p-macos-arm64`, each with a `<asset>.sha256`
   sidecar for integrity verification.
