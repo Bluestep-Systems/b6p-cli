@@ -41,6 +41,7 @@ function result(overrides: Partial<PushResult> = {}): PushResult {
     buildVouched: true,
     buildError: null,
     buildErrorKind: null,
+    buildErrorReason: null,
     buildIncomplete: null,
     buildFastForward: { state: "fast-forwarded", blockedPaths: [], error: null },
     typeCheckDiagnostics: 0,
@@ -112,6 +113,24 @@ describe("pushProblem / pushExitCode", () => {
     assert.match(failed?.howTo ?? "", /b6p script push/);
   });
 
+  it("a refused build names the next step by its reason; an unknown reason says update b6p", () => {
+    const refused = (buildErrorReason: string | null) =>
+      pushProblem(
+        result({
+          buildError: "refused",
+          buildErrorKind: "refused",
+          buildErrorReason: buildErrorReason as PushResult["buildErrorReason"],
+        }),
+        false
+      );
+    assert.strictEqual(refused("DRAFT_MOVED")?.kind, "BUILD_REFUSED");
+    assert.match(refused("DRAFT_MOVED")?.howTo ?? "", /b6p script pull/);
+    assert.match(refused("DRAFT_TOO_LARGE")?.howTo ?? "", /size limit/);
+    assert.match(refused("REPO_MISSING")?.howTo ?? "", /will not help/);
+    assert.match(refused("DRAFT_BRANCH_MISSING")?.howTo ?? "", /will not help/);
+    assert.match(refused(null)?.howTo ?? "", /Update b6p/);
+  });
+
   it("an unknown build outcome says pull, then push (ruling 71); an unknown status says update b6p", () => {
     const unknownOutcome = pushProblem(
       result({
@@ -135,7 +154,10 @@ describe("pushProblem / pushExitCode", () => {
   });
 
   it("a build status that does not publish fails a plain push too, with a status-specific how-to", () => {
-    const busy = pushProblem(result({ buildIncomplete: { status: "BUSY", rawStatus: "BUSY", description: "busy" } }), false);
+    const busy = pushProblem(
+      result({ buildIncomplete: { status: "BUSY", rawStatus: "BUSY", description: "busy" } }),
+      false
+    );
     assert.strictEqual(busy?.kind, "BUILD_INCOMPLETE");
     assert.match(busy?.howTo ?? "", /again in a minute/);
     const gate = pushProblem(
@@ -153,9 +175,15 @@ describe("pushProblem / pushExitCode", () => {
     assert.strictEqual(blocked?.kind, "BUILD_BLOCKED");
     assert.match(blocked?.howTo ?? "", /dist\/app\.js/);
     assert.match(blocked?.howTo ?? "", /b6p script push/);
-    const failed = pushProblem(result({ buildFastForward: { state: "failed", blockedPaths: [], error: "boom" } }), false);
+    const failed = pushProblem(
+      result({ buildFastForward: { state: "failed", blockedPaths: [], error: "boom" } }),
+      false
+    );
     assert.strictEqual(failed?.kind, "BUILD_TAKE_IN_FAILED");
-    assert.strictEqual(kind(result({ buildFastForward: { state: "unchanged", blockedPaths: [], error: null } }), true), null);
+    assert.strictEqual(
+      kind(result({ buildFastForward: { state: "unchanged", blockedPaths: [], error: null } }), true),
+      null
+    );
   });
 
   it("a snapshot that was refused, failed, published nothing or reads back wrong fails", () => {
@@ -222,7 +250,10 @@ describe("describePush", () => {
 
 describe("routeVerboseLines", () => {
   it("names the route and the versions, and nothing when no route was taken", () => {
-    assert.match(routeVerboseLines(result())[0], /^Push route: server-build \(at-or-above-floor; server version 26\.12\.01\.00/);
+    assert.match(
+      routeVerboseLines(result())[0],
+      /^Push route: server-build \(at-or-above-floor; server version 26\.12\.01\.00/
+    );
     assert.deepStrictEqual(routeVerboseLines(result({ route: null })), []);
   });
 });
@@ -238,7 +269,18 @@ describe("toPushJson", () => {
 
   it("carries the core 1.0 build fields and no historyRecorded", () => {
     const json = toPushJson(result(), true) as Record<string, unknown>;
-    for (const key of ["route", "snapshotRefused", "build", "buildCommitSha", "buildVouched", "buildError", "buildErrorKind", "buildIncomplete", "buildFastForward"]) {
+    for (const key of [
+      "route",
+      "snapshotRefused",
+      "build",
+      "buildCommitSha",
+      "buildVouched",
+      "buildError",
+      "buildErrorKind",
+      "buildErrorReason",
+      "buildIncomplete",
+      "buildFastForward",
+    ]) {
       assert.ok(key in json, key);
     }
     assert.ok(!("historyRecorded" in json));
@@ -247,10 +289,10 @@ describe("toPushJson", () => {
 
 describe("declinedPushJson", () => {
   it("reads as did-not-run, with the files and the verdict, and never as success", () => {
-    const json = declinedPushJson(
-      { kind: "OVERWRITE_DECLINED", message: "declined", howTo: "overwrite them" },
-      ["scripts/app.ts", "README.md"]
-    );
+    const json = declinedPushJson({ kind: "OVERWRITE_DECLINED", message: "declined", howTo: "overwrite them" }, [
+      "scripts/app.ts",
+      "README.md",
+    ]);
     assert.strictEqual(json.pushed, false);
     assert.deepStrictEqual(json.declinedOverwrites, ["scripts/app.ts", "README.md"]);
     assert.strictEqual(json.error?.kind, "OVERWRITE_DECLINED");
@@ -357,7 +399,10 @@ describe("canonicalPushArgs", () => {
   });
 
   it("is what the printed commands use", () => {
-    assert.match(overwriteCommand(canonicalPushArgs(["push"]), ["a.ts"], "posix"), /^b6p script push --overwrite a\.ts$/);
+    assert.match(
+      overwriteCommand(canonicalPushArgs(["push"]), ["a.ts"], "posix"),
+      /^b6p script push --overwrite a\.ts$/
+    );
     assert.match(deleteCommand(canonicalPushArgs(["--yes", "push"]), "posix"), /b6p script push$/);
   });
 });

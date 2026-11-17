@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] (1.0.0)
 
+### Fixed
+
+- **A first pull or publish no longer stops at "HTTP 403"** (b6p-core 1.0.0 with bsjs-git 0.3.1, ClickUp 1k5g91bq9ef).
+  The first platform request of a run sent a CSRF token that the sign-in had just dropped, and nothing retried it,
+  so 0.9.0 could not pull or publish against 26.11.09.00. That request is now retried once with a fresh token.
+
 ### Changed (breaking)
 
 - **The platform builds every push; the CLI bundles no compiler** (b6p-core 1.0.0,
@@ -15,12 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Against a server that predates the git build a plain push is the git push alone (exit `0`), and `--snapshot`
   pushes the draft, takes no snapshot, prints `cannot snapshot, only push saves` and exits `1`.
 - **New exit-`1` cases** (push and each deploy target): the server cannot take the snapshot; the build was not asked
-  for (the platform's draft moved), its request failed, its outcome is unknown, or it ended in a status that does
-  not publish (busy, gate tripped, output withheld, ...); local files block taking in the build commit. Each prints
-  a "To go on:" line naming the command to run. An unclean build on a plain push still exits `0` with a warning: a
+  for (the platform's draft moved), was refused (`BUILD_REFUSED`: the draft moved, is over the build's size limit, or
+  its repository or draft branch is missing), its request failed, its outcome is unknown, or it ended in a status
+  that does not publish (busy, gate tripped, output withheld, ...); local files block taking in the build commit.
+  Each prints a "To go on:" line naming the command to run. An unclean build on a plain push still exits `0` with a warning: a
   snapshot of it is refused until it builds cleanly.
 - **`--json`**: core 1.0's push result (new `route`, `snapshotRefused`, `build`, `buildCommitSha`, `buildVouched`,
-  `buildError`, `buildErrorKind`, `buildIncomplete`, `buildFastForward`) plus `declinedOverwrites` and a new
+  `buildError`, `buildErrorKind`, `buildErrorReason`, `buildIncomplete`, `buildFastForward`) plus `declinedOverwrites` and a new
   `error` (`null`, or `{ kind, message, howTo }`, the same verdict as the exit code). `typeCheckDiagnostics` is now
   the platform's whole ERROR + WARNING count; `typeCheckErrors` lists the ones in the script's own sources, with
   `severity`.

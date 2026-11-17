@@ -75,16 +75,16 @@ Exit codes:
   0  pushed and built (kept platform-only files, a push to an older server, and an unclean build
      on a plain push, which only warns, are still 0)
   1  nothing pushed (bad --root, empty draft, an overwrite not confirmed, no author, an upload
-     refused); the server cannot take the snapshot; the build was not asked for, its request
-     failed, its outcome is unknown, or it ended in a status that does not publish; local files
+     refused); the server cannot take the snapshot; the build was not asked for, was refused
+     (buildErrorReason), its request failed, its outcome is unknown, or it ended in a status that does not publish; local files
      block taking in the build; on a snapshot also: the publish was refused or failed, published
      nothing, or reads back at another commit; --fail-on-type-errors with typeCheckErrors
 
 --json prints one object on stdout: core's push result plus declinedOverwrites and error:
   { pushed, commitSha, publishedSha, publishError, publishRefusal, switchedToGit, route,
     snapshotRefused, build, buildCommitSha, buildVouched, buildError, buildErrorKind,
-    buildIncomplete, buildFastForward, typeCheckDiagnostics, typeCheckErrors, liveVerified,
-    liveMismatches, keptPlatformOnly, declinedOverwrites, error }
+    buildErrorReason, buildIncomplete, buildFastForward, typeCheckDiagnostics, typeCheckErrors,
+    liveVerified, liveMismatches, keptPlatformOnly, declinedOverwrites, error }
   error is null on success, else { kind, message, howTo }: the same verdict as the exit code, and
   the words printed on stderr. A declined overwrite prints pushed: false with the files in
   declinedOverwrites; a cancelled target-URL prompt prints { cancelled: true }. Questions, warnings
