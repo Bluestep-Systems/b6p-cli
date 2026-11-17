@@ -10,13 +10,15 @@ import {
   describePush,
   detectShellDialect,
   pushExitCode,
-  pushFailureNotice,
+  pushProblem,
+  routeVerboseLines,
+  SNAPSHOT_REFUSED_LINE,
   SWITCHED_TO_GIT_NOTICE,
   toPushJson,
 } from "../pushOutcome";
 import { describeGitError } from "../gitErrors";
 import { pushFailureOf } from "../pushFailure";
-import { deployFailsOnTypeErrors, describeDeploy, planDeploy, removeTempDir } from "../deployRun";
+import { deployFailsOnTypeErrors, deploySnapshots, describeDeploy, planDeploy, removeTempDir } from "../deployRun";
 import { AUTHOR_SETTING, chooseAuthor, type CommitAuthor } from "../author";
 
 const ENABLE_GIT_HELP =
@@ -24,8 +26,8 @@ const ENABLE_GIT_HELP =
   "Without this flag the switch is asked about first, and --yes (or an empty answer) declines it";
 
 const FAIL_ON_TYPE_ERRORS_HELP =
-  "Exit 1 when type-checking reports errors in the script's own sources. Default: they are printed as warnings " +
-  "and the exit code stays 0 (errors in .d.ts files never count). Syntax and emit errors always exit 1";
+  "Exit 1 when the platform's build reports diagnostics in the script's own sources (typeCheckErrors). Default: " +
+  "they are printed as warnings and the exit code stays 0 (diagnostics in .d.ts files never count)";
 
 const AUTHOR_FLAG_HELP =
   'Commit author, "Name <email>". Default: the "author" setting (b6p config set author "Name <email>"), ' +
@@ -64,23 +66,27 @@ Questions a push can ask (both default to the safe answer, which --yes and an em
 
 A push is a git commit of the draft folder, made by --author (the flag has the fallbacks). A script
 still on WebDAV is switched to git by its first push; the switch is one-way, and is reported.
---snapshot also publishes the draft commit; --message sets the commit message and implies --snapshot.
+The platform then builds the pushed commit (b6p bundles no compiler) and the draft folder is moved
+to its build commit. --snapshot also publishes the build; --message sets the commit message and
+implies --snapshot. A server that predates the git build gets the push alone (--verbose prints the
+route); a snapshot there prints "${SNAPSHOT_REFUSED_LINE}" and exits 1.
 
 Exit codes:
-  0  pushed (keeping platform-only files is still 0)
-  1  nothing pushed (pushed false: bad --root, empty draft, an overwrite not confirmed, a missing
-     author, an upload refused); on a snapshot also: no published commit (publishedSha null), the
-     platform refused or failed the publish (publishError), or the published branch reads back at
-     another commit (liveVerified false). Type errors only warn (exit 0) unless --fail-on-type-errors
+  0  pushed and built (kept platform-only files, a push to an older server, and an unclean build
+     on a plain push, which only warns, are still 0)
+  1  nothing pushed (bad --root, empty draft, an overwrite not confirmed, no author, an upload
+     refused); the server cannot take the snapshot; the build was not asked for, was refused
+     (buildErrorReason), its request failed, its outcome is unknown, or it ended in a status that does not publish; local files
+     block taking in the build; on a snapshot also: the publish was refused or failed, published
+     nothing, or reads back at another commit; --fail-on-type-errors with typeCheckErrors
 
---json prints one object on stdout:
-  { pushed, commitSha, publishedSha, publishError, publishRefusal, switchedToGit, typeCheckErrors,
-    typeCheckDiagnostics, liveVerified, liveMismatches, keptPlatformOnly, declinedOverwrites }
-  commitSha: the draft commit after the push. publishedSha: the commit published (snapshot only,
-  else null). publishError: why the publish failed, else null. publishRefusal: { reason, withheld } when the platform
-  refused because the build is missing, unreadable or stale (BUILD_STALE, BUILD_MANIFEST_MISSING,
-  BUILD_MANIFEST_INVALID): rebuild and push; else null. switchedToGit: this push moved the
-  script from WebDAV to git. A declined overwrite prints pushed: false with the files in
+--json prints one object on stdout: core's push result plus declinedOverwrites and error:
+  { pushed, commitSha, publishedSha, publishError, publishRefusal, switchedToGit, route,
+    snapshotRefused, build, buildCommitSha, buildVouched, buildError, buildErrorKind,
+    buildErrorReason, buildIncomplete, buildFastForward, typeCheckDiagnostics, typeCheckErrors,
+    liveVerified, liveMismatches, keptPlatformOnly, declinedOverwrites, error }
+  error is null on success, else { kind, message, howTo }: the same verdict as the exit code, and
+  the words printed on stderr. A declined overwrite prints pushed: false with the files in
   declinedOverwrites; a cancelled target-URL prompt prints { cancelled: true }. Questions, warnings
   and next steps go to stderr.
 `;
@@ -97,11 +103,6 @@ const addPush: Registrar = (parent, globals, hidden) =>
     .option("--enable-git", ENABLE_GIT_HELP)
     .option("--fail-on-type-errors", FAIL_ON_TYPE_ERRORS_HELP)
     .option(
-      "--externally-built",
-      "The script is built by a bundler outside b6p (its externallyBuilt flag on the platform): the push writes no " +
-        "build manifest and the platform skips its stale-build check"
-    )
-    .option(
       "--overwrite <path>",
       "Overwrite this file on the platform even though it changed there (repeatable; path as the question lists it)",
       (value: string, previous: string[] | undefined) => [...(previous ?? []), value]
@@ -117,7 +118,6 @@ const addPush: Registrar = (parent, globals, hidden) =>
           message?: string;
           author?: string;
           enableGit?: boolean;
-          externallyBuilt?: boolean;
           failOnTypeErrors?: boolean;
           overwrite?: string[];
         }
@@ -137,7 +137,6 @@ const addPush: Registrar = (parent, globals, hidden) =>
                   overwrite: opts.overwrite,
                   author,
                   enableGit: opts.enableGit,
-                  externallyBuilt: opts.externallyBuilt,
                 })
               : await core.script.push({
                   targetUrl,
@@ -147,19 +146,26 @@ const addPush: Registrar = (parent, globals, hidden) =>
                   overwrite: opts.overwrite,
                   author,
                   enableGit: opts.enableGit,
-                  externallyBuilt: opts.externallyBuilt,
                 });
             if (result === null) {
               // Cancelled at the target-URL prompt, which is not a failure.
               emitJson({ cancelled: true });
               return;
             }
-            const lines = describePush(result, isSnapshot);
+            const failOnTypeErrors = opts.failOnTypeErrors === true;
+            for (const line of routeVerboseLines(result)) {
+              logger.info(line);
+            }
+            // Core has printed what happened and why (its errors and warnings). The CLI's error line is added only
+            // when core said nothing, so a failed push prints one; the snapshot refusal's pinned line is always ours.
+            const problem = pushProblem(result, isSnapshot, failOnTypeErrors);
+            if (problem !== null && (problem.kind === "SNAPSHOT_REFUSED" || !hasFailed())) {
+              fail(problem.message);
+            }
+            const lines = describePush(result, isSnapshot, failOnTypeErrors);
             lines.info.forEach((line) => prompt.info(line));
-            lines.warnings.forEach((line) => prompt.warn(line));
-            lines.errors.forEach((line) => fail(line));
             lines.notices.forEach((line) => prompt.notice(line));
-            emitJson(toPushJson(result));
+            emitJson(toPushJson(result, isSnapshot, failOnTypeErrors));
             // Core's warning says which platform-only files were kept and why; how to delete them is ours.
             if (result.keptPlatformOnly.length > 0) {
               prompt.notice(
@@ -167,15 +173,9 @@ const addPush: Registrar = (parent, globals, hidden) =>
                   `again without --yes and answer Yes to the delete question:\n  ${deleteCommand(args, dialect)}`
               );
             }
-            // Core usually reports a failed push itself; the CLI adds its line only when it did not,
-            // so a failed push prints one error. The exit code below does not depend on it.
-            const notice = pushFailureNotice(result, hasFailed());
-            if (notice !== null) {
-              fail(notice);
-            }
-            // The rule for every outcome (live copy wrong, type-check diagnostics, ...) is in pushOutcome.ts.
+            // The rule for every outcome is pushProblem in pushOutcome.ts.
             // `exitCode` rather than `exit()` so an in-flight --json write still flushes.
-            if (pushExitCode(result, isSnapshot, opts.failOnTypeErrors === true) !== 0) {
+            if (pushExitCode(result, isSnapshot, failOnTypeErrors) !== 0) {
               process.exitCode = 1;
             }
           } catch (e) {
@@ -207,6 +207,26 @@ const addPush: Registrar = (parent, globals, hidden) =>
         });
       }
     );
+
+// TODO(script check): there is deliberately no `b6p script check`. The local type-check went with
+// the client-side compiler (docs/adr/0003): the platform builds every push, and a push's build
+// result (diagnostics, gate problems) is what tells you a script does not build. "The best way to do
+// this is obviously the dry-run endpoint but that is way too far afield" (campaign ruling 76): when
+// the platform offers a dry-run compile (compile the draft without saving or publishing), this is
+// where the command goes, as a verb beside push that prints the same diagnostics and exits non-zero
+// on the same statuses (src/pushOutcome.ts):
+//
+// const addCheck: Registrar = (parent, globals, hidden) =>
+//   parent
+//     .command("check", { hidden })
+//     .description("Dry-run the platform's compile of a script's draft, saving nothing")
+//     .option("--file <path>", "Derive the script from local file metadata")
+//     .option("--root <path>", "Script root folder")
+//     .action(async () => {
+//       // POST the draft to the dry-run endpoint, print its diagnostics, exit by pushProblem's rule.
+//     });
+//
+// Then add it to REGISTRARS below and to test/commandTree.test.ts.
 
 const addPull: Registrar = (parent, globals, hidden) =>
   parent
@@ -309,9 +329,10 @@ const addDeploy: Registrar = (parent, globals, hidden) =>
 Config file: { "sourceRootPath": "<script root>", "targets": [{ "url": "<formula url>", "snapshot": true }],
   "author": { "name": "Jane Doe", "email": "jane@example.com" }  (or "Jane Doe <jane@example.com>"; optional),
   "message": "<commit message for every target>" (optional),
-  "externallyBuilt": true  (optional: a bundler builds these scripts, so no build manifest is written),
   "failOnTypeErrors": true  (optional: type errors in the script's sources fail the deploy; same as --fail-on-type-errors) }
-Every target gets a git commit of the source draft; "snapshot": true also publishes it.
+Every target gets a git commit of the source draft, which its platform builds; "snapshot": true also
+publishes the build. Any other key (externallyBuilt included: the platform reads each script's own flag) is
+refused before anything is pushed.
 `
     )
     .action(async (configFile: string, opts: { author?: string; failOnTypeErrors?: boolean }) => {
@@ -335,9 +356,12 @@ Every target gets a git commit of the source draft; "snapshot": true also publis
             await fs.writeFile(configPath, plan.configText, "utf-8");
           }
           const results = await core.script.deploy({ configPath });
-          const outcome = describeDeploy(results, deployFailsOnTypeErrors(opts.failOnTypeErrors, text));
+          const outcome = describeDeploy(
+            results,
+            deployFailsOnTypeErrors(opts.failOnTypeErrors, text),
+            deploySnapshots(text)
+          );
           outcome.info.forEach((line) => prompt.info(line));
-          outcome.warnings.forEach((line) => prompt.warn(line));
           outcome.errors.forEach((line) => fail(line));
           outcome.notices.forEach((line) => prompt.notice(line));
           if (outcome.exitCode !== 0) {

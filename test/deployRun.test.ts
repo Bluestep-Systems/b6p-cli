@@ -3,7 +3,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import type { DeployTargetResult } from "@bluestep-systems/b6p-core";
-import { deployFailsOnTypeErrors, describeDeploy, planDeploy, removeTempDir } from "../src/deployRun";
+import {
+  deployConfigKeyProblem,
+  deployFailsOnTypeErrors,
+  deploySnapshots,
+  describeDeploy,
+  planDeploy,
+  removeTempDir,
+} from "../src/deployRun";
 
 const CONFIG = JSON.stringify({ sourceRootPath: "/no/such/script", targets: [{ url: "u", snapshot: true }] });
 const missing = (): Promise<unknown> =>
@@ -62,6 +69,13 @@ const OK: DeployTargetResult = {
   publishError: null,
   publishRefusal: null,
   switchedToGit: false,
+  buildCommitSha: "e".repeat(40),
+  buildVouched: true,
+  buildError: null,
+  buildErrorKind: null,
+  buildIncomplete: null,
+  buildFastForward: { state: "fast-forwarded", blockedPaths: [], error: null },
+  snapshotRefused: null,
   typeCheckDiagnostics: 0,
   typeCheckErrors: [],
 };
@@ -70,7 +84,7 @@ describe("describeDeploy", () => {
   it("is 0 when every target pushed and published, and lists the SHAs", () => {
     const out = describeDeploy([OK, { ...OK, target: "https://b/" }]);
     assert.strictEqual(out.exitCode, 0);
-    assert.match(out.info[0], /https:\/\/a\/: pushed c+, published d+/);
+    assert.match(out.info[0], /https:\/\/a\/: pushed c+, built e+, published d+/);
     assert.deepStrictEqual(out.errors, []);
   });
 
@@ -81,15 +95,33 @@ describe("describeDeploy", () => {
   });
 
   it("is 1 when a target's publish failed, though its draft was pushed", () => {
-    const out = describeDeploy([{ ...OK, publishedSha: null, publishError: "refused" }]);
+    const out = describeDeploy([{ ...OK, publishedSha: null, publishError: "refused" }], false, [true]);
     assert.strictEqual(out.exitCode, 1);
-    assert.match(out.errors[0], /not published: refused/);
+    assert.match(out.errors[0], /did not publish it: refused/);
   });
 
   it("is 1 when a target was not pushed", () => {
     const out = describeDeploy([{ ...OK, pushed: false, commitSha: null, publishedSha: null }]);
     assert.strictEqual(out.exitCode, 1);
-    assert.match(out.errors[0], /nothing was pushed/);
+    assert.match(out.errors[0], /Nothing was pushed/);
+  });
+
+  it("is 1 for a snapshot target that published nothing, and for each build failure, with how to go on", () => {
+    assert.strictEqual(describeDeploy([{ ...OK, publishedSha: null }], false, [true]).exitCode, 1);
+    const blocked = describeDeploy([
+      { ...OK, buildFastForward: { state: "blocked", blockedPaths: ["dist/app.js"], error: null } },
+    ]);
+    assert.strictEqual(blocked.exitCode, 1);
+    assert.match(blocked.notices[0], /^https:\/\/a\/: To go on: .*dist\/app\.js/s);
+    const incomplete = describeDeploy([{ ...OK, buildIncomplete: { status: "BUSY", rawStatus: "BUSY", description: "busy" } }]);
+    assert.strictEqual(incomplete.exitCode, 1);
+    const refused = describeDeploy(
+      [{ ...OK, publishedSha: null, snapshotRefused: { reason: "too-old", serverVersion: "1", required: "2" } }],
+      false,
+      [true]
+    );
+    assert.match(refused.errors[0], /cannot snapshot, only push saves/);
+    assert.strictEqual(describeDeploy([{ ...OK, buildError: "x", buildErrorKind: "request-failed" }]).exitCode, 1);
   });
 
   it("is 1 when core returned no results (bad config, already reported)", () => {
@@ -136,8 +168,8 @@ describe("type errors in a deploy", () => {
     ...OK,
     typeCheckDiagnostics: 2,
     typeCheckErrors: [
-      { file: "scripts/app.ts", line: 3, column: 5, code: 2345, message: "bad" },
-      { file: "scripts/x.ts", line: 1, column: 1, code: 2304, message: "no name" },
+      { file: "scripts/app.ts", line: 3, column: 5, code: 2345, message: "bad", severity: "WARNING" },
+      { file: "scripts/x.ts", line: 1, column: 1, code: 2304, message: "no name", severity: "WARNING" },
     ],
   };
 
@@ -149,15 +181,7 @@ describe("type errors in a deploy", () => {
   it("fail the deploy with failOnTypeErrors, naming the target", () => {
     const out = describeDeploy([OK, { ...withTypeErrors, target: "https://b/" }], true);
     assert.strictEqual(out.exitCode, 1);
-    assert.match(out.errors[0], /https:\/\/b\/: 2 type error/);
-  });
-
-  it("prints the type errors as warnings under the target, whatever the flag", () => {
-    for (const flag of [false, true]) {
-      const out = describeDeploy([withTypeErrors], flag);
-      assert.match(out.warnings[0], /^https:\/\/a\/: 2 type error\(s\)/);
-      assert.match(out.warnings[0], /scripts\/app\.ts\(3,5\): TS2345: bad/);
-    }
+    assert.match(out.errors[0], /https:\/\/b\/: .*2 diagnostic/);
   });
 
   it("a clean target is fine under failOnTypeErrors", () => {
@@ -173,5 +197,45 @@ describe("deployFailsOnTypeErrors", () => {
     assert.strictEqual(deployFailsOnTypeErrors(undefined, '{"failOnTypeErrors":"yes"}'), false);
     assert.strictEqual(deployFailsOnTypeErrors(undefined, "{not json"), false);
     assert.strictEqual(deployFailsOnTypeErrors(undefined, null), false);
+  });
+});
+
+describe("deploy config keys", () => {
+  const base = { sourceRootPath: "./s", targets: [{ url: "https://a/", snapshot: true }] };
+
+  it("accepts every known key", () => {
+    const full = { ...base, author: "Jane <j@x>", message: "m", enableGit: true, failOnTypeErrors: false };
+    assert.strictEqual(deployConfigKeyProblem(JSON.stringify(full)), null);
+  });
+
+  it("refuses externallyBuilt by name, saying it was removed and why", () => {
+    const msg = deployConfigKeyProblem(JSON.stringify({ ...base, externallyBuilt: false })) ?? "";
+    assert.match(msg, /"externallyBuilt"/);
+    assert.match(msg, /removed in 1\.0\.0/);
+    assert.match(msg, /Nothing was pushed/);
+  });
+
+  it("refuses any other unknown key, at the top level and in a target, the same way", () => {
+    const msg =
+      deployConfigKeyProblem(JSON.stringify({ ...base, snapshot: true, targets: [{ url: "u", snapshoot: true }] })) ?? "";
+    assert.match(msg, /"snapshot", "targets\[0\]\.snapshoot"/);
+    assert.doesNotMatch(msg, /externallyBuilt/);
+  });
+
+  it("leaves JSON that is not an object to core", () => {
+    assert.strictEqual(deployConfigKeyProblem("{not json"), null);
+    assert.strictEqual(deployConfigKeyProblem("[]"), null);
+  });
+
+  it("planDeploy fails before anything else on an unknown key", async () => {
+    const plan = await planDeploy(JSON.stringify({ ...base, externallyBuilt: true }), undefined, undefined, () =>
+      Promise.reject(new Error("must not be asked"))
+    );
+    assert.strictEqual(plan.ok, false);
+  });
+
+  it("deploySnapshots reads each target's snapshot flag", () => {
+    assert.deepStrictEqual(deploySnapshots(JSON.stringify({ targets: [{ snapshot: true }, {}] })), [true, false]);
+    assert.deepStrictEqual(deploySnapshots(null), []);
   });
 });

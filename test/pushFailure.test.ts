@@ -13,6 +13,15 @@ const GOOD: PushResult = {
   publishError: null,
   publishRefusal: null,
   switchedToGit: false,
+  route: null,
+  snapshotRefused: null,
+  build: null,
+  buildCommitSha: null,
+  buildVouched: null,
+  buildError: null,
+  buildErrorKind: null,
+  buildIncomplete: null,
+  buildFastForward: null,
   typeCheckDiagnostics: 0,
   typeCheckErrors: [],
   liveVerified: true,
@@ -24,7 +33,7 @@ const GOOD: PushResult = {
 async function attempt(push: () => Promise<PushResult | null>): Promise<{ json: unknown; exit: number }> {
   try {
     const result = await push();
-    return { json: result ? toPushJson(result) : { cancelled: true }, exit: pushExitCode(result, true) };
+    return { json: result ? toPushJson(result, true) : { cancelled: true }, exit: pushExitCode(result, true) };
   } catch (e) {
     const failure = pushFailureOf(e, ["push", "--file", "a.ts"], "posix");
     if (!failure) {
@@ -38,6 +47,7 @@ describe("pushFailureOf", () => {
   it("a declined overwrite lists the files, prints the retry command and reads as not pushed", () => {
     const f = pushFailureOf(new Err.OverwriteDeclinedError("declined", ["scripts/app.ts"]), ["push", "--yes"], "posix");
     assert.match(f?.notice ?? "", /b6p push --yes --overwrite scripts\/app\.ts/);
+    assert.strictEqual(f?.json.error?.kind, "OVERWRITE_DECLINED");
     assert.deepStrictEqual(f?.json.declinedOverwrites, ["scripts/app.ts"]);
     assert.strictEqual(f?.json.pushed, false);
   });
@@ -85,7 +95,7 @@ describe("two consecutive pushes, the first declined", () => {
     assert.strictEqual(first.exit, 1);
     assert.strictEqual((first.json as { pushed: boolean }).pushed, false);
     assert.strictEqual(second.exit, 0);
-    assert.deepStrictEqual(second.json, { ...GOOD, declinedOverwrites: [], publishRefusal: null });
+    assert.deepStrictEqual(second.json, { ...GOOD, declinedOverwrites: [], error: null });
     assert.strictEqual(calls, 2, "the CLI calls core again; it does not short-cut a retry");
   });
 
