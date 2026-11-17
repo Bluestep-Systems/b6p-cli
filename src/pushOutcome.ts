@@ -17,6 +17,7 @@ export type PushErrorKind =
   | "NOTHING_PUSHED"
   | "SNAPSHOT_REFUSED"
   | "BUILD_NOT_REQUESTED"
+  | "BUILD_REFUSED"
   | "BUILD_REQUEST_FAILED"
   | "BUILD_OUTCOME_UNKNOWN"
   | "BUILD_INCOMPLETE"
@@ -85,6 +86,7 @@ export type PushVerdictInput = Pick<
   | "snapshotRefused"
   | "buildError"
   | "buildErrorKind"
+  | "buildErrorReason"
   | "buildIncomplete"
   | "buildFastForward"
   | "buildCommitSha"
@@ -112,6 +114,19 @@ const INCOMPLETE_HOW_TO: Record<string, string> = {
   GATE_TRIPPED: "Fix the save-gate problems listed above, then push again.",
   EMIT_WITHHELD: "Fix the errors listed above, then push again.",
   UNKNOWN: "Update b6p (this version does not know that build status), then push again.",
+};
+
+/**
+ * What to do after the platform refused to build the pushed draft (`buildErrorKind: "refused"`), by its reason.
+ * Nothing was built; the push stands.
+ * @lastreviewed null
+ */
+const REFUSED_HOW_TO: Record<string, string> = {
+  DRAFT_MOVED: "The platform's draft moved after this push. Run `b6p script pull`, then `b6p script push` again.",
+  DRAFT_TOO_LARGE:
+    "The draft is over the platform's build size limit. Remove large files from the draft folder, then push again.",
+  REPO_MISSING: "The script's git repository is missing on the platform. Report it; pushing again will not help.",
+  DRAFT_BRANCH_MISSING: "The script's draft branch is missing on the platform. Report it; pushing again will not help.",
 };
 
 /**
@@ -186,17 +201,27 @@ export function pushProblem(
     };
   }
   if (result.buildError !== null) {
-    return result.buildErrorKind === "not-requested"
-      ? {
-          kind: "BUILD_NOT_REQUESTED",
-          message: `The draft was pushed, but no build was asked for: ${result.buildError}`,
-          howTo: "The platform's draft moved after this push. Run `b6p script pull`, then `b6p script push` again.",
-        }
-      : {
-          kind: "BUILD_REQUEST_FAILED",
-          message: `The draft was pushed, but the platform's build request failed: ${result.buildError}`,
-          howTo: "Run `b6p script push` again: if the build landed after all, the next push takes it in.",
-        };
+    if (result.buildErrorKind === "not-requested") {
+      return {
+        kind: "BUILD_NOT_REQUESTED",
+        message: `The draft was pushed, but no build was asked for: ${result.buildError}`,
+        howTo: "The platform's draft moved after this push. Run `b6p script pull`, then `b6p script push` again.",
+      };
+    }
+    if (result.buildErrorKind === "refused") {
+      return {
+        kind: "BUILD_REFUSED",
+        message: `The draft was pushed, but the platform refused to build it: ${result.buildError}`,
+        howTo:
+          (result.buildErrorReason !== null ? REFUSED_HOW_TO[result.buildErrorReason] : undefined) ??
+          "Update b6p (this version does not know why the build was refused), then push again.",
+      };
+    }
+    return {
+      kind: "BUILD_REQUEST_FAILED",
+      message: `The draft was pushed, but the platform's build request failed: ${result.buildError}`,
+      howTo: "Run `b6p script push` again: if the build landed after all, the next push takes it in.",
+    };
   }
   const incomplete = result.buildIncomplete;
   if (incomplete) {
@@ -408,6 +433,7 @@ export function declinedPushJson(error: PushErrorJson, paths: string[] = [], swi
     buildVouched: null,
     buildError: null,
     buildErrorKind: null,
+    buildErrorReason: null,
     buildIncomplete: null,
     buildFastForward: null,
     typeCheckDiagnostics: null,

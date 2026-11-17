@@ -52,7 +52,7 @@ builds exist to remove.
   dry-run compile endpoint on the platform would make a `check` verb possible; a commented-out stub in
   `src/commands/script.ts` marks where it goes.
 - `--json` is core 1.0's `PushResult` (with `route`, `snapshotRefused`, `build`, `buildCommitSha`, `buildVouched`,
-  `buildError`, `buildErrorKind`, `buildIncomplete`, `buildFastForward`) plus `declinedOverwrites` and `error`.
+  `buildError`, `buildErrorKind`, `buildErrorReason`, `buildIncomplete`, `buildFastForward`) plus `declinedOverwrites` and `error`.
   `typeCheckDiagnostics` is the platform's whole ERROR + WARNING count; `typeCheckErrors` lists those in the
   script's own sources.
 - A snapshot push against a server below the floor fails until that server is upgraded.

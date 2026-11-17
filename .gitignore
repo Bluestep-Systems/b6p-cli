@@ -15,4 +15,3 @@ b6p-linux-*
 /DONE.md
 .claude/quick-tasks/
 .claude/specs/
-!vendor/*.tgz

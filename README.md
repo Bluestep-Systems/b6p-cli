@@ -252,7 +252,7 @@ build is waiting on a platform endpoint).
 | The user cancelled at the target-URL prompt | `0` |
 | Nothing was pushed (`pushed: false`): bad `--root`, empty draft, an overwrite not confirmed, no commit author, an upload refused | `1` |
 | Snapshot, and the server cannot take one (`snapshotRefused`) | `1` |
-| The build was not asked for (`buildErrorKind: "not-requested"`: the platform's draft moved) or its request failed (`buildError`) | `1` |
+| The build was not asked for (`buildErrorKind: "not-requested"`: the platform's draft moved), was refused (`"refused"`, with `buildErrorReason`) or its request failed (`buildError`) | `1` |
 | The build ended in a status that does not publish, or its outcome is unknown (`buildIncomplete`) | `1` |
 | Local files block moving the draft folder to the build commit, or the move failed (`buildFastForward.state` `blocked` / `failed`) | `1` |
 | Snapshot, and the publish was refused or failed (`publishError`), published nothing (`publishedSha: null`), or reads back at another commit (`liveVerified: false`) | `1` |
@@ -284,6 +284,7 @@ plus `declinedOverwrites` and `error`.
   "buildVouched": true,
   "buildError": null,
   "buildErrorKind": null,
+  "buildErrorReason": null,
   "buildIncomplete": null,
   "buildFastForward": { "state": "fast-forwarded", "blockedPaths": [], "error": null },
   "typeCheckDiagnostics": 0,
@@ -300,7 +301,8 @@ plus `declinedOverwrites` and `error`.
   build commit after it, `null` when it made none. `publishedSha`: the commit published (snapshot only).
 - `route` / `snapshotRefused`: which route the push took, and why a snapshot was refused (`too-old`,
   `unknown`, `floor-unset`, with the versions).
-- `build`, `buildVouched`, `buildError` / `buildErrorKind`, `buildIncomplete` (`{ status, rawStatus, description }`)
+- `build`, `buildVouched`, `buildError` / `buildErrorKind` / `buildErrorReason` (`DRAFT_MOVED`, `DRAFT_TOO_LARGE`,
+  `REPO_MISSING`, `DRAFT_BRANCH_MISSING` when the platform refused the build), `buildIncomplete` (`{ status, rawStatus, description }`)
   and `buildFastForward` (`{ state, blockedPaths, error }`): what the platform's build came to.
 - `publishRefusal`: `{ "reason", "withheld" }`, straight from the platform, when it refused the publish
   (`BUILD_STALE`, `BUILD_MANIFEST_MISSING`, `BUILD_MANIFEST_INVALID`, `DRAFT_MOVED`, ...).
@@ -308,7 +310,7 @@ plus `declinedOverwrites` and `error`.
   script's own sources (`{ file, line, column, code, message, severity }`, at most 20); `.d.ts` diagnostics are
   never included.
 - `error`: `null` when the push succeeded, else `{ "kind", "message", "howTo" }`, the same verdict as the exit
-  code. `kind` is one of `NOTHING_PUSHED`, `SNAPSHOT_REFUSED`, `BUILD_NOT_REQUESTED`, `BUILD_REQUEST_FAILED`,
+  code. `kind` is one of `NOTHING_PUSHED`, `SNAPSHOT_REFUSED`, `BUILD_NOT_REQUESTED`, `BUILD_REFUSED`, `BUILD_REQUEST_FAILED`,
   `BUILD_OUTCOME_UNKNOWN`, `BUILD_INCOMPLETE`, `BUILD_BLOCKED`, `BUILD_TAKE_IN_FAILED`, `PUBLISH_REFUSED`,
   `PUBLISH_FAILED`, `NOT_PUBLISHED`, `LIVE_MISMATCH`, `TYPE_ERRORS`, `OVERWRITE_DECLINED`, `NO_AUTHOR`,
   `AUTHOR_INVALID`, `GIT_REFUSED`.
