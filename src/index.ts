@@ -2,7 +2,7 @@ import { Command } from "commander";
 import * as path from "path";
 import * as fs from "fs/promises";
 import * as os from "os";
-import { B6PCore, Err } from "@bluestep-systems/b6p-core";
+import { B6PCore, resolveGitIdentity } from "@bluestep-systems/b6p-core";
 import { SharedFilePersistence } from "@bluestep-systems/b6p-core";
 import { NodeFileSystem } from "./providers/NodeFileSystem";
 import { CliPrompt } from "./providers/CliPrompt";
@@ -12,13 +12,36 @@ import { Spinner } from "./providers/Spinner";
 import { WindowsRestartManagerLockDiagnoser } from "./lockDiagnoser/WindowsRestartManagerLockDiagnoser";
 import { resolveTsLibDirs } from "./tsLibs";
 import {
-  declinedPushJson,
   deleteCommand,
+  describePush,
   detectShellDialect,
-  overwriteCommand,
   pushExitCode,
+  SWITCHED_TO_GIT_NOTICE,
   toPushJson,
 } from "./pushOutcome";
+import { describeGitError } from "./gitErrors";
+import { pushFailureOf } from "./pushFailure";
+import { deployFailsOnTypeErrors, describeDeploy, planDeploy, removeTempDir } from "./deployRun";
+import { AUTHOR_SETTING, chooseAuthor, type CommitAuthor } from "./author";
+
+const ENABLE_GIT_HELP =
+  "Switch a script that still publishes over WebDAV to git without asking. The switch is one-way. " +
+  "Without this flag the switch is asked about first, and --yes (or an empty answer) declines it";
+
+const FAIL_ON_TYPE_ERRORS_HELP =
+  "Exit 1 when type-checking reports errors in the script's own sources. Default: they are printed as warnings " +
+  "and the exit code stays 0 (errors in .d.ts files never count). Syntax and emit errors always exit 1";
+
+const AUTHOR_FLAG_HELP =
+  'Commit author, "Name <email>". Default: the "author" setting (b6p config set author "Name <email>"), ' +
+  "then git config user.name/user.email for the script folder, then GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL";
+
+/**
+ * The author the CLI chose for this run (`--author`, else the stored setting); `undefined` leaves it to core.
+ */
+async function chosenAuthor(core: B6PCore, flag: string | undefined): Promise<CommitAuthor | undefined> {
+  return chooseAuthor(flag, await core.getConfig<unknown>(AUTHOR_SETTING));
+}
 
 // Replaced at build time by esbuild's `define` with the package.json version.
 declare const __B6P_VERSION__: string;
@@ -144,25 +167,44 @@ Questions a push can ask (both default to the safe answer, which --yes and an em
     printf 'Overwrite all\\nYes\\n' | b6p push --file <path>
     'Overwrite all', 'Yes' | b6p push --file <path>        (PowerShell)
 
+A push is a git commit of the draft folder, made by --author (the flag has the fallbacks). A script
+still on WebDAV is switched to git by its first push; the switch is one-way, and is reported.
+--snapshot also publishes the draft commit; --message sets the commit message and implies --snapshot.
+
 Exit codes:
   0  pushed (keeping platform-only files is still 0)
-  1  nothing uploaded; an overwrite not confirmed; an upload refused; on a snapshot, a live copy
-     still wrong after one re-send, no history entry recorded, or type-check diagnostics
+  1  nothing pushed (pushed false: bad --root, empty draft, an overwrite not confirmed, a missing
+     author, an upload refused); on a snapshot also: no published commit (publishedSha null), the
+     platform refused or failed the publish (publishError), or the published branch reads back at
+     another commit (liveVerified false). Type errors only warn (exit 0) unless --fail-on-type-errors
 
 --json prints one object on stdout:
-  { pushed, historyRecorded, typeCheckDiagnostics, liveVerified, liveMismatches,
-    keptPlatformOnly, declinedOverwrites }
-  A declined overwrite prints pushed: false with the files in declinedOverwrites; a cancelled
-  target-URL prompt prints { cancelled: true }. Questions, warnings and next steps go to stderr.
+  { pushed, commitSha, publishedSha, publishError, publishRefusal, switchedToGit, typeCheckErrors,
+    typeCheckDiagnostics, liveVerified, liveMismatches, keptPlatformOnly, declinedOverwrites }
+  commitSha: the draft commit after the push. publishedSha: the commit published (snapshot only,
+  else null). publishError: why the publish failed, else null. publishRefusal: { reason, withheld } when the platform
+  refused because the build is missing, unreadable or stale (BUILD_STALE, BUILD_MANIFEST_MISSING,
+  BUILD_MANIFEST_INVALID): rebuild and push; else null. switchedToGit: this push moved the
+  script from WebDAV to git. A declined overwrite prints pushed: false with the files in
+  declinedOverwrites; a cancelled target-URL prompt prints { cancelled: true }. Questions, warnings
+  and next steps go to stderr.
 `;
 
 program
   .command("push [target-url]")
-  .description("Push a script to a WebDAV target")
+  .description("Push a script: commit its draft folder to the script's git repo (and publish it with --snapshot)")
   .option("--file <path>", "Derive target from local file metadata")
   .option("--root <path>", "Script root folder")
   .option("--snapshot", "Push as snapshot")
-  .option("--message <text>", "Commit message for snapshot history (implies --snapshot)")
+  .option("--message <text>", "Commit message (implies --snapshot)")
+  .option("--author <name-and-email>", AUTHOR_FLAG_HELP)
+  .option("--enable-git", ENABLE_GIT_HELP)
+  .option("--fail-on-type-errors", FAIL_ON_TYPE_ERRORS_HELP)
+  .option(
+    "--externally-built",
+    "The script is built by a bundler outside b6p (its externallyBuilt flag on the platform): the push writes no " +
+      "build manifest and the platform skips its stale-build check"
+  )
   .option(
     "--overwrite <path>",
     "Overwrite this file on the platform even though it changed there (repeatable; path as the question lists it)",
@@ -172,7 +214,17 @@ program
   .action(
     async (
       targetUrl: string | undefined,
-      opts: { file?: string; root?: string; snapshot?: boolean; message?: string; overwrite?: string[] }
+      opts: {
+        file?: string;
+        root?: string;
+        snapshot?: boolean;
+        message?: string;
+        author?: string;
+        enableGit?: boolean;
+        externallyBuilt?: boolean;
+        failOnTypeErrors?: boolean;
+        overwrite?: string[];
+      }
     ) => {
       const globalOpts = program.opts();
       const { core, prompt, logger, spinner } = await createCore(globalOpts);
@@ -181,12 +233,16 @@ program
       const args = process.argv.slice(2);
       const dialect = detectShellDialect();
       try {
+        const author = await chosenAuthor(core, opts.author);
         const result = opts.file
           ? await core.script.pushCurrent({
               filePath: resolve(opts.file),
               snapshot: isSnapshot,
               message: opts.message,
               overwrite: opts.overwrite,
+              author,
+              enableGit: opts.enableGit,
+              externallyBuilt: opts.externallyBuilt,
             })
           : await core.script.push({
               targetUrl,
@@ -194,7 +250,17 @@ program
               snapshot: isSnapshot,
               message: opts.message,
               overwrite: opts.overwrite,
+              author,
+              enableGit: opts.enableGit,
+              externallyBuilt: opts.externallyBuilt,
             });
+        if (result) {
+          const lines = describePush(result, isSnapshot);
+          lines.info.forEach((line) => prompt.info(line));
+          lines.warnings.forEach((line) => prompt.warn(line));
+          lines.errors.forEach((line) => prompt.error(line));
+          lines.notices.forEach((line) => prompt.notice(line));
+        }
         if (globalOpts.json) {
           process.stdout.write(JSON.stringify(result ? toPushJson(result) : { cancelled: true }, null, 2) + "\n");
         }
@@ -207,20 +273,23 @@ program
         }
         // `exitCode` rather than `exit()` so an in-flight --json write still flushes.
         // The rule itself, and why each case fails or not, is in pushOutcome.ts.
-        if (pushExitCode(result) !== 0) {
+        if (pushExitCode(result, isSnapshot, opts.failOnTypeErrors === true) !== 0) {
           process.exitCode = 1;
         }
       } catch (e) {
-        // Nothing was uploaded. Core's message says which files and why; how to confirm them is ours.
-        if (e instanceof Err.OverwriteDeclinedError) {
+        // No author, a git refusal, or a declined overwrite: nothing was committed. Say what to do.
+        const failure = pushFailureOf(e, args, dialect);
+        if (failure) {
           spinner.stop();
-          prompt.error(e.message);
-          prompt.notice(
-            `After checking ${e.paths.length === 1 ? "it" : "them"}, overwrite ${e.paths.length === 1 ? "it" : "them"} ` +
-              `with your local ${e.paths.length === 1 ? "file" : "files"} with:\n  ${overwriteCommand(args, e.paths, dialect)}`
-          );
+          prompt.error(failure.message);
+          if (failure.notice) {
+            prompt.notice(failure.notice);
+          }
+          if (failure.switchedToGit) {
+            prompt.notice(SWITCHED_TO_GIT_NOTICE);
+          }
           if (globalOpts.json) {
-            process.stdout.write(JSON.stringify(declinedPushJson(e.paths), null, 2) + "\n");
+            process.stdout.write(JSON.stringify(failure.json, null, 2) + "\n");
           }
           process.exitCode = 1;
           return;
@@ -245,10 +314,11 @@ program
 
 program
   .command("pull [formula-url]")
-  .description("Pull a script from a WebDAV location")
+  .description("Pull a script's draft (git clone, or fast-forward of an existing clone) into the workspace")
   .option("--file <path>", "Derive source from local file metadata")
   .option("--workspace <path>", "Target workspace folder (default: cwd)")
-  .action(async (formulaUrl: string | undefined, opts: { file?: string; workspace?: string }) => {
+  .option("--enable-git", ENABLE_GIT_HELP)
+  .action(async (formulaUrl: string | undefined, opts: { file?: string; workspace?: string; enableGit?: boolean }) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
     try {
@@ -261,12 +331,19 @@ program
         const workspacePath = opts.workspace
           ? resolve(opts.workspace)
           : (core.script.deriveWorkspacePath(filePath) ?? process.cwd());
-        result = await core.script.pullCurrent({ filePath, workspacePath });
+        result = await core.script.pullCurrent({ filePath, workspacePath, enableGit: opts.enableGit });
       } else {
         result = await core.script.pull({
           formulaUrl,
           workspacePath: resolve(opts.workspace || "."),
+          enableGit: opts.enableGit,
         });
+      }
+      if (result?.switchedToGit) {
+        prompt.notice(
+          "This script was switched from WebDAV to git publishing. The switch is one-way: its draft and " +
+            "snapshot no longer accept WebDAV writes."
+        );
       }
       if (globalOpts.json) {
         process.stdout.write(JSON.stringify(result ?? { cancelled: true }, null, 2) + "\n");
@@ -276,6 +353,21 @@ program
       // would make every pull in a tree with local edits exit non-zero forever.
       // The outcome reaches machines through --json and humans through the
       // warning core prints.
+    } catch (e) {
+      // Staged changes or a symlink in the way: nothing was changed. Say what to do.
+      const gitMessage = describeGitError(e);
+      if (gitMessage === undefined) {
+        throw e;
+      }
+      spinner.stop();
+      prompt.error(gitMessage);
+      if ((e as { switchedToGit?: unknown }).switchedToGit === true) {
+        prompt.notice(SWITCHED_TO_GIT_NOTICE);
+      }
+      if (globalOpts.json) {
+        process.stdout.write(JSON.stringify({ cancelled: true }, null, 2) + "\n");
+      }
+      process.exitCode = 1;
     } finally {
       spinner.stop();
       prompt.close();
@@ -317,11 +409,63 @@ program
 program
   .command("deploy <config-file>")
   .description("Quick deploy from a config file to multiple targets")
-  .action(async (configFile: string) => {
+  .option(
+    "--author <name-and-email>",
+    AUTHOR_FLAG_HELP + '. The config file\'s own "author" is used when this is not given'
+  )
+  .option("--fail-on-type-errors", FAIL_ON_TYPE_ERRORS_HELP)
+  .addHelpText(
+    "after",
+    `
+Config file: { "sourceRootPath": "<script root>", "targets": [{ "url": "<formula url>", "snapshot": true }],
+  "author": { "name": "Jane Doe", "email": "jane@example.com" }  (or "Jane Doe <jane@example.com>"; optional),
+  "message": "<commit message for every target>" (optional),
+  "externallyBuilt": true  (optional: a bundler builds these scripts, so no build manifest is written),
+  "failOnTypeErrors": true  (optional: type errors in the script's sources fail the deploy; same as --fail-on-type-errors) }
+Every target gets a git commit of the source draft; "snapshot": true also publishes it.
+`
+  )
+  .action(async (configFile: string, opts: { author?: string; failOnTypeErrors?: boolean }) => {
     const globalOpts = program.opts();
     const { core, prompt, spinner } = await createCore(globalOpts);
     try {
-      await core.script.deploy({ configPath: resolve(configFile) });
+      const original = resolve(configFile);
+      const text = await fs.readFile(original, "utf-8").catch(() => null);
+      const plan = await planDeploy(text, opts.author, await core.getConfig<unknown>(AUTHOR_SETTING), (dir) =>
+        resolveGitIdentity({ dir })
+      );
+      if (!plan.ok) {
+        prompt.error(plan.message);
+        process.exitCode = 1;
+        return;
+      }
+      let tempDir: string | undefined;
+      try {
+        let configPath = original;
+        if (plan.configText !== null) {
+          // Core reads the author from the config file, so hand it a copy that carries the chosen one.
+          tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "b6p-deploy-"));
+          configPath = path.join(tempDir, "deploy.json");
+          await fs.writeFile(configPath, plan.configText, "utf-8");
+        }
+        const results = await core.script.deploy({ configPath });
+        const outcome = describeDeploy(results, deployFailsOnTypeErrors(opts.failOnTypeErrors, text));
+        outcome.info.forEach((line) => prompt.info(line));
+        outcome.warnings.forEach((line) => prompt.warn(line));
+        outcome.errors.forEach((line) => prompt.error(line));
+        outcome.notices.forEach((line) => prompt.notice(line));
+        if (outcome.exitCode !== 0) {
+          process.exitCode = 1;
+        }
+      } finally {
+        if (tempDir) {
+          await removeTempDir(
+            tempDir,
+            (dir) => fs.rm(dir, { recursive: true, force: true }),
+            (message) => prompt.warn(message)
+          );
+        }
+      }
     } finally {
       spinner.stop();
       prompt.close();

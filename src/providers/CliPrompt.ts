@@ -384,7 +384,14 @@ export class CliPrompt implements Prompt {
     this.pauser?.resume();
   }
 
+  /**
+   * How many times {@link error} has been called.
+   * @lastreviewed null
+   */
+  errorCount = 0;
+
   error(message: string): void {
+    this.errorCount += 1;
     this.pauser?.pause();
     this.output.write(`ERROR: ${message}\n`);
     this.pauser?.resume();
