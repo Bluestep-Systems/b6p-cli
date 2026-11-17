@@ -59,7 +59,16 @@ test("the advertised top level is exactly the documented set", () => {
   // subsystems; they are the acknowledged exceptions to the noun rule (see
   // AGENTS.md). Pinning the whole list means adding anything new is a deliberate
   // decision rather than a drift.
-  assert.deepEqual(visibleTopLevel(), ["script", "auth", "sessions", "config", "report", "check-updates"]);
+  assert.deepEqual(visibleTopLevel(), [
+    "script",
+    "auth",
+    "kb",
+    "marketplace",
+    "sessions",
+    "config",
+    "report",
+    "check-updates",
+  ]);
 });
 
 test("script owns every script-tree verb", () => {
@@ -115,6 +124,15 @@ test("auth exposes a non-prompting status verb", () => {
   const auth = child(program(), "auth");
   assert.deepEqual(
     auth.commands.map((c) => c.name()).filter((n) => n !== "help"),
-    ["set", "status", "clear"]
+    ["set", "status", "clear", "token"]
   );
+});
+
+test("kb, marketplace and auth token own their gateway verbs", () => {
+  const names = (c: Command) => c.commands.map((x) => x.name()).filter((n) => n !== "help");
+  const root = program();
+  assert.deepEqual(names(child(root, "kb")), ["list", "pull", "push"]);
+  assert.deepEqual(names(child(root, "marketplace")), ["list", "pull"]);
+  assert.deepEqual(names(child(child(root, "auth"), "token")), ["list", "create", "revoke", "rotate"]);
+  assert.ok(!root.commands.some((c) => c.name() === "token"), "token commands live under `auth`, not at the top");
 });
