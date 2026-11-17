@@ -151,6 +151,28 @@ base moved on, pull first. Pushing needs push rights on that knowledge base as w
 
 A plain working clone, unrelated to any script. There is no push.
 
+### `b6p schema` — declarative schema manifests
+
+Super users only; every command takes `--org <url>` (any URL on the org). Manifests are local YAML files.
+
+| Command | Purpose |
+|---|---|
+| `b6p schema generate <id...> --org <url> [--portable] [--no-closure] [-o FILE]` | Write the manifest describing the named objects as they stand now (YAML to stdout, or FILE) |
+| `b6p schema recipe <NAME> --org <url> [-o FILE]` | Run a recipe (`LINK_VIEW_GRANTS`): the manifest goes to FILE or stdout, the findings to stderr |
+| `b6p schema test <FILE> --org <url> [--verbose]` | Dry run: the gate verdict, refusals, and the plan (counts by action, then each action that changes something with its deltas `from → to`, and warnings). Nothing is written; the key is never printed |
+| `b6p schema apply <FILE> --org <url> [--yes] [--verbose]` | Test, show the plan, ask, then apply exactly the manifest that was tested |
+
+`apply` asks `Apply this plan?` (default No). Here `--yes` means yes, unlike `script push`; without `--yes` and without
+a terminal (or piped `Yes`) it ends with `NonInteractiveInputError` and applies nothing. A plan that did not pass, or
+changes nothing, is never asked about. `--verbose` also warns when two objects of one kind share a display name.
+A `STALE` or `KEY_INVALID` refusal means the org changed or the key (ten minutes, one use) is spent: re-run `apply`.
+
+Exit codes: `generate`, `recipe` 0 done, 1 failed. `test` 0 the gate passed (a plan with no changes included), 1 it
+did not. `apply` 0 applied or nothing to change, 1 the gate did not pass or the server did not apply, 2 declined at
+the prompt. `--json`: `generate` `{ manifest, file }`; `recipe` `{ manifest, findings, file }`; `test` core's
+result plus `error` (the `schemaMutationKey` is in it); `apply` `{ test, declined, apply, error }`. `error` is
+`null` on success, else `{ kind, message, howTo }`.
+
 ### Gateway token scopes
 
 `kb` and `marketplace` talk to the BlueStep gateway (`gatewayUrl`, default `https://gateway.bluestep.net`;

@@ -84,6 +84,10 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
 - **A deploy config with an unknown key is refused by name** before anything is pushed
   (`deployConfigKeyProblem` in [src/deployRun.ts](src/deployRun.ts)), at the top level and in each
   target. Adding a config key means adding it to `DEPLOY_CONFIG_KEYS` / `DEPLOY_TARGET_KEYS`.
+- **`b6p schema`'s exit codes, `--json` bodies and plan text come from [src/schemaOutcome.ts](src/schemaOutcome.ts)**, pure
+  and tested, like push. One shape per command family (`test` = core's `SchemaTestResult` + `error`; `apply` = `{ test,
+  declined, apply, error }`). Exit `2` is a decline at the prompt; `apply --yes` means yes (not the default answer);
+  the key is in `--json` and never in human output.
 
 ## Commands
 

@@ -63,6 +63,7 @@ test("the advertised top level is exactly the documented set", () => {
     "script",
     "auth",
     "kb",
+    "schema",
     "marketplace",
     "sessions",
     "config",
@@ -135,4 +136,14 @@ test("kb, marketplace and auth token own their gateway verbs", () => {
   assert.deepEqual(names(child(root, "marketplace")), ["list", "pull"]);
   assert.deepEqual(names(child(child(root, "auth"), "token")), ["list", "create", "revoke", "rotate"]);
   assert.ok(!root.commands.some((c) => c.name() === "token"), "token commands live under `auth`, not at the top");
+});
+
+test("schema is a top-level noun with generate, recipe, test and apply, each needing --org", () => {
+  assert.ok(visibleTopLevel().includes("schema"));
+  const schema = child(program(), "schema");
+  assert.deepEqual(schema.commands.map((c) => c.name()).sort(), ["apply", "generate", "recipe", "test"]);
+  for (const verb of schema.commands) {
+    const org = verb.options.find((o) => o.long === "--org");
+    assert.ok(org?.mandatory, `schema ${verb.name()} should require --org`);
+  }
 });
