@@ -285,3 +285,18 @@ test("a closed stdout pipe keeps a failure exit code and otherwise exits 0", () 
   assert.equal(exitCodeOnEpipe(undefined), EXIT_SUCCESS);
   assert.equal(exitCodeOnEpipe(0), EXIT_SUCCESS);
 });
+
+test("`script push --help` documents the snapshot refusal, the exit codes and the --json shape", () => {
+  const help = runCli(["script", "push", "--help"]).stdout;
+  assert.match(help, /cannot snapshot, only push saves/);
+  assert.match(help, /the build was not asked for, its request\s+failed, its outcome is unknown/);
+  assert.match(help, /snapshotRefused, build, buildCommitSha, buildVouched, buildError, buildErrorKind,/);
+  assert.match(help, /error is null on success, else \{ kind, message, howTo \}/);
+  assert.doesNotMatch(help, /externally-built/);
+});
+
+test("--externally-built is gone (1.0.0): an unknown option, exit 1", () => {
+  const r = runCli(["script", "push", "--externally-built"]);
+  assert.strictEqual(r.status, 1);
+  assert.match(r.stderr, /unknown option '--externally-built'/);
+});

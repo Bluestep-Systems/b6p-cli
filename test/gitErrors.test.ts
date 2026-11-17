@@ -2,6 +2,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import {
+  bsjsGit,
   GitStagedChangesError,
   GitSwitchDeclinedError,
   GitSymlinkError,
@@ -35,6 +36,14 @@ describe("describeGitError", () => {
     assert.match(text, /symbolic link/);
     assert.match(text, /lib\/x\.ts\nlib\/y\.ts/);
     assert.match(text, /nothing was changed/);
+  });
+
+  it("GitBuildFastForwardBlockedError: lists the files and says to move them, then push again", () => {
+    const msg = describeGitError(new bsjsGit.GitBuildFastForwardBlockedError("c".repeat(40), ["dist/app.js"])) ?? "";
+    assert.match(msg, /Nothing was changed/);
+    assert.match(msg, /To go on: Move or delete/);
+    assert.match(msg, /dist\/app\.js/);
+    assert.match(msg, /b6p script push/);
   });
 
   it("ignores every other error", () => {

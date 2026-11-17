@@ -40,20 +40,25 @@ export function describePublishRefusal(refusal: PublishRefusal): string {
       return (
         "The draft was pushed but not published: its compiled output is older than its sources" +
         `${refusal.withheld.length > 0 ? " (these files changed after the build)" : ""}.${paths}\n` +
-        "Rebuild and push again."
+        "Run `b6p script push --snapshot` again: the platform rebuilds the draft on every push."
       );
     case "BUILD_MANIFEST_MISSING":
       return (
         "The draft was pushed but not published: it has TypeScript sources but no build manifest" +
         `${refusal.withheld.length > 0 ? ` (expected at ${refusal.withheld[0]})` : ""}.\n` +
-        "Rebuild and push again (a push builds the script and writes the manifest). If a bundler outside b6p builds " +
-        "this script, push with --externally-built."
+        "The platform writes the manifest only after a clean build: fix the build's ERROR diagnostics and run " +
+        "`b6p script push --snapshot` again. A script built outside b6p needs its externallyBuilt flag set on the platform."
       );
     case "BUILD_MANIFEST_INVALID":
       return (
         "The draft was pushed but not published: its build manifest cannot be read" +
         `${refusal.withheld.length > 0 ? ` (${refusal.withheld[0]})` : ""}.\n` +
-        "Rebuild and push again to write a fresh one."
+        "Run `b6p script push --snapshot` again: the platform rebuilds the draft and writes a fresh one."
+      );
+    case "DRAFT_MOVED":
+      return (
+        "The draft was pushed but not published: the platform's draft moved before the publish.\n" +
+        "Run `b6p script pull`, then `b6p script push --snapshot` again."
       );
     default:
       return `The draft was pushed but the platform refused to publish it (${refusal.reason})${paths}`;

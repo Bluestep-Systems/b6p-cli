@@ -1,11 +1,13 @@
 // The git-mode errors core throws from push and pull, as CLI messages that say what to do next.
 
 import {
+  bsjsGit,
   GitStagedChangesError,
   GitSwitchDeclinedError,
   GitSymlinkError,
   GitWrongBranchError,
 } from "@bluestep-systems/b6p-core";
+import { blockedHowTo } from "./pushOutcome";
 
 /**
  * Text for stderr when `e` is one of core's git-mode refusals, or `undefined` for any other error.
@@ -39,6 +41,9 @@ export function describeGitError(e: unknown): string | undefined {
       "Commit them (git -C <script>/draft commit), or unstage them (git -C <script>/draft restore --staged .) " +
       "after saving what you need, then pull again."
     );
+  }
+  if (e instanceof bsjsGit.GitBuildFastForwardBlockedError) {
+    return `${e.message}. Nothing was changed.\nTo go on: ${blockedHowTo(e.paths)}`;
   }
   if (e instanceof GitSymlinkError) {
     return (

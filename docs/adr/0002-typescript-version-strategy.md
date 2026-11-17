@@ -1,6 +1,7 @@
 # ADR 0002 — TypeScript version strategy: stay on 5.9.2 until the compiler can run in-process
 
-Status: accepted (2026-08-21). Supersedes the TypeScript 7 upgrade that shipped in `b6p-cli` 0.6.0
+Status: **superseded by [ADR 0003](0003-server-side-compile.md)** (2026-11-09); accepted 2026-08-21.
+Supersedes the TypeScript 7 upgrade that shipped in `b6p-cli` 0.6.0
 and `b6p-core` 0.6.0.
 
 ## Context
