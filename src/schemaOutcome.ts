@@ -27,21 +27,35 @@ export const SUPER_ONLY_LINE = "The schema commands are reserved to super users,
 export const EXIT_DECLINED = 2;
 
 /**
- * Why a `test` or `apply` is reported as not having gone through, as a machine-readable tag in `--json`'s
+ * Why a schema command is reported as not having gone through, as a machine-readable tag in `--json`'s
  * `error.kind`. Stable: a consumer branches on it.
  * @lastreviewed null
  */
 export type SchemaErrorKind =
-  /** The gate did not pass: the manifest was refused, or a plan element is a CONFLICT. */
+  /** The gate did not pass: the manifest was refused, or a plan element is a CONFLICT. @lastreviewed null */
   | "GATE_FAILED"
-  /** The test was refused before the manifest was read (the schema history is unavailable). */
+  /** The test was refused before the manifest was read (the schema history is unavailable). @lastreviewed null */
   | "TEST_REFUSED"
-  /** The gate passed and the caller said yes, but the server did not apply the plan. */
+  /** The gate passed and the caller said yes, but the server did not apply the plan. @lastreviewed null */
   | "NOT_APPLIED"
-  /** The gate passed and the caller answered no at the prompt. */
+  /** The gate passed and the caller answered no at the prompt. @lastreviewed null */
   | "DECLINED"
-  /** The account is not a super user. */
-  | "SUPER_ONLY";
+  /** The account is not a super user. @lastreviewed null */
+  | "SUPER_ONLY"
+  /** The org's server predates the schema apply feature, or an argument of it. @lastreviewed null */
+  | "SERVER_TOO_OLD"
+  /** `--u` named an org the U cache and BlueHQ do not know. @lastreviewed null */
+  | "ORG_UNKNOWN"
+  /** `--u` could not be looked up (BlueHQ or the network failed): not the same as unknown. @lastreviewed null */
+  | "ORG_LOOKUP_FAILED"
+  /** The recipe name is not one this version knows. @lastreviewed null */
+  | "UNKNOWN_RECIPE"
+  /** The manifest file could not be read. @lastreviewed null */
+  | "MANIFEST_UNREADABLE"
+  /** `-o` named a file that exists, and its overwrite was not confirmed. @lastreviewed null */
+  | "OUTPUT_EXISTS"
+  /** The apply was sent and the connection failed before its answer: the manifest may or may not have been applied. @lastreviewed null */
+  | "APPLY_OUTCOME_UNKNOWN";
 
 /**
  * `--json`'s `error` of a schema command: why it is reported as failed (`kind`), what happened (`message`) and what
@@ -58,11 +72,18 @@ export interface SchemaErrorJson {
 }
 
 /**
- * What `b6p schema test --json` prints: core's {@link SchemaTestResult} (the `schemaMutationKey` included; human
- * output never prints it) and the CLI's verdict. One shape for every outcome.
+ * A {@link SchemaTestResult} as `--json` shows it: without `schemaMutationKey`, the one-use key that authorizes an
+ * apply. `apply` mints its own, so nothing a caller reads needs it.
  * @lastreviewed null
  */
-export type SchemaTestJson = SchemaTestResult & {
+export type SchemaTestView = Omit<SchemaTestResult, "schemaMutationKey">;
+
+/**
+ * What `b6p schema test --json` prints: core's {@link SchemaTestResult} without its key, and the CLI's verdict. One
+ * shape for every outcome, failures that never reached the server included.
+ * @lastreviewed null
+ */
+export type SchemaTestJson = SchemaTestView & {
   /** Why the test is reported as failed (and exits `1`), `null` when the gate passed. @lastreviewed null */
   error: SchemaErrorJson | null;
 };
@@ -73,8 +94,8 @@ export type SchemaTestJson = SchemaTestResult & {
  * @lastreviewed null
  */
 export interface SchemaApplyJson {
-  /** The dry run the apply followed (its key included). @lastreviewed null */
-  test: SchemaTestResult;
+  /** The dry run the apply followed, without its key; an empty one when the apply failed before it. @lastreviewed null */
+  test: SchemaTestView;
   /** The caller was shown a passing plan and answered no, so nothing was applied. @lastreviewed null */
   declined: boolean;
   /** The server's answer to the apply; `null` when the gate did not pass or the caller declined. @lastreviewed null */
@@ -88,9 +109,13 @@ export interface SchemaApplyJson {
  * the file the manifest was also written to, if any.
  * @lastreviewed null
  */
-export type SchemaRecipeJson = SchemaRecipeResult & {
+export type SchemaRecipeJson = Omit<SchemaRecipeResult, "manifest"> & {
+  /** The recipe's manifest; `null` when the command failed. @lastreviewed null */
+  manifest: string | null;
   /** The `-o` file the manifest was written to, or `null` when it was not. @lastreviewed null */
   file: string | null;
+  /** Why the command failed, `null` when it did not. @lastreviewed null */
+  error: SchemaErrorJson | null;
 };
 
 /**
@@ -98,10 +123,12 @@ export type SchemaRecipeJson = SchemaRecipeResult & {
  * @lastreviewed null
  */
 export interface SchemaGenerateJson {
-  /** The manifest, a YAML stream. @lastreviewed null */
-  manifest: string;
+  /** The manifest, a YAML stream; `null` when the command failed. @lastreviewed null */
+  manifest: string | null;
   /** The `-o` file the manifest was written to, or `null` when it was not. @lastreviewed null */
   file: string | null;
+  /** Why the command failed, `null` when it did not. @lastreviewed null */
+  error: SchemaErrorJson | null;
 }
 
 /**
@@ -353,11 +380,8 @@ export function applyProblem(
     refusal === null
       ? `The plan no longer passes the gate${apply.failedAt === null ? "" : ` at ${apply.failedAt}`}; nothing was written.`
       : describeApplyRefusal(refusal);
-  return {
-    kind: "NOT_APPLIED",
-    message,
-    howTo: howToGo(refusal?.code ?? "STALE", applyCommand(ctx)) ?? `Check the plan with: ${testCommand(ctx)}`,
-  };
+  const standing = refusal === null ? null : howToGo(refusal.code, applyCommand(ctx));
+  return { kind: "NOT_APPLIED", message, howTo: standing ?? `Check the plan with: ${testCommand(ctx)}` };
 }
 
 /**
@@ -419,7 +443,59 @@ export function describeFindings(findings: readonly SchemaRecipeFinding[]): stri
  * @lastreviewed null
  */
 export function toTestJson(result: SchemaTestResult): SchemaTestJson {
-  return { ...result, error: testProblem(result) };
+  return { ...withoutKey(result), error: testProblem(result) };
+}
+
+/**
+ * A test result without its one-use mutation key, for anything that is printed as `--json`.
+ * @lastreviewed null
+ */
+export function withoutKey(result: SchemaTestResult): SchemaTestView {
+  const { schemaMutationKey: _key, ...rest } = result;
+  return rest;
+}
+
+/**
+ * The test result of a command that failed before a test was made: the gate did not pass, and there is no plan.
+ * @lastreviewed null
+ */
+const NO_TEST: SchemaTestView = {
+  passed: false,
+  failedAt: null,
+  actions: [],
+  refusals: [],
+  refusal: null,
+  warnings: [],
+};
+
+/**
+ * The command families that have a `--json` body of their own.
+ * @lastreviewed null
+ */
+export type SchemaCommandFamily = "generate" | "recipe" | "test" | "apply";
+
+/**
+ * The `--json` body of a command that failed before it had a result (not a super user, an org that cannot be
+ * resolved, a manifest that cannot be read, ...): the family's own shape, empty, with `error` set, so a consumer
+ * parses one schema whatever happened.
+ * @param family Which command failed
+ * @param error What to tell the caller
+ * @lastreviewed null
+ */
+export function toFailureJson(
+  family: SchemaCommandFamily,
+  error: SchemaErrorJson
+): SchemaGenerateJson | SchemaRecipeJson | SchemaTestJson | SchemaApplyJson {
+  switch (family) {
+    case "generate":
+      return { manifest: null, file: null, error };
+    case "recipe":
+      return { manifest: null, findings: [], file: null, error };
+    case "test":
+      return { ...NO_TEST, error };
+    case "apply":
+      return { test: NO_TEST, declined: false, apply: null, error };
+  }
 }
 
 /**
@@ -432,7 +508,7 @@ export function toApplyJson(
   apply: SchemaApplyResult | null,
   ctx: SchemaCommandContext
 ): SchemaApplyJson {
-  return { test, declined, apply, error: applyProblem(test, declined, apply, ctx) };
+  return { test: withoutKey(test), declined, apply, error: applyProblem(test, declined, apply, ctx) };
 }
 
 /**
@@ -443,4 +519,117 @@ export function toApplyJson(
  */
 export function isForbidden(err: unknown): boolean {
   return err instanceof Err.SchemaForbiddenError;
+}
+
+/**
+ * What `apply` reports when the call to the server ended in an error after the caller said yes: the request may have
+ * reached the server, and the one-use key is spent either way, so whether the plan was applied is not known.
+ * @param err What was thrown
+ * @param ctx The file and shell for the command printed
+ * @lastreviewed null
+ */
+export function applyOutcomeUnknown(err: unknown, ctx: SchemaCommandContext): SchemaErrorJson {
+  const why = err instanceof Error ? err.message : String(err);
+  return {
+    kind: "APPLY_OUTCOME_UNKNOWN",
+    message: `The apply was sent but its answer did not come back (${why}), so it may or may not have been applied.`,
+    howTo: `Find out with: ${testCommand(ctx)}  (a plan that now changes nothing was applied)`,
+  };
+}
+
+/**
+ * What a failed `--u` lookup reports. Only a BlueHQ answer of "not found" says the U is unknown; any other failure
+ * (the network, a server error) is a failed lookup and says so, rather than blaming the U.
+ * @param u The U that was looked up
+ * @param err What core threw
+ * @lastreviewed null
+ */
+export function orgLookupProblem(u: string, err: unknown): SchemaErrorJson {
+  if (err instanceof Err.BlueHqHelperEndpointError && /: 404\b/.test(err.message)) {
+    return { kind: "ORG_UNKNOWN", message: unknownULine(u), howTo: null };
+  }
+  const why = err instanceof Error ? err.message : String(err);
+  return {
+    kind: "ORG_LOOKUP_FAILED",
+    message: `Could not look up the org for ${u}: ${why}`,
+    howTo: "Try again, or pass --org <url> instead.",
+  };
+}
+
+/**
+ * Whether a thrown error is core saying the org's server predates the schema apply feature (or an argument of it).
+ * @lastreviewed null
+ */
+export function isServerTooOld(err: unknown): err is Err.SchemaServerTooOldError {
+  return err instanceof Err.SchemaServerTooOldError;
+}
+
+/**
+ * What a server that predates the schema apply feature is told: the feature it lacks, and for the display-name
+ * warning, that the command works without it.
+ * @param err The error core threw
+ * @lastreviewed null
+ */
+export function serverTooOldProblem(err: Err.SchemaServerTooOldError): SchemaErrorJson {
+  return {
+    kind: "SERVER_TOO_OLD",
+    message: `This org's server does not support ${err.feature}; it predates the schema apply feature.`,
+    howTo: err.feature.includes("verbose") ? "Run it again without --warn-names." : null,
+  };
+}
+
+/**
+ * The line for a recipe name this version does not know.
+ * @lastreviewed null
+ */
+export function unknownRecipeProblem(name: string, known: readonly string[]): SchemaErrorJson {
+  return {
+    kind: "UNKNOWN_RECIPE",
+    message: `${name} is not a recipe this version knows. Use one of: ${known.join(", ")}.`,
+    howTo: null,
+  };
+}
+
+/**
+ * The error for a manifest file that cannot be read.
+ * @lastreviewed null
+ */
+export function manifestUnreadableProblem(file: string, err: unknown): SchemaErrorJson {
+  return {
+    kind: "MANIFEST_UNREADABLE",
+    message: `Cannot read ${file}: ${err instanceof Error ? err.message : String(err)}`,
+    howTo: null,
+  };
+}
+
+/**
+ * The error for an `-o` file that exists and was not overwritten.
+ * @lastreviewed null
+ */
+export function outputExistsProblem(file: string): SchemaErrorJson {
+  return {
+    kind: "OUTPUT_EXISTS",
+    message: `${file} already exists and was not overwritten.`,
+    howTo: "Pick another -o file, or run again without --yes and answer Overwrite.",
+  };
+}
+
+/**
+ * The exit code once a command has said what it wants: never lower than one an earlier failure already set, so a
+ * success path cannot hide a reported failure.
+ * @param current `process.exitCode` now
+ * @param wanted The code this command's outcome calls for
+ * @lastreviewed null
+ */
+export function raiseExitCode(current: typeof process.exitCode, wanted: number): number {
+  const now = Number(current ?? 0);
+  return Number.isNaN(now) ? wanted : Math.max(now, wanted);
+}
+
+/**
+ * `text` ending in exactly one newline, for printing a manifest.
+ * @lastreviewed null
+ */
+export function withTrailingNewline(text: string): string {
+  return text.endsWith("\n") ? text : `${text}\n`;
 }

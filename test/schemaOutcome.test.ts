@@ -5,6 +5,16 @@ import { Err } from "@bluestep-systems/b6p-core";
 import type { SchemaApplyResult, SchemaPlannedAction, SchemaTestResult } from "@bluestep-systems/b6p-core";
 import {
   type SchemaCommandContext,
+  applyOutcomeUnknown,
+  manifestUnreadableProblem,
+  orgLookupProblem,
+  outputExistsProblem,
+  raiseExitCode,
+  serverTooOldProblem,
+  toFailureJson,
+  unknownRecipeProblem,
+  withTrailingNewline,
+  withoutKey,
   selectOrg,
   unknownULine,
   EXIT_DECLINED,
@@ -151,13 +161,11 @@ test("a gate that no longer passes at apply time names the stage", () => {
   assert.match(problem?.message ?? "", /POLICY/);
 });
 
-test("--json keeps the key for test and apply, and carries one error field", () => {
+test("--json carries one error field for test and apply", () => {
   const plan = passed([action({ action: "CREATE" })]);
-  assert.equal(toTestJson(plan).schemaMutationKey, "KEY-1");
   assert.equal(toTestJson(plan).error, null);
   assert.equal(toTestJson(refused()).error?.kind, "GATE_FAILED");
   const json = toApplyJson(plan, false, applied(), ctx);
-  assert.equal(json.test.schemaMutationKey, "KEY-1");
   assert.equal(json.error, null);
   assert.equal(toApplyJson(plan, true, null, ctx).error?.kind, "DECLINED");
 });
@@ -239,4 +247,78 @@ test("core's SchemaForbiddenError is the super-only refusal; other errors are no
   assert.equal(isForbidden(new Error("FORBIDDEN")), false);
   assert.equal(isForbidden(new Err.SchemaServerTooOldError("testSchema(verbose:)", "unknown argument")), false);
   assert.equal(isForbidden("FORBIDDEN"), false);
+});
+
+test("F5: a refusal-less failed apply points at test, never at a STALE re-run", () => {
+  const apply: SchemaApplyResult = { applied: false, objects: [], refusal: null, failedAt: "POLICY", historyCommit: null };
+  const problem = applyProblem(passed([action({ action: "CREATE" })]), false, apply, ctx);
+  assert.match(problem?.howTo ?? "", /^Check the plan with: b6p schema test /);
+  assert.ok(!/Re-run/.test(problem?.howTo ?? ""));
+});
+
+test("F6: --json never carries the one-use mutation key", () => {
+  const plan = passed([action({ action: "CREATE" })]);
+  assert.ok(!("schemaMutationKey" in toTestJson(plan)));
+  assert.ok(!("schemaMutationKey" in toApplyJson(plan, false, applied(), ctx).test));
+  assert.ok(!JSON.stringify(toApplyJson(plan, false, applied(), ctx)).includes("KEY-1"));
+  assert.ok(!("schemaMutationKey" in withoutKey(plan)));
+});
+
+test("F3: a failure that never reached a result has its family's body with error set", () => {
+  const error = { kind: "SUPER_ONLY", message: "m", howTo: null } as const;
+  assert.deepEqual(toFailureJson("generate", error), { manifest: null, file: null, error });
+  assert.deepEqual(toFailureJson("recipe", error), { manifest: null, findings: [], file: null, error });
+  const test = toFailureJson("test", error) as ReturnType<typeof toTestJson>;
+  assert.equal(test.passed, false);
+  assert.deepEqual(test.actions, []);
+  assert.equal(test.error, error);
+  const apply = toFailureJson("apply", error) as ReturnType<typeof toApplyJson>;
+  assert.equal(apply.apply, null);
+  assert.equal(apply.declined, false);
+  assert.equal(apply.test.passed, false);
+  assert.equal(apply.error, error);
+});
+
+test("F2: an error after the yes says the outcome is unknown and how to find out", () => {
+  const problem = applyOutcomeUnknown(new Error("socket hang up"), ctx);
+  assert.equal(problem.kind, "APPLY_OUTCOME_UNKNOWN");
+  assert.match(problem.message, /socket hang up.*may or may not have been applied/);
+  assert.match(problem.howTo ?? "", /b6p schema test 'my manifest\.yaml' --org https:\/\/org\.example\.com/);
+});
+
+test("F4: only a BlueHQ not-found says the U is unknown; any other failure is a failed lookup", () => {
+  const notFound = new Err.BlueHqHelperEndpointError("Failed to fetch any domain from BlueHQ: 404 Not Found");
+  assert.equal(orgLookupProblem("U123456", notFound).kind, "ORG_UNKNOWN");
+  const serverError = new Err.BlueHqHelperEndpointError("Failed to fetch any domain from BlueHQ: 503 Service Unavailable");
+  const failed = orgLookupProblem("U123456", serverError);
+  assert.equal(failed.kind, "ORG_LOOKUP_FAILED");
+  assert.match(failed.message, /503/);
+  assert.equal(orgLookupProblem("U123456", new TypeError("fetch failed")).kind, "ORG_LOOKUP_FAILED");
+});
+
+test("F1: a server too old for the name warning says so and how to go on; another feature has no how-to", () => {
+  const warn = serverTooOldProblem(new Err.SchemaServerTooOldError("testSchema(verbose:)", "unknown argument"));
+  assert.equal(warn.kind, "SERVER_TOO_OLD");
+  assert.match(warn.message, /predates the schema apply feature/);
+  assert.equal(warn.howTo, "Run it again without --warn-names.");
+  assert.equal(serverTooOldProblem(new Err.SchemaServerTooOldError("testSchema", "unknown field")).howTo, null);
+});
+
+test("F3/F9: unknown recipe and unreadable manifest are typed errors", () => {
+  assert.equal(unknownRecipeProblem("NOPE", ["LINK_VIEW_GRANTS"]).kind, "UNKNOWN_RECIPE");
+  assert.match(unknownRecipeProblem("NOPE", ["LINK_VIEW_GRANTS"]).message, /Use one of: LINK_VIEW_GRANTS/);
+  const unreadable = manifestUnreadableProblem("m.yaml", new Error("ENOENT: no such file"));
+  assert.equal(unreadable.kind, "MANIFEST_UNREADABLE");
+  assert.match(unreadable.message, /^Cannot read m\.yaml: ENOENT/);
+  assert.equal(outputExistsProblem("out.yaml").kind, "OUTPUT_EXISTS");
+});
+
+test("F10: the exit code is raise-only, and the newline helper adds exactly one", () => {
+  assert.equal(raiseExitCode(undefined, 0), 0);
+  assert.equal(raiseExitCode(1, 0), 1);
+  assert.equal(raiseExitCode(0, 2), 2);
+  assert.equal(raiseExitCode(2, 1), 2);
+  assert.equal(raiseExitCode("1" as unknown as number, 0), 1);
+  assert.equal(withTrailingNewline("a"), "a\n");
+  assert.equal(withTrailingNewline("a\n"), "a\n");
 });

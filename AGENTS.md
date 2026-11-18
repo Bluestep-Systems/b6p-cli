@@ -87,7 +87,10 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
 - **`b6p schema`'s exit codes, `--json` bodies and plan text come from [src/schemaOutcome.ts](src/schemaOutcome.ts)**, pure
   and tested, like push. One shape per command family (`test` = core's `SchemaTestResult` + `error`; `apply` = `{ test,
   declined, apply, error }`). Exit `2` is a decline at the prompt; `apply --confirm` means yes (the root `--yes` takes the default, No, so `--yes` never means two things); the org is exactly one of `--org`/`--u` (`selectOrg`), `--u` resolved by core's `OrgCache`, never by the CLI;
-  the key is in `--json` and never in human output.
+  the one-use mutation key is in no output, human or `--json`. A failure before a result goes through `reportFailure` in
+  [src/schemaRun.ts](src/schemaRun.ts), which prints the family's empty `--json` body with `error` set; exit codes are
+  raise-only (`raiseExitCode`). A per-command flag must not share a name with a root flag (the root consumes it): the
+  display-name warning is `--warn-names`.
 
 ## Commands
 

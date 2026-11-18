@@ -153,3 +153,12 @@ test("schema apply says yes with --confirm; --yes is only the root flag", () => 
   assert.ok(apply.options.some((o) => o.long === "--confirm"));
   assert.ok(!apply.options.some((o) => o.long === "--yes"));
 });
+
+test("F1: the display-name warning is --warn-names on test and apply; no per-command --verbose the root would swallow", () => {
+  const schema = child(program(), "schema");
+  for (const verb of ["test", "apply"]) {
+    const cmd = child(schema, verb);
+    assert.ok(cmd.options.some((o) => o.long === "--warn-names"), `schema ${verb} should take --warn-names`);
+    assert.ok(!cmd.options.some((o) => o.long === "--verbose"), `schema ${verb} should not declare --verbose`);
+  }
+});
