@@ -113,6 +113,47 @@ export interface SchemaCommandContext {
   file: string;
   /** The shell the "how to go on" commands are quoted for. @lastreviewed null */
   dialect: ShellDialect;
+  /** The org, as the user named it; repeated in the commands printed. @lastreviewed null */
+  selector: OrgSelector;
+  /** The user ran `apply` with `--confirm`; repeated in the apply command printed. @lastreviewed null */
+  confirm: boolean;
+}
+
+/**
+ * Which org a schema command acts on, as the user named it: `--org <url>` (any URL on the org) or `--u <Uxxxxxx>`.
+ * @lastreviewed null
+ */
+export type OrgSelector = { flag: "--org"; value: string } | { flag: "--u"; value: string };
+
+/**
+ * Reads the org out of a schema command's options: exactly one of `--org` and `--u`. `--u` is normalised to upper
+ * case and must be a U and six digits.
+ * @param opts The command's `--org` and `--u` values, when given
+ * @returns The selector, or the usage error to print
+ * @lastreviewed null
+ */
+export function selectOrg(opts: { org?: string; u?: string }): { selector: OrgSelector } | { usageError: string } {
+  if (opts.org !== undefined && opts.u !== undefined) {
+    return { usageError: "Give either --org <url> or --u <Uxxxxxx>, not both." };
+  }
+  if (opts.org !== undefined) {
+    return { selector: { flag: "--org", value: opts.org } };
+  }
+  if (opts.u !== undefined) {
+    const u = opts.u.toUpperCase();
+    return /^U\d{6}$/.test(u)
+      ? { selector: { flag: "--u", value: u } }
+      : { usageError: `--u takes a U and six digits (U123456), not "${opts.u}".` };
+  }
+  return { usageError: "Name the org with --org <url> or --u <Uxxxxxx>." };
+}
+
+/**
+ * The line for a `--u` the org cache cannot turn into a URL.
+ * @lastreviewed null
+ */
+export function unknownULine(u: string): string {
+  return `No org URL is known for ${u}. Pass --org <url> instead.`;
 }
 
 /**
@@ -125,16 +166,17 @@ const ACTION_ORDER: readonly SchemaActionKind[] = ["CREATE", "ADOPT", "UPDATE", 
  * The `b6p` command that runs a manifest's test again.
  * @lastreviewed null
  */
-function testCommand(ctx: SchemaCommandContext, org: string): string {
-  return `b6p schema test ${shellQuote(ctx.file, ctx.dialect)} --org ${shellQuote(org, ctx.dialect)}`;
+function testCommand(ctx: SchemaCommandContext): string {
+  return `b6p schema test ${shellQuote(ctx.file, ctx.dialect)} ${ctx.selector.flag} ${shellQuote(ctx.selector.value, ctx.dialect)}`;
 }
 
 /**
  * The `b6p` command that tests and applies a manifest again.
  * @lastreviewed null
  */
-function applyCommand(ctx: SchemaCommandContext, org: string): string {
-  return `b6p schema apply ${shellQuote(ctx.file, ctx.dialect)} --org ${shellQuote(org, ctx.dialect)}`;
+function applyCommand(ctx: SchemaCommandContext): string {
+  const confirm = ctx.confirm ? " --confirm" : "";
+  return `b6p schema apply ${shellQuote(ctx.file, ctx.dialect)} ${ctx.selector.flag} ${shellQuote(ctx.selector.value, ctx.dialect)}${confirm}`;
 }
 
 /**
@@ -283,15 +325,13 @@ function howToGo(code: SchemaRefusalCode, again: string): string | null {
  * @param declined The caller answered no
  * @param apply The server's answer, or `null` when it was not asked
  * @param ctx The file and shell for the "how to go on" lines
- * @param org The org the apply ran against, repeated in the commands printed
  * @lastreviewed null
  */
 export function applyProblem(
   test: SchemaTestResult,
   declined: boolean,
   apply: SchemaApplyResult | null,
-  ctx: SchemaCommandContext,
-  org: string
+  ctx: SchemaCommandContext
 ): SchemaErrorJson | null {
   if (!test.passed) {
     return testProblem(test);
@@ -316,7 +356,7 @@ export function applyProblem(
   return {
     kind: "NOT_APPLIED",
     message,
-    howTo: howToGo(refusal?.code ?? "STALE", applyCommand(ctx, org)) ?? `Check the plan with: ${testCommand(ctx, org)}`,
+    howTo: howToGo(refusal?.code ?? "STALE", applyCommand(ctx)) ?? `Check the plan with: ${testCommand(ctx)}`,
   };
 }
 
@@ -390,10 +430,9 @@ export function toApplyJson(
   test: SchemaTestResult,
   declined: boolean,
   apply: SchemaApplyResult | null,
-  ctx: SchemaCommandContext,
-  org: string
+  ctx: SchemaCommandContext
 ): SchemaApplyJson {
-  return { test, declined, apply, error: applyProblem(test, declined, apply, ctx, org) };
+  return { test, declined, apply, error: applyProblem(test, declined, apply, ctx) };
 }
 
 /**

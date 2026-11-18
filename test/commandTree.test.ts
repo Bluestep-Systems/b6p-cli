@@ -138,12 +138,18 @@ test("kb, marketplace and auth token own their gateway verbs", () => {
   assert.ok(!root.commands.some((c) => c.name() === "token"), "token commands live under `auth`, not at the top");
 });
 
-test("schema is a top-level noun with generate, recipe, test and apply, each needing --org", () => {
+test("schema is a top-level noun with generate, recipe, test and apply, each taking --org or --u", () => {
   assert.ok(visibleTopLevel().includes("schema"));
   const schema = child(program(), "schema");
   assert.deepEqual(schema.commands.map((c) => c.name()).sort(), ["apply", "generate", "recipe", "test"]);
   for (const verb of schema.commands) {
-    const org = verb.options.find((o) => o.long === "--org");
-    assert.ok(org?.mandatory, `schema ${verb.name()} should require --org`);
+    assert.ok(verb.options.some((o) => o.long === "--org"), `schema ${verb.name()} should take --org`);
+    assert.ok(verb.options.some((o) => o.long === "--u"), `schema ${verb.name()} should take --u`);
   }
+});
+
+test("schema apply says yes with --confirm; --yes is only the root flag", () => {
+  const apply = child(child(program(), "schema"), "apply");
+  assert.ok(apply.options.some((o) => o.long === "--confirm"));
+  assert.ok(!apply.options.some((o) => o.long === "--yes"));
 });

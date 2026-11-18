@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 import { Err } from "@bluestep-systems/b6p-core";
 import type { SchemaApplyResult, SchemaPlannedAction, SchemaTestResult } from "@bluestep-systems/b6p-core";
 import {
+  type SchemaCommandContext,
+  selectOrg,
+  unknownULine,
   EXIT_DECLINED,
   applyExitCode,
   applyProblem,
@@ -17,8 +20,12 @@ import {
   toTestJson,
 } from "../src/schemaOutcome";
 
-const ctx = { file: "my manifest.yaml", dialect: "posix" } as const;
-const ORG = "https://org.example.com";
+const ctx: SchemaCommandContext = {
+  file: "my manifest.yaml",
+  dialect: "posix",
+  selector: { flag: "--org", value: "https://org.example.com" },
+  confirm: false,
+};
 
 function action(over: Partial<SchemaPlannedAction>): SchemaPlannedAction {
   return { element: "Form a", action: "NO_CHANGE", objectId: null, spec: null, deltas: [], reasons: [], ...over };
@@ -94,35 +101,53 @@ test("apply exits 0 applied, 2 declined, 1 otherwise", () => {
 test("a passing plan that changes nothing is not asked about, and is not a failure or a decline", () => {
   const plan = passed([action({})]);
   assert.equal(applyExitCode(plan, false, null), 0);
-  assert.equal(applyProblem(plan, false, null, ctx, ORG), null);
+  assert.equal(applyProblem(plan, false, null, ctx), null);
 });
 
 test("a plan that did not pass is a failure even if the caller somehow declined", () => {
   assert.equal(applyExitCode(refused(), true, null), 1);
-  assert.equal(applyProblem(refused(), true, null, ctx, ORG)?.kind, "GATE_FAILED");
+  assert.equal(applyProblem(refused(), true, null, ctx)?.kind, "GATE_FAILED");
 });
 
 test("STALE and KEY_INVALID say to re-run, with the manifest and org quoted for the shell", () => {
   for (const code of ["STALE", "KEY_INVALID"] as const) {
-    const problem = applyProblem(passed([action({ action: "UPDATE" })]), false, notApplied(code), ctx, ORG);
+    const problem = applyProblem(passed([action({ action: "UPDATE" })]), false, notApplied(code), ctx);
     assert.equal(problem?.kind, "NOT_APPLIED");
     assert.match(problem?.message ?? "", new RegExp(code));
     assert.match(problem?.howTo ?? "", /Re-run: b6p schema apply 'my manifest\.yaml' --org https:\/\/org\.example\.com/);
   }
 });
 
+test("the re-run command repeats --u and --confirm as the user gave them", () => {
+  const again = { ...ctx, selector: { flag: "--u", value: "U123456" }, confirm: true } as const;
+  const problem = applyProblem(passed([action({ action: "UPDATE" })]), false, notApplied("STALE"), again);
+  assert.match(problem?.howTo ?? "", /Re-run: b6p schema apply 'my manifest\.yaml' --u U123456 --confirm$/);
+});
+
+test("exactly one of --org and --u names the org", () => {
+  assert.deepEqual(selectOrg({ org: "https://o.example.com" }), { selector: { flag: "--org", value: "https://o.example.com" } });
+  assert.deepEqual(selectOrg({ u: "u123456" }), { selector: { flag: "--u", value: "U123456" } });
+  assert.match((selectOrg({ org: "https://o.example.com", u: "U123456" }) as { usageError: string }).usageError, /not both/);
+  assert.match((selectOrg({}) as { usageError: string }).usageError, /--org <url> or --u/);
+  assert.match((selectOrg({ u: "123" }) as { usageError: string }).usageError, /U and six digits/);
+});
+
+test("an unknown U says to pass --org instead", () => {
+  assert.equal(unknownULine("U123456"), "No org URL is known for U123456. Pass --org <url> instead.");
+});
+
 test("another refusal points at test rather than re-running", () => {
-  const problem = applyProblem(passed([action({ action: "CREATE" })]), false, notApplied("NAME_TAKEN"), ctx, ORG);
+  const problem = applyProblem(passed([action({ action: "CREATE" })]), false, notApplied("NAME_TAKEN"), ctx);
   assert.match(problem?.howTo ?? "", /^Check the plan with: b6p schema test /);
 });
 
 test("an applied plan has no error", () => {
-  assert.equal(applyProblem(passed([action({ action: "CREATE" })]), false, applied(), ctx, ORG), null);
+  assert.equal(applyProblem(passed([action({ action: "CREATE" })]), false, applied(), ctx), null);
 });
 
 test("a gate that no longer passes at apply time names the stage", () => {
   const apply: SchemaApplyResult = { applied: false, objects: [], refusal: null, failedAt: "POLICY", historyCommit: null };
-  const problem = applyProblem(passed([action({ action: "CREATE" })]), false, apply, ctx, ORG);
+  const problem = applyProblem(passed([action({ action: "CREATE" })]), false, apply, ctx);
   assert.match(problem?.message ?? "", /POLICY/);
 });
 
@@ -131,10 +156,10 @@ test("--json keeps the key for test and apply, and carries one error field", () 
   assert.equal(toTestJson(plan).schemaMutationKey, "KEY-1");
   assert.equal(toTestJson(plan).error, null);
   assert.equal(toTestJson(refused()).error?.kind, "GATE_FAILED");
-  const json = toApplyJson(plan, false, applied(), ctx, ORG);
+  const json = toApplyJson(plan, false, applied(), ctx);
   assert.equal(json.test.schemaMutationKey, "KEY-1");
   assert.equal(json.error, null);
-  assert.equal(toApplyJson(plan, true, null, ctx, ORG).error?.kind, "DECLINED");
+  assert.equal(toApplyJson(plan, true, null, ctx).error?.kind, "DECLINED");
 });
 
 test("the plan is counts, then each action that changes something, and never the key", () => {

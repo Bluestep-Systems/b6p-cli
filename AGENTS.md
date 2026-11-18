@@ -86,7 +86,7 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
   target. Adding a config key means adding it to `DEPLOY_CONFIG_KEYS` / `DEPLOY_TARGET_KEYS`.
 - **`b6p schema`'s exit codes, `--json` bodies and plan text come from [src/schemaOutcome.ts](src/schemaOutcome.ts)**, pure
   and tested, like push. One shape per command family (`test` = core's `SchemaTestResult` + `error`; `apply` = `{ test,
-  declined, apply, error }`). Exit `2` is a decline at the prompt; `apply --yes` means yes (not the default answer);
+  declined, apply, error }`). Exit `2` is a decline at the prompt; `apply --confirm` means yes (the root `--yes` takes the default, No, so `--yes` never means two things); the org is exactly one of `--org`/`--u` (`selectOrg`), `--u` resolved by core's `OrgCache`, never by the CLI;
   the key is in `--json` and never in human output.
 
 ## Commands

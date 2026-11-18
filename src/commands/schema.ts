@@ -14,21 +14,68 @@ import {
   describeVerdict,
   isForbidden,
   isNoChangeOnly,
+  selectOrg,
+  unknownULine,
   testExitCode,
   testProblem,
   toApplyJson,
   toTestJson,
+  type OrgSelector,
   type SchemaGenerateJson,
   type SchemaRecipeJson,
 } from "../schemaOutcome";
 
 const ORG_HELP = "Any URL on the org to act on (its origin is used), e.g. https://org.example.com";
+const U_HELP = "The org's U (U123456), resolved through b6p's U cache; the same org as --org";
+
+/**
+ * Adds the org selection every schema verb takes: exactly one of `--org` and `--u`.
+ * @lastreviewed null
+ */
+function withOrgOptions(cmd: Command): Command {
+  return cmd.option("--org <url>", ORG_HELP).option("--u <u>", U_HELP);
+}
+
+/**
+ * The org URL a command acts on. A `--u` goes through core's org cache (a cache miss asks BlueHQ); one it cannot
+ * resolve is reported and `undefined` returned.
+ * @lastreviewed null
+ */
+async function resolveOrg(ctx: CliContext, selector: OrgSelector): Promise<string | undefined> {
+  if (selector.flag === "--org") {
+    return selector.value;
+  }
+  try {
+    return (await ctx.core.orgCache.getAnyBaseUrl(selector.value)).origin;
+  } catch (err) {
+    ctx.logger.warn(`Resolving ${selector.value}: ${err instanceof Error ? err.message : err}`);
+    ctx.fail(unknownULine(selector.value));
+    return undefined;
+  }
+}
+
+/**
+ * The org a command was told to act on, or the usage error (commander prints it and exits `1`).
+ * @lastreviewed null
+ */
+function orgOf(cmd: Command, opts: { org?: string; u?: string }): OrgSelector {
+  const chosen = selectOrg(opts);
+  if ("usageError" in chosen) {
+    return cmd.error(chosen.usageError, { exitCode: 1 });
+  }
+  return chosen.selector;
+}
+
+/** The org options every schema verb takes. */
+type OrgOpts = { org?: string; u?: string };
+type GenerateOpts = OrgOpts & { portable?: boolean; closure: boolean; output?: string };
 
 const RECIPES: readonly SchemaRecipeName[] = ["LINK_VIEW_GRANTS"];
 
 const SCHEMA_HELP = `
-Manifests are local YAML files. The schema commands are reserved to super users; every one needs --org.
-The root flags --json, --yes and --verbose apply here, after "schema" too.
+Manifests are local YAML files. The schema commands are reserved to super users; every one takes exactly one of
+--org <url> and --u <Uxxxxxx>.
+The root flags --json and --verbose apply here, after "schema" too.
 
 Exit codes:
   generate, recipe   0 done; 1 failed
@@ -97,19 +144,22 @@ export function registerSchemaCommands(program: Command): void {
     .description("Generate, test and apply declarative schema manifests against an org (super users only)")
     .addHelpText("after", SCHEMA_HELP);
 
-  schema
-    .command("generate <ids...>")
+  withOrgOptions(schema.command("generate <ids...>"))
     .description("Write the manifest describing the named objects as they stand now (YAML to stdout, or -o FILE)")
-    .requiredOption("--org <url>", ORG_HELP)
     .option("--portable", "Generate a manifest holding no key, for applying in another tenant")
     .option("--no-closure", "Describe only the named objects, not every object of a supported kind they reference")
     .option("-o, --output <file>", "Write the manifest to this file instead of stdout")
-    .action(async (ids: string[], opts: { org: string; portable?: boolean; closure: boolean; output?: string }) => {
+    .action(async (ids: string[], opts: GenerateOpts, cmd: Command) => {
+      const selector = orgOf(cmd, opts);
       await withCore(
         globals(),
         async (ctx) => {
           await runSchema(ctx, async () => {
-            const manifest = await ctx.core.schema.generate(opts.org, ids, {
+            const org = await resolveOrg(ctx, selector);
+            if (org === undefined) {
+              return;
+            }
+            const manifest = await ctx.core.schema.generate(org, ids, {
               portable: opts.portable === true,
               closure: opts.closure,
             });
@@ -126,12 +176,11 @@ export function registerSchemaCommands(program: Command): void {
       );
     });
 
-  schema
-    .command("recipe <name>")
+  withOrgOptions(schema.command("recipe <name>"))
     .description(`Run a recipe, an audit of the org stated as a manifest (${RECIPES.join(", ")})`)
-    .requiredOption("--org <url>", ORG_HELP)
     .option("-o, --output <file>", "Write the manifest to this file instead of stdout (findings go to stderr)")
-    .action(async (name: string, opts: { org: string; output?: string }) => {
+    .action(async (name: string, opts: OrgOpts & { output?: string }, cmd: Command) => {
+      const selector = orgOf(cmd, opts);
       await withCore(
         globals(),
         async (ctx) => {
@@ -141,7 +190,11 @@ export function registerSchemaCommands(program: Command): void {
             return;
           }
           await runSchema(ctx, async () => {
-            const result = await ctx.core.schema.recipe(opts.org, recipe);
+            const org = await resolveOrg(ctx, selector);
+            if (org === undefined) {
+              return;
+            }
+            const result = await ctx.core.schema.recipe(org, recipe);
             const file = await deliverManifest(ctx, result.manifest, opts.output);
             if (ctx.globalOpts.json) {
               const body: SchemaRecipeJson = { ...result, file };
@@ -160,18 +213,21 @@ export function registerSchemaCommands(program: Command): void {
       );
     });
 
-  schema
-    .command("test <file>")
+  withOrgOptions(schema.command("test <file>"))
     .description("Dry-run a manifest: the gate's verdict, its refusals and the plan; nothing is written")
-    .requiredOption("--org <url>", ORG_HELP)
     .option("--verbose", "Also warn on objects of one kind that share a display name")
-    .action(async (file: string, opts: { org: string; verbose?: boolean }) => {
+    .action(async (file: string, opts: OrgOpts & { verbose?: boolean }, cmd: Command) => {
+      const selector = orgOf(cmd, opts);
       await withCore(
         globals(),
         async (ctx) => {
           await runSchema(ctx, async () => {
+            const org = await resolveOrg(ctx, selector);
+            if (org === undefined) {
+              return;
+            }
             const manifest = await readManifest(file);
-            const result = await ctx.core.schema.test(opts.org, manifest, { verbose: verboseFlag(opts, ctx) });
+            const result = await ctx.core.schema.test(org, manifest, { verbose: verboseFlag(opts, ctx) });
             if (ctx.globalOpts.json) {
               ctx.emitJson(toTestJson(result));
             } else {
@@ -188,28 +244,33 @@ export function registerSchemaCommands(program: Command): void {
       );
     });
 
-  schema
-    .command("apply <file>")
-    .description("Test a manifest, show the plan, ask for a yes (or --yes), then apply exactly what was tested")
-    .requiredOption("--org <url>", ORG_HELP)
+  withOrgOptions(schema.command("apply <file>"))
+    .description("Test a manifest, show the plan, ask for a yes (or --confirm), then apply exactly what was tested")
+    .option("--confirm", "Answer yes to the question: apply the plan without asking")
     .option("--verbose", "Also warn on objects of one kind that share a display name")
     .addHelpText(
       "after",
       `
-The question defaults to No; an empty answer, or end of input with no --yes, applies nothing. A plan that did not
-pass is never asked about. --yes is the answer yes here (unlike script push, where it takes the default).
+The question defaults to No; an empty answer, or end of input with no --confirm, applies nothing. A plan that did not
+pass is never asked about. The root --yes takes the default answer, which is No, so it declines here (exit 2);
+--confirm is the flag that says yes.
 `
     )
-    .action(async (file: string, opts: { org: string; verbose?: boolean }) => {
+    .action(async (file: string, opts: OrgOpts & { verbose?: boolean; confirm?: boolean }, cmd: Command) => {
+      const selector = orgOf(cmd, opts);
       await withCore(
         globals(),
         async (ctx) => {
           await runSchema(ctx, async () => {
+            const org = await resolveOrg(ctx, selector);
+            if (org === undefined) {
+              return;
+            }
             const manifest = await readManifest(file);
-            const commandContext = { file, dialect };
+            const commandContext = { file, dialect, selector, confirm: opts.confirm === true };
             let shown = false;
             const outcome = await ctx.core.schema.testThenApply(
-              opts.org,
+              org,
               manifest,
               async (result) => {
                 shown = true;
@@ -220,8 +281,8 @@ pass is never asked about. --yes is the answer yes here (unlike script push, whe
                   // Nothing to apply, so nothing to ask: not a decline.
                   return false;
                 }
-                if (ctx.globalOpts.yes === true) {
-                  ctx.prompt.notice("Apply this plan? yes  (answered by --yes)");
+                if (opts.confirm === true) {
+                  ctx.prompt.notice("Apply this plan? Yes  (answered by --confirm)");
                   return true;
                 }
                 return (await ctx.prompt.confirm("Apply this plan?", ["No", "Yes"])) === "Yes";
@@ -236,9 +297,9 @@ pass is never asked about. --yes is the answer yes here (unlike script push, whe
               writeStdout(ctx, `${describeApplied(outcome.apply).join("\n")}\n`);
             }
             if (ctx.globalOpts.json) {
-              ctx.emitJson(toApplyJson(outcome.test, declined, outcome.apply, commandContext, opts.org));
+              ctx.emitJson(toApplyJson(outcome.test, declined, outcome.apply, commandContext));
             }
-            const problem = applyProblem(outcome.test, declined, outcome.apply, commandContext, opts.org);
+            const problem = applyProblem(outcome.test, declined, outcome.apply, commandContext);
             if (problem !== null) {
               if (problem.kind === "DECLINED") {
                 ctx.prompt.notice(problem.message);

@@ -153,17 +153,19 @@ A plain working clone, unrelated to any script. There is no push.
 
 ### `b6p schema` — declarative schema manifests
 
-Super users only; every command takes `--org <url>` (any URL on the org). Manifests are local YAML files.
+Super users only. Every command takes exactly one of `--org <url>` (any URL on the org) or `--u <Uxxxxxx>` (the org's U,
+resolved through b6p's U cache, which asks BlueHQ on a miss; an unknown U says to pass `--org <url>` instead). Giving both, or neither, is a usage error (exit 1). Manifests are local YAML files.
 
 | Command | Purpose |
 |---|---|
-| `b6p schema generate <id...> --org <url> [--portable] [--no-closure] [-o FILE]` | Write the manifest describing the named objects as they stand now (YAML to stdout, or FILE) |
-| `b6p schema recipe <NAME> --org <url> [-o FILE]` | Run a recipe (`LINK_VIEW_GRANTS`): the manifest goes to FILE or stdout, the findings to stderr |
-| `b6p schema test <FILE> --org <url> [--verbose]` | Dry run: the gate verdict, refusals, and the plan (counts by action, then each action that changes something with its deltas `from → to`, and warnings). Nothing is written; the key is never printed |
-| `b6p schema apply <FILE> --org <url> [--yes] [--verbose]` | Test, show the plan, ask, then apply exactly the manifest that was tested |
+| `b6p schema generate <id...> --org <url>\|--u <U> [--portable] [--no-closure] [-o FILE]` | Write the manifest describing the named objects as they stand now (YAML to stdout, or FILE) |
+| `b6p schema recipe <NAME> --org <url>\|--u <U> [-o FILE]` | Run a recipe (`LINK_VIEW_GRANTS`): the manifest goes to FILE or stdout, the findings to stderr |
+| `b6p schema test <FILE> --org <url>\|--u <U> [--verbose]` | Dry run: the gate verdict, refusals, and the plan (counts by action, then each action that changes something with its deltas `from → to`, and warnings). Nothing is written; the key is never printed |
+| `b6p schema apply <FILE> --org <url>\|--u <U> [--confirm] [--verbose]` | Test, show the plan, ask, then apply exactly the manifest that was tested |
 
-`apply` asks `Apply this plan?` (default No). Here `--yes` means yes, unlike `script push`; without `--yes` and without
-a terminal (or piped `Yes`) it ends with `NonInteractiveInputError` and applies nothing. A plan that did not pass, or
+`apply` asks `Apply this plan?` (default No). `--confirm` answers yes without asking; the root `--yes` takes the default
+answer (No), so it declines here. Without `--confirm` and without a terminal (or piped `Yes`) it ends with
+`NonInteractiveInputError` and applies nothing. A plan that did not pass, or
 changes nothing, is never asked about. `--verbose` also warns when two objects of one kind share a display name.
 A `STALE` or `KEY_INVALID` refusal means the org changed or the key (ten minutes, one use) is spent: re-run `apply`.
 
