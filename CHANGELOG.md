@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tests, shows the plan, asks, and applies the byte-identical manifest with the key (`--confirm` answers yes; the root
   `--yes` takes the default, No). The org is `--org <url>` or `--u <Uxxxxxx>`, exactly one, the U resolved through core's U
   cache. Exit `2`
-  means declined. `--verbose` warns on same-named objects of one kind. Needs a b6p-core release that carries
+  means declined. `--verbose` warns on same-named objects of one kind. Built on b6p-core 1.1.0, which carries
   `core.schema`.
 
 ## [1.0.0] — 2026-11-17
