@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { registerScriptCommands } from "./script";
 import { registerAuthCommands } from "./auth";
+import { registerSchemaCommands } from "./schema";
 import { registerKbCommands } from "./kb";
 import { registerMarketplaceCommands } from "./marketplace";
 import { registerSessionCommands } from "./sessions";
@@ -25,6 +26,7 @@ export function registerCommands(program: Command): void {
   registerScriptCommands(program);
   registerAuthCommands(program);
   registerKbCommands(program);
+  registerSchemaCommands(program);
   registerMarketplaceCommands(program);
   registerSessionCommands(program);
   registerConfigCommands(program);

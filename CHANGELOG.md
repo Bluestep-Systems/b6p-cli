@@ -5,6 +5,20 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`b6p schema generate | recipe | test | apply`** (ClickUp 1k5g91bqb7q): declarative schema manifests against one org,
+  for super users, over b6p-core's `core.schema`. `test` is a dry run that prints the gate verdict and the plan; `apply`
+  tests, shows the plan, asks, and applies the byte-identical manifest with the key (`--confirm` answers yes; the root
+  `--yes` takes the default, No). The org is `--org <url>` or `--u <Uxxxxxx>`, exactly one, the U resolved through core's U
+  cache. Exit `2`
+  means declined. `--warn-names` warns on same-named objects of one kind (a server that predates it gets a clear message).
+  `-o FILE` asks a destructive question before replacing a file, one that `--yes` never accepts. `--json` bodies never
+  carry the one-use mutation key, and every failure prints its command's own shape with a typed `error`. Built on b6p-core 1.1.0, which carries
+  `core.schema`.
+
 ## [1.0.0] — 2026-11-17
 
 ### Fixed

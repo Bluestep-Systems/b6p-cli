@@ -63,6 +63,7 @@ test("the advertised top level is exactly the documented set", () => {
     "script",
     "auth",
     "kb",
+    "schema",
     "marketplace",
     "sessions",
     "config",
@@ -135,4 +136,29 @@ test("kb, marketplace and auth token own their gateway verbs", () => {
   assert.deepEqual(names(child(root, "marketplace")), ["list", "pull"]);
   assert.deepEqual(names(child(child(root, "auth"), "token")), ["list", "create", "revoke", "rotate"]);
   assert.ok(!root.commands.some((c) => c.name() === "token"), "token commands live under `auth`, not at the top");
+});
+
+test("schema is a top-level noun with generate, recipe, test and apply, each taking --org or --u", () => {
+  assert.ok(visibleTopLevel().includes("schema"));
+  const schema = child(program(), "schema");
+  assert.deepEqual(schema.commands.map((c) => c.name()).sort(), ["apply", "generate", "recipe", "test"]);
+  for (const verb of schema.commands) {
+    assert.ok(verb.options.some((o) => o.long === "--org"), `schema ${verb.name()} should take --org`);
+    assert.ok(verb.options.some((o) => o.long === "--u"), `schema ${verb.name()} should take --u`);
+  }
+});
+
+test("schema apply says yes with --confirm; --yes is only the root flag", () => {
+  const apply = child(child(program(), "schema"), "apply");
+  assert.ok(apply.options.some((o) => o.long === "--confirm"));
+  assert.ok(!apply.options.some((o) => o.long === "--yes"));
+});
+
+test("F1: the display-name warning is --warn-names on test and apply; no per-command --verbose the root would swallow", () => {
+  const schema = child(program(), "schema");
+  for (const verb of ["test", "apply"]) {
+    const cmd = child(schema, verb);
+    assert.ok(cmd.options.some((o) => o.long === "--warn-names"), `schema ${verb} should take --warn-names`);
+    assert.ok(!cmd.options.some((o) => o.long === "--verbose"), `schema ${verb} should not declare --verbose`);
+  }
 });

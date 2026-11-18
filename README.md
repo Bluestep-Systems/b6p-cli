@@ -151,6 +151,37 @@ base moved on, pull first. Pushing needs push rights on that knowledge base as w
 
 A plain working clone, unrelated to any script. There is no push.
 
+### `b6p schema` — declarative schema manifests
+
+Super users only. Every command takes exactly one of `--org <url>` (any URL on the org) or `--u <Uxxxxxx>` (the org's U,
+resolved through b6p's U cache, which asks BlueHQ on a miss; an unknown U says to pass `--org <url>` instead). Giving both, or neither, is a usage error (exit 1). Manifests are local YAML files.
+
+| Command | Purpose |
+|---|---|
+| `b6p schema generate <id...> --org <url>\|--u <U> [--portable] [--no-closure] [-o FILE]` | Write the manifest describing the named objects as they stand now (YAML to stdout, or FILE; an existing FILE is replaced only if you answer `Overwrite` to a destructive question, which `--yes` never accepts) |
+| `b6p schema recipe <NAME> --org <url>\|--u <U> [-o FILE]` | Run a recipe (`LINK_VIEW_GRANTS`): the manifest goes to FILE or stdout, the findings to stderr (`-o` asks before replacing a file, as above) |
+| `b6p schema test <FILE> --org <url>\|--u <U> [--warn-names]` | Dry run: the gate verdict, refusals, and the plan (counts by action, then each action that changes something with its deltas `from → to`, and warnings). Nothing is written; the key is never printed |
+| `b6p schema apply <FILE> --org <url>\|--u <U> [--confirm] [--warn-names]` | Test, show the plan, ask, then apply exactly the manifest that was tested |
+
+`apply` asks `Apply this plan?` (default No). `--confirm` answers yes without asking; the root `--yes` takes the default
+answer (No), so it declines here. Without `--confirm` and without a terminal (or piped `Yes`) it ends with
+`NonInteractiveInputError` and applies nothing. A plan that did not pass, or
+changes nothing, is never asked about. `--warn-names` also warns when two objects of one kind share a display name (an org whose server predates the
+warning refuses it: the message says to run without the flag).
+A `STALE` or `KEY_INVALID` refusal means the org changed or the key (ten minutes, one use) is spent: re-run `apply`.
+
+Exit codes: `generate`, `recipe` 0 done, 1 failed. `test` 0 the gate passed (a plan with no changes included), 1 it
+did not. `apply` 0 applied or nothing to change, 1 the gate did not pass or the server did not apply, 2 declined at
+the prompt. `--json`: `generate` `{ manifest, file, error }`; `recipe` `{ manifest, findings, file, error }`; `test`
+core's result plus `error`; `apply` `{ test, declined, apply, error }`. The one-use `schemaMutationKey` is in no
+`--json` body (`apply` mints its own). `error` is `null` on success, else `{ kind, message, howTo }`, and a command
+that fails before it has a result (not a super user, an org that cannot be resolved, an unreadable manifest, an
+`-o` file left alone, an apply whose answer never came back) prints its own family's body, empty, with `error` set.
+`kind` is one of `GATE_FAILED`, `TEST_REFUSED`, `NOT_APPLIED`, `DECLINED`, `SUPER_ONLY`, `SERVER_TOO_OLD`,
+`ORG_UNKNOWN`, `ORG_LOOKUP_FAILED`, `UNKNOWN_RECIPE`, `MANIFEST_UNREADABLE`, `OUTPUT_EXISTS`,
+`APPLY_OUTCOME_UNKNOWN` (the connection failed after the yes: the key is spent and the plan may or may not have
+been applied, so run `b6p schema test` again to see whether it still changes anything).
+
 ### Gateway token scopes
 
 `kb` and `marketplace` talk to the BlueStep gateway (`gatewayUrl`, default `https://gateway.bluestep.net`;
