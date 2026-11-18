@@ -480,11 +480,13 @@ export type SchemaCommandFamily = "generate" | "recipe" | "test" | "apply";
  * parses one schema whatever happened.
  * @param family Which command failed
  * @param error What to tell the caller
+ * @param shown For `apply`, the plan the caller was shown before the failure, if there was one (its key is dropped)
  * @lastreviewed null
  */
 export function toFailureJson(
   family: SchemaCommandFamily,
-  error: SchemaErrorJson
+  error: SchemaErrorJson,
+  shown?: SchemaTestResult
 ): SchemaGenerateJson | SchemaRecipeJson | SchemaTestJson | SchemaApplyJson {
   switch (family) {
     case "generate":
@@ -494,7 +496,7 @@ export function toFailureJson(
     case "test":
       return { ...NO_TEST, error };
     case "apply":
-      return { test: NO_TEST, declined: false, apply: null, error };
+      return { test: shown === undefined ? NO_TEST : withoutKey(shown), declined: false, apply: null, error };
   }
 }
 
@@ -538,14 +540,21 @@ export function applyOutcomeUnknown(err: unknown, ctx: SchemaCommandContext): Sc
 }
 
 /**
- * What a failed `--u` lookup reports. Only a BlueHQ answer of "not found" says the U is unknown; any other failure
+ * The statuses BlueHQ answers for a U it does not know: 404, and 406 (seen for a tenant that exists only locally).
+ * Core's error carries the status in its message ("...from BlueHQ: 406"), so it is read from there.
+ * @lastreviewed null
+ */
+const UNKNOWN_U_STATUS = /: (?:404|406)\b/;
+
+/**
+ * What a failed `--u` lookup reports. Only a BlueHQ answer of "not found" (404 or 406) says the U is unknown; any other failure
  * (the network, a server error) is a failed lookup and says so, rather than blaming the U.
  * @param u The U that was looked up
  * @param err What core threw
  * @lastreviewed null
  */
 export function orgLookupProblem(u: string, err: unknown): SchemaErrorJson {
-  if (err instanceof Err.BlueHqHelperEndpointError && /: 404\b/.test(err.message)) {
+  if (err instanceof Err.BlueHqHelperEndpointError && UNKNOWN_U_STATUS.test(err.message)) {
     return { kind: "ORG_UNKNOWN", message: unknownULine(u), howTo: null };
   }
   const why = err instanceof Error ? err.message : String(err);

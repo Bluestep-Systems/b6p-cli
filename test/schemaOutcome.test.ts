@@ -290,6 +290,8 @@ test("F4: only a BlueHQ not-found says the U is unknown; any other failure is a 
   const notFound = new Err.BlueHqHelperEndpointError("Failed to fetch any domain from BlueHQ: 404 Not Found");
   assert.equal(orgLookupProblem("U123456", notFound).kind, "ORG_UNKNOWN");
   const serverError = new Err.BlueHqHelperEndpointError("Failed to fetch any domain from BlueHQ: 503 Service Unavailable");
+  const notAcceptable = new Err.BlueHqHelperEndpointError("Failed to fetch any domain from BlueHQ: 406");
+  assert.equal(orgLookupProblem("U900005", notAcceptable).kind, "ORG_UNKNOWN");
   const failed = orgLookupProblem("U123456", serverError);
   assert.equal(failed.kind, "ORG_LOOKUP_FAILED");
   assert.match(failed.message, /503/);
@@ -321,4 +323,16 @@ test("F10: the exit code is raise-only, and the newline helper adds exactly one"
   assert.equal(raiseExitCode("1" as unknown as number, 0), 1);
   assert.equal(withTrailingNewline("a"), "a\n");
   assert.equal(withTrailingNewline("a\n"), "a\n");
+});
+
+test("an unknown-outcome apply body carries the plan that was shown, without its key", () => {
+  const error = applyOutcomeUnknown(new Error("socket hang up"), ctx);
+  const shown = passed([action({ element: "Form c", action: "CREATE" })]);
+  const body = toFailureJson("apply", error, shown) as ReturnType<typeof toApplyJson>;
+  assert.equal(body.test.passed, true);
+  assert.equal(body.test.actions[0].element, "Form c");
+  assert.ok(!("schemaMutationKey" in body.test));
+  assert.equal(body.apply, null);
+  assert.equal(body.error?.kind, "APPLY_OUTCOME_UNKNOWN");
+  assert.equal((toFailureJson("apply", error) as ReturnType<typeof toApplyJson>).test.actions.length, 0);
 });

@@ -318,6 +318,7 @@ pass is never asked about. The root --yes takes the default answer, which is No,
             const commandContext = { file, dialect, selector, confirm: opts.confirm === true };
             let shown = false;
             let confirmed = false;
+            let shownPlan: SchemaTestResult | undefined;
             let outcome;
             try {
               outcome = await ctx.core.schema.testThenApply(
@@ -325,6 +326,7 @@ pass is never asked about. The root --yes takes the default answer, which is No,
                 manifest,
                 async (result) => {
                   shown = true;
+                  shownPlan = result;
                   if (!ctx.globalOpts.json) {
                     printPlan(ctx, result);
                   }
@@ -346,7 +348,7 @@ pass is never asked about. The root --yes takes the default answer, which is No,
               // Once the caller said yes, an error that is not a refusal says nothing about whether the apply went
               // through: the key is spent and the request may have arrived.
               if (confirmed && !isForbidden(err) && !isServerTooOld(err)) {
-                reportFailure(ctx, "apply", applyOutcomeUnknown(err, commandContext));
+                reportFailure(ctx, "apply", applyOutcomeUnknown(err, commandContext), shownPlan);
                 return;
               }
               throw err;

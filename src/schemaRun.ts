@@ -1,5 +1,7 @@
 import * as fs from "fs/promises";
+import type { SchemaTestResult } from "@bluestep-systems/b6p-core";
 import { resolve, type CliContext } from "./context";
+import { NonInteractiveInputError } from "./providers/CliPrompt";
 import { outputExistsProblem, toFailureJson, type SchemaCommandFamily, type SchemaErrorJson } from "./schemaOutcome";
 
 /**
@@ -8,14 +10,16 @@ import { outputExistsProblem, toFailureJson, type SchemaCommandFamily, type Sche
  * @param ctx The session; only its reporting channels are used
  * @param family Which command failed
  * @param error What to tell the caller
+ * @param shown For `apply`, the plan the caller was shown before the failure, if there was one
  * @lastreviewed null
  */
 export function reportFailure(
   ctx: Pick<CliContext, "emitJson" | "fail"> & { prompt: Pick<CliContext["prompt"], "notice"> },
   family: SchemaCommandFamily,
-  error: SchemaErrorJson
+  error: SchemaErrorJson,
+  shown?: SchemaTestResult
 ): void {
-  ctx.emitJson(toFailureJson(family, error));
+  ctx.emitJson(toFailureJson(family, error, shown));
   ctx.fail(error.message);
   if (error.howTo !== null) {
     ctx.prompt.notice(error.howTo);
@@ -38,7 +42,7 @@ async function fileExists(file: string): Promise<boolean> {
 /**
  * Whether `-o <file>` may be written: always when the file is new; when it exists, only when the caller answers
  * `Overwrite` to a destructive question, which `--yes` and an empty answer never accept (the safe choice, Cancel, is
- * the default).
+ * the default). With no terminal and no piped answer the file is left alone too.
  * @param prompt Asks the question
  * @param file The path as the user gave it
  * @param resolved The path to look at on disk
@@ -55,11 +59,19 @@ export async function mayWriteOutput(
   if (!(await exists(resolved))) {
     return true;
   }
-  const answer = await prompt.confirm(`${file} already exists. Overwrite it?`, ["Cancel", "Overwrite"], {
-    destructive: true,
-    safeOption: "Cancel",
-  });
-  return answer === "Overwrite";
+  try {
+    const answer = await prompt.confirm(`${file} already exists. Overwrite it?`, ["Cancel", "Overwrite"], {
+      destructive: true,
+      safeOption: "Cancel",
+    });
+    return answer === "Overwrite";
+  } catch (err) {
+    // No terminal and no piped answer: nobody said Overwrite, so the file stays (reported as OUTPUT_EXISTS).
+    if (err instanceof NonInteractiveInputError) {
+      return false;
+    }
+    throw err;
+  }
 }
 
 /**
