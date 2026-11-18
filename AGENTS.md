@@ -72,6 +72,10 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
   and queues lines: one line answers one prompt, however they arrive, and end of input with the
   queue empty throws `NonInteractiveInputError`. Don't go back to `question()` per prompt: it drops
   a line that arrives with no question pending and never settles at end of input.
+- **`kb create` / `kb set` talk to the gateway from [src/kbAdmin.ts](src/kbAdmin.ts), not through core**, because
+  core's `GatewayClient.request()` returns no response headers and PATCH needs the `ETag` of a GET as `If-Match`.
+  It reuses core's `authHeadersFor` and `gatewayErrorFor`. When core can return headers (or grows
+  `GatewayKb.create`/`update`), move the calls there and delete the file.
 - **`push`'s exit code, error line and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**,
   as pure functions with their own tests: `pushProblem` is the one verdict (exit code, `--json`'s
   `error` `{ kind, message, howTo }` and the "To go on:" line), and a deploy target is judged by the same

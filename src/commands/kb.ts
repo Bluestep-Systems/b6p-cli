@@ -3,8 +3,17 @@ import { Err } from "@bluestep-systems/b6p-core";
 import type { GatewayKnowledgeBase, GatewayKnowledgeBaseStatus } from "@bluestep-systems/b6p-core";
 import type { Command } from "commander";
 import { findCloneRoot } from "../cloneRoot";
-import { withCore, type GlobalOpts } from "../context";
+import { withCore, type CliContext, type GlobalOpts } from "../context";
 import { formatTable, printResult, runGateway } from "../gatewayRun";
+import {
+  changeKnowledgeBase,
+  createKnowledgeBase,
+  describeDetail,
+  parseAccess,
+  publicWarning,
+  readKnowledgeBase,
+  type AdminClient,
+} from "../kbAdmin";
 
 /**
  * One sentence per non-ok status, printed once after the table when any listed row has it.
@@ -36,8 +45,29 @@ export function statusNotes(list: GatewayKnowledgeBase[]): string[] {
 }
 
 /**
+ * Before a knowledge base becomes public: `--yes` goes ahead (and says so), otherwise the user is asked,
+ * with Cancel the safe answer. Returns whether to go on.
+ * @lastreviewed null
+ */
+async function confirmPublic(ctx: CliContext, name: string): Promise<boolean> {
+  const warning = publicWarning(name);
+  if (ctx.globalOpts.yes) {
+    ctx.prompt.warn(`${warning} Making it public because --yes was passed.`);
+    return true;
+  }
+  const cancel = "Cancel";
+  const publish = `Make ${name} public`;
+  const answer = await ctx.prompt.confirm(`${warning} Make it public?`, [cancel, publish], {
+    destructive: true,
+    safeOption: cancel,
+  });
+  return answer === publish;
+}
+
+/**
  * Mount knowledge bases at `b6p kb <verb>`: list what the stored gateway token may read, pull one
- * into a folder, push a folder back. Needs the `kb:read` scope (and `kb:push` to push).
+ * into a folder, push a folder back, register one and change its title, live branch or access.
+ * Needs the `kb:read` scope (`kb:push` to push, `kb:manage` to create or set).
  * @lastreviewed null
  */
 export function registerKbCommands(program: Command): void {
@@ -131,6 +161,103 @@ export function registerKbCommands(program: Command): void {
         "Pushing knowledge base…"
       );
     });
+
+  kb.command("create <name>")
+    .description("Register a global knowledge base (needs kb:manage and a super user)")
+    .option("--title <title>", "Its title (default: the name)")
+    .option("--live-branch <branch>", "Its live branch (default: master)")
+    .option("--access <access>", "public (anyone, signed out, may read it) or private (the default)")
+    .action(async (name: string, opts: { title?: string; liveBranch?: string; access?: string }) => {
+      await withCore(
+        globals(),
+        async (ctx) => {
+          const access = parseAccess(opts.access);
+          if (!access.ok) {
+            ctx.fail(access.message);
+            return;
+          }
+          if (access.access === "public" && !(await confirmPublic(ctx, name))) {
+            ctx.fail("Cancelled: no knowledge base was created.");
+            return;
+          }
+          await runGateway(ctx, async () => {
+            const created = await createKnowledgeBase(adminClient(ctx), globalThis.fetch, name, {
+              title: opts.title,
+              liveBranch: opts.liveBranch,
+              access: access.access,
+            });
+            printResult(ctx, `Created ${created.ref}\n${describeDetail(created)}`, { knowledgeBase: created });
+          });
+        },
+        "Creating knowledge base…"
+      );
+    });
+
+  kb.command("set <name>")
+    .description("Change a global knowledge base's title, live branch or access (needs kb:manage and a super user)")
+    .option("--title <title>", "A new title")
+    .option("--live-branch <branch>", "A new live branch")
+    .option("--access <access>", "public (anyone, signed out, may read it) or private")
+    .action(async (name: string, opts: { title?: string; liveBranch?: string; access?: string }) => {
+      await withCore(
+        globals(),
+        async (ctx) => {
+          const access = parseAccess(opts.access);
+          if (!access.ok) {
+            ctx.fail(access.message);
+            return;
+          }
+          if (opts.title === undefined && opts.liveBranch === undefined && access.access === undefined) {
+            ctx.fail("Nothing to change. Pass at least one of --title, --live-branch or --access.");
+            return;
+          }
+          await runGateway(ctx, async () => {
+            const client = adminClient(ctx);
+            const found = await ctx.core.gateway.kb.resolve(name);
+            if (found.scope !== "global" || found.id === null) {
+              ctx.fail(
+                found.scope !== "global"
+                  ? `${found.ref} is a tenant's knowledge base; only global ones can be changed here.`
+                  : `${found.ref} has no knowledge base record yet, so there is nothing to change.`
+              );
+              return;
+            }
+            const { detail, etag } = await readKnowledgeBase(client, globalThis.fetch, found.id);
+            const want = {
+              title: opts.title !== undefined && opts.title !== detail.title ? opts.title : undefined,
+              liveBranch:
+                opts.liveBranch !== undefined && opts.liveBranch !== detail.liveBranch ? opts.liveBranch : undefined,
+              access: access.access !== undefined && access.access !== detail.access ? access.access : undefined,
+            };
+            if (want.title === undefined && want.liveBranch === undefined && want.access === undefined) {
+              printResult(ctx, `${detail.ref} is already as asked; nothing changed.\n${describeDetail(detail)}`, {
+                knowledgeBase: detail,
+                changed: false,
+              });
+              return;
+            }
+            if (want.access === "public" && !(await confirmPublic(ctx, detail.name))) {
+              ctx.fail(`Cancelled: ${detail.ref} was not changed.`);
+              return;
+            }
+            const changed = await changeKnowledgeBase(client, globalThis.fetch, detail.id, etag, want);
+            printResult(ctx, `Updated ${changed.ref}\n${describeDetail(changed)}`, {
+              knowledgeBase: changed,
+              changed: true,
+            });
+          });
+        },
+        "Changing knowledge base…"
+      );
+    });
+}
+
+/**
+ * The gateway client of core, as the admin calls use it.
+ * @lastreviewed null
+ */
+function adminClient(ctx: CliContext): AdminClient {
+  return ctx.core.gateway.client;
 }
 
 /**

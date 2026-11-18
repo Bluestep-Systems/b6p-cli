@@ -60,7 +60,7 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
       scope === "tokens:self"
         ? " Token management needs tokens:self; mint a token that has it in the web token page (this command cannot widen your own token)."
         : "";
-    return `${what}\nThe stored token lacks the \`${scope}\` scope. Mint a token with \`${scope}\` (kb:read, kb:push, registry:read, tokens:self are the scopes b6p uses) and run \`b6p auth set\`.${extra}`;
+    return `${what}\nThe stored token lacks the \`${scope}\` scope. Mint a token with \`${scope}\` (kb:read, kb:push, kb:manage, registry:read, tokens:self are the scopes b6p uses) and run \`b6p auth set\`.${extra}`;
   }
   if (err instanceof Err.GatewayInvalidRequestError) {
     return `${what}\nThe gateway rejected what was sent (a malformed value, a bad alias, a past expiry, an unknown scope or a bad filter). Check the options you passed against \`b6p <command> --help\`; if they look right, try \`b6p check-updates\`.`;
@@ -212,6 +212,12 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
       default:
         return assertNever(err.reason);
     }
+  }
+  if (err instanceof Err.GatewayUnexpectedResponseError && err.status === 412) {
+    return `${what}\nSomeone changed the knowledge base after b6p read it, so nothing was changed. Run the command again.`;
+  }
+  if (err instanceof Err.GatewayUnexpectedResponseError && err.status === 428) {
+    return `${what}\nThe gateway wants to know which version is being changed and b6p did not say. This is a b6p fault; try \`b6p check-updates\`.`;
   }
   if (err instanceof Err.GatewayUnexpectedResponseError && err.code === "redirect-refused") {
     return `${what}\nb6p never follows a redirect, so the token cannot be sent to another address. Check the gateway address (\`b6p config set gatewayUrl https://gateway.bluestep.net\`), and tell the gateway's operators if it is correct.`;

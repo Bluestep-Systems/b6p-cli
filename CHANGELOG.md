@@ -5,6 +5,14 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`b6p kb create <name>` and `b6p kb set <name>`** register a global knowledge base and change its title, live
+  branch or access (`public` or `private`), in one request each. Needs the `kb:manage` scope. Making a knowledge
+  base public asks first, naming it (Cancel is the default); `--yes` goes ahead. ClickUp 1k5g91bqhx6.
+
 ## [1.0.0] — 2026-11-17
 
 ### Fixed
