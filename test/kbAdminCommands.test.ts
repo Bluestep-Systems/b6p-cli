@@ -50,6 +50,7 @@ let seen: Seen[] = [];
 // The registry row the fake serves: bumped on every PATCH, its version is the ETag.
 let row: { name: string; title: string; liveBranch: string; access: string | null; version: number };
 // What the next PATCH answers instead of applying, if set.
+let omitAccess = false;
 let patchFailure: { status: number; body: unknown } | undefined;
 
 function detail(): Record<string, unknown> {
@@ -63,7 +64,7 @@ function detail(): Record<string, unknown> {
     gitUrl: gateway.gitUrl("knowledge-base", `kb-${row.name}`),
     createdAt: "2026-11-18T10:00:00Z",
     modifiedAt: "2026-11-18T10:00:00Z",
-    ...(row.access === null ? {} : { access: { kind: row.access } }),
+    ...(row.access === null || omitAccess ? {} : { access: { kind: row.access } }),
   };
 }
 
@@ -189,6 +190,7 @@ after(async () => {
 beforeEach(() => {
   seen = [];
   patchFailure = undefined;
+  omitAccess = false;
   row = { name: "docs", title: "Docs", liveBranch: "master", access: "private", version: 1 };
 });
 
@@ -214,7 +216,7 @@ test("kb create --access public asks first, naming the knowledge base; Cancel (o
   const cancel = await b6p(["kb", "create", "guides", "--access", "public"], "Cancel\n");
   assert.equal(cancel.code, 1);
   assert.match(cancel.stderr, /Anyone on the internet will be able to read guides with no sign-in: every commit reachable from its live branch, including files since deleted/);
-  assert.match(cancel.stderr, /Cancelled: no knowledge base was created/);
+  assert.match(cancel.stderr, /Cancelled: guides was not made public/);
   assert.equal(seen.length, 0, "nothing was sent");
 
   const empty = await b6p(["kb", "create", "guides", "--access", "public"], "\n");
@@ -222,17 +224,27 @@ test("kb create --access public asks first, naming the knowledge base; Cancel (o
   assert.equal(seen.length, 0);
 });
 
-test("kb create --access public goes ahead on the explicit answer, and under --yes", async () => {
+test("kb create --access public: --yes alone refuses and sends nothing; --confirm-public goes ahead", async () => {
+  const yes = await b6p(["--yes", "kb", "create", "guides", "--access", "public"]);
+  assert.equal(yes.code, 1);
+  assert.match(yes.stderr, /--yes alone never makes a knowledge base public\. Pass --confirm-public/);
+  assert.match(yes.stderr, /including files since deleted from it/);
+  assert.equal(seen.length, 0);
+
+  const flag = await b6p(["kb", "create", "guides", "--access", "public", "--confirm-public"]);
+  assert.equal(flag.code, 0, flag.stderr);
+  assert.match(flag.stderr, /Making it public because --confirm-public was passed/);
+  assert.deepEqual(seen[0].body, { name: "guides", access: { kind: "public" } });
+  seen = [];
+  const both = await b6p(["--yes", "kb", "create", "guides", "--access", "public", "--confirm-public"]);
+  assert.equal(both.code, 0, both.stderr);
+});
+
+test("kb create --access public goes ahead on the explicit answer", async () => {
   const answered = await b6p(["kb", "create", "guides", "--access", "public"], "Make guides public\n");
   assert.equal(answered.code, 0, answered.stderr);
   assert.deepEqual(seen[0].body, { name: "guides", access: { kind: "public" } });
   assert.match(answered.stdout, /access: public/);
-
-  seen = [];
-  const yes = await b6p(["--yes", "kb", "create", "guides", "--access", "public"]);
-  assert.equal(yes.code, 0, yes.stderr);
-  assert.match(yes.stderr, /Making it public because --yes was passed/);
-  assert.deepEqual(seen[0].body, { name: "guides", access: { kind: "public" } });
 });
 
 test("kb create --access private needs no question, and a bad --access is refused before anything is sent", async () => {
@@ -254,7 +266,7 @@ test("kb create: a taken name is reported with its way out; --json carries the k
   assert.equal(json.code, 0, json.stderr);
   const body = JSON.parse(json.stdout);
   assert.equal(body.knowledgeBase.ref, "global/guides");
-  assert.equal(body.knowledgeBase.access, "private");
+  assert.deepEqual(body.knowledgeBase.access, { kind: "private" });
 });
 
 test("kb set: resolves the name, reads the ETag, and sends ONE PATCH with If-Match and every given field", async () => {
@@ -269,7 +281,7 @@ test("kb set: resolves the name, reads the ETag, and sends ONE PATCH with If-Mat
   assert.match(r.stdout, /title:  Product docs/);
 });
 
-test("kb set --access public asks first; Cancel changes nothing; the answer or --yes changes it", async () => {
+test("kb set --access public asks first; Cancel changes nothing; the answer or --confirm-public changes it", async () => {
   const cancel = await b6p(["kb", "set", "docs", "--access", "public"], "Cancel\n");
   assert.equal(cancel.code, 1);
   assert.match(cancel.stderr, /Anyone on the internet will be able to read docs with no sign-in: every commit reachable from its live branch, including files since deleted/);
@@ -290,7 +302,11 @@ test("kb set --access public asks first; Cancel changes nothing; the answer or -
   row.access = "private";
   seen = [];
   const yes = await b6p(["--yes", "kb", "set", "docs", "--access", "public"]);
-  assert.equal(yes.code, 0, yes.stderr);
+  assert.equal(yes.code, 1);
+  assert.match(yes.stderr, /--yes alone never makes a knowledge base public/);
+  assert.equal(seen.filter((s) => s.method === "PATCH").length, 0);
+  const flag = await b6p(["kb", "set", "docs", "--access", "public", "--confirm-public"]);
+  assert.equal(flag.code, 0, flag.stderr);
   assert.equal(seen.filter((s) => s.method === "PATCH").length, 1);
 });
 
@@ -304,7 +320,7 @@ test("kb set with no field is a usage error and sends nothing", async () => {
 test("kb set: a tenant's knowledge base and an unknown name are refused", async () => {
   const tenant = await b6p(["kb", "set", "U1/notes", "--title", "x"]);
   assert.equal(tenant.code, 1);
-  assert.match(tenant.stderr, /tenant's knowledge base; only global ones can be changed here/);
+  assert.match(tenant.stderr, /tenant knowledge base; only global knowledge bases are managed here/);
   const missing = await b6p(["kb", "set", "nope", "--title", "x"]);
   assert.equal(missing.code, 1);
   assert.match(missing.stderr, /No knowledge base "nope"/);
@@ -335,7 +351,7 @@ test("kb set never sends access unless --access was given, and an unknown kind s
   assert.equal(title.code, 0, title.stderr);
   const patch = seen.find((s) => s.method === "PATCH");
   assert.deepEqual(patch?.body, { title: "New" }, "no access in the body");
-  assert.match(title.stdout, /access: a kind this version does not know/);
+  assert.match(title.stdout, /access: unknown \(a kind this version does not know/);
   assert.equal(row.access, "scoped", "the unknown kind was not rewritten");
 
   seen = [];
@@ -348,4 +364,16 @@ test("kb set never sends access unless --access was given, and an unknown kind s
   const explicit = await b6p(["kb", "set", "docs", "--access", "private"]);
   assert.equal(explicit.code, 0, explicit.stderr);
   assert.deepEqual(seen.find((s) => s.method === "PATCH")?.body, { access: { kind: "private" } });
+});
+
+test("a gateway that sends no access back is reported as not reported, and an access change is not claimed", async () => {
+  omitAccess = true;
+  const r = await b6p(["kb", "create", "guides", "--access", "private"]);
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /access: not reported/);
+  assert.match(r.stderr, /did not report global\/guides's access, so b6p cannot say it is private/);
+
+  const plain = await b6p(["kb", "create", "plain"]);
+  assert.equal(plain.code, 0, plain.stderr);
+  assert.match(plain.stdout, /access: not reported/);
 });

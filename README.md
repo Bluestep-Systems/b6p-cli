@@ -137,8 +137,8 @@ A new token can never outlive the token that creates it: an explicit `--expires`
 | `b6p kb list [--scope global\|tenant] [--tenant U…]` | List the knowledge bases you may read, whether you may push, and each one's STATUS (`ok`, `branch-mismatch`, `repo-only`, `row-only`, `unconfirmed`, `undescribed`; a note under the table explains each one present) |
 | `b6p kb pull <ref> [dir]` | Clone a knowledge base into a folder (default `./<name>`, or `./<tenant>-<name>` for a tenant's), or fast-forward an existing clone |
 | `b6p kb push [dir]` | Push a clone (default: the current folder, or the clone that contains it) to the knowledge base's live branch |
-| `b6p kb create <name> [--title <t>] [--live-branch <b>] [--access public\|private]` | Register a global knowledge base (and its repository). Defaults: title = name, branch `master`, private |
-| `b6p kb set <name> [--title <t>] [--live-branch <b>] [--access public\|private]` | Change a global knowledge base's title, live branch or access, in one request; at least one option is required |
+| `b6p kb create <name> [--title <t>] [--live-branch <b>] [--access public\|private] [--confirm-public]` | Register a global knowledge base (and its repository). Defaults: title = name, branch `master`, private |
+| `b6p kb set <name> [--title <t>] [--live-branch <b>] [--access public\|private] [--confirm-public]` | Change a global knowledge base's title, live branch or access, in one request; at least one option is required |
 
 `<ref>` is `<name>` for a global knowledge base or `U<number>/<name>` for a tenant's; names and the tenant match in any letter case, and the local folder uses the canonical name. Pulls never
 overwrite local changes (the dirty paths are listed) and pushes are fast-forward only: if the knowledge
@@ -146,7 +146,8 @@ base moved on, pull first. Pushing needs push rights on that knowledge base as w
 
 `kb create` and `kb set` are for super users and need the `kb:manage` scope (`kb set` also needs `kb:read`, to find
 the knowledge base). `--access public` lets anyone on the internet read the knowledge base with no sign-in, and that covers every commit reachable from the live branch, files since deleted included, so b6p asks
-first, naming the knowledge base (Cancel is the default); `--yes` goes ahead, and says it did. A knowledge base that
+first, naming the knowledge base (Cancel is the default). `--confirm-public` goes ahead without asking, and says so; the global `--yes`
+alone never makes a knowledge base public (it refuses). A knowledge base that
 is already public is left alone. `--json` prints `{ knowledgeBase, changed }` (`kb set`) or `{ knowledgeBase }`
 (`kb create`). Only global knowledge bases can be created or changed; a tenant's cannot.
 

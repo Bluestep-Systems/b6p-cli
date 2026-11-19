@@ -10,9 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`b6p kb create <name>` and `b6p kb set <name>`** register a global knowledge base and change its title, live
-  branch or access (`public` or `private`), in one request each. Needs the `kb:manage` scope. Making a knowledge
+  branch or access (`public` or `private`), in one request each. Needs the `kb:manage` scope and b6p-core 1.2.0. Making a knowledge
   base public asks first, naming it and warning that every commit reachable from the live branch, files since
-  deleted included, becomes publicly readable (Cancel is the default); `--yes` goes ahead. ClickUp 1k5g91bqhx6.
+  deleted included, becomes publicly readable (Cancel is the default); `--confirm-public` goes ahead, and the global `--yes` alone never makes it public. ClickUp 1k5g91bqhx6.
 
 ## [1.0.0] — 2026-11-17
 
