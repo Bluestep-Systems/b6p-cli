@@ -71,7 +71,7 @@ export function parseAccess(
  * @lastreviewed null
  */
 export function publicWarning(name: string): string {
-  return `Anyone on the internet will be able to read every file in the live branch of ${name}, with no sign-in. Anything already in it becomes public.`;
+  return `Anyone on the internet will be able to read ${name} with no sign-in: every commit reachable from its live branch, including files since deleted from it. Anything that was ever committed there becomes public.`;
 }
 
 /**

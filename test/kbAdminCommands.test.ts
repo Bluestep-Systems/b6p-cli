@@ -213,7 +213,7 @@ test("kb create: with only a name, nothing else is sent", async () => {
 test("kb create --access public asks first, naming the knowledge base; Cancel (or nothing) creates nothing", async () => {
   const cancel = await b6p(["kb", "create", "guides", "--access", "public"], "Cancel\n");
   assert.equal(cancel.code, 1);
-  assert.match(cancel.stderr, /Anyone on the internet will be able to read every file in the live branch of guides/);
+  assert.match(cancel.stderr, /Anyone on the internet will be able to read guides with no sign-in: every commit reachable from its live branch, including files since deleted/);
   assert.match(cancel.stderr, /Cancelled: no knowledge base was created/);
   assert.equal(seen.length, 0, "nothing was sent");
 
@@ -272,7 +272,7 @@ test("kb set: resolves the name, reads the ETag, and sends ONE PATCH with If-Mat
 test("kb set --access public asks first; Cancel changes nothing; the answer or --yes changes it", async () => {
   const cancel = await b6p(["kb", "set", "docs", "--access", "public"], "Cancel\n");
   assert.equal(cancel.code, 1);
-  assert.match(cancel.stderr, /Anyone on the internet will be able to read every file in the live branch of docs/);
+  assert.match(cancel.stderr, /Anyone on the internet will be able to read docs with no sign-in: every commit reachable from its live branch, including files since deleted/);
   assert.equal(seen.filter((s) => s.method === "PATCH").length, 0);
 
   const ok = await b6p(["kb", "set", "docs", "--access", "public"], "Make docs public\n");
@@ -327,4 +327,25 @@ test("kb set: a 412 says to run it again, a 403 for a missing scope names kb:man
   const body = JSON.parse(json.stdout);
   assert.equal(body.changed, true);
   assert.equal(body.knowledgeBase.title, "New");
+});
+
+test("kb set never sends access unless --access was given, and an unknown kind stays unknown", async () => {
+  row.access = "scoped";
+  const title = await b6p(["kb", "set", "docs", "--title", "New"]);
+  assert.equal(title.code, 0, title.stderr);
+  const patch = seen.find((s) => s.method === "PATCH");
+  assert.deepEqual(patch?.body, { title: "New" }, "no access in the body");
+  assert.match(title.stdout, /access: a kind this version does not know/);
+  assert.equal(row.access, "scoped", "the unknown kind was not rewritten");
+
+  seen = [];
+  const same = await b6p(["kb", "set", "docs", "--title", "New"]);
+  assert.match(same.stdout, /already as asked/);
+  assert.match(same.stdout, /treat it as private/);
+  assert.equal(seen.filter((s) => s.method === "PATCH").length, 0);
+
+  seen = [];
+  const explicit = await b6p(["kb", "set", "docs", "--access", "private"]);
+  assert.equal(explicit.code, 0, explicit.stderr);
+  assert.deepEqual(seen.find((s) => s.method === "PATCH")?.body, { access: { kind: "private" } });
 });

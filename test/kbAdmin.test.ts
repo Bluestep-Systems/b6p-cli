@@ -46,5 +46,5 @@ test("parseDetail refuses a body without a required field, naming the field and 
 test("describeDetail and publicWarning say what matters", () => {
   assert.match(describeDetail(parseDetail({ ...base, access: { kind: "scoped" } }, "x", 200)), /treat it as private/);
   assert.match(describeDetail(parseDetail(base, "x", 200)), /predates public knowledge bases/);
-  assert.match(publicWarning("docs"), /Anyone on the internet will be able to read every file in the live branch of docs/);
+  assert.match(publicWarning("docs"), /Anyone on the internet will be able to read docs with no sign-in: every commit reachable from its live branch, including files since deleted/);
 });

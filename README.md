@@ -145,7 +145,7 @@ overwrite local changes (the dirty paths are listed) and pushes are fast-forward
 base moved on, pull first. Pushing needs push rights on that knowledge base as well as the `kb:push` scope.
 
 `kb create` and `kb set` are for super users and need the `kb:manage` scope (`kb set` also needs `kb:read`, to find
-the knowledge base). `--access public` lets anyone on the internet read the live branch with no sign-in, so b6p asks
+the knowledge base). `--access public` lets anyone on the internet read the knowledge base with no sign-in, and that covers every commit reachable from the live branch, files since deleted included, so b6p asks
 first, naming the knowledge base (Cancel is the default); `--yes` goes ahead, and says it did. A knowledge base that
 is already public is left alone. `--json` prints `{ knowledgeBase, changed }` (`kb set`) or `{ knowledgeBase }`
 (`kb create`). Only global knowledge bases can be created or changed; a tenant's cannot.
