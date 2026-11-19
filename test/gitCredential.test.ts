@@ -18,7 +18,8 @@ import {
   type GitCredentialSetupResult,
   type GitCredentialSetupStatus,
 } from "@bluestep-systems/b6p-core";
-import { answerGitCredential } from "../src/gitCredentialHelper";
+import { HELPER_DIAGNOSTIC, isGitCredentialHelperArgv, runGitCredentialHelper } from "../src/gitCredentialHelper";
+import { nodeGuardExitCode } from "../src/nodeGuard";
 import {
   cloneHint,
   describeGitSetupError,
@@ -39,54 +40,143 @@ const posixOnly = { skip: process.platform === "win32" ? "uses POSIX shell stand
 
 // ── Unit: the helper's I/O ────────────────────────────────────────────
 
-function io(answer: (action: string, input: string) => Promise<string>, input = "protocol=https\nhost=h\n\n") {
+/** A stand-in `process` for runGitCredentialHelper: records writes, listeners and exits. */
+function fakeProcess(input = "protocol=https\nhost=h\n\n", opts: { stdoutFails?: boolean } = {}) {
   const out: string[] = [];
   const err: string[] = [];
-  return {
-    out,
-    err,
-    io: {
-      input: Readable.from([Buffer.from(input)]),
-      writeAnswer: (t: string) => out.push(t),
-      writeDiagnostic: (t: string) => err.push(t),
-      answer,
+  const exits: number[] = [];
+  const listeners = new Map<string, (() => void)[]>();
+  const streamErrors: ((e: Error) => void)[] = [];
+  const stream = (into: string[], fails: boolean) => ({
+    write(text: string, cb: (e?: Error | null) => void) {
+      if (fails) {
+        const e = Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+        cb(e);
+        for (const l of streamErrors) {
+          l(e);
+        }
+        return false;
+      }
+      into.push(text);
+      cb();
+      return true;
+    },
+    on(_event: "error", l: (e: Error) => void) {
+      streamErrors.push(l);
+      return this;
+    },
+  });
+  const proc = {
+    stdin: Readable.from([Buffer.from(input)]),
+    stdout: stream(out, opts.stdoutFails === true),
+    stderr: stream(err, false),
+    on(event: "unhandledRejection" | "uncaughtException", l: () => void) {
+      listeners.set(event, [...(listeners.get(event) ?? []), l]);
+      return proc;
+    },
+    exit(code: 0) {
+      exits.push(code);
     },
   };
+  const fire = (event: string) => (listeners.get(event) ?? []).forEach((l) => l());
+  return { proc, out, err, exits, fire };
 }
 
-test("git-credential writes exactly core's answer, and is handed git's action and request", async () => {
+test("git-credential writes exactly core's answer, is handed git's action and request, and exits 0", async () => {
   const seen: [string, string][] = [];
   const answerText = `username=b6p\npassword=${TOKEN}\n`;
-  const run = io(async (action, input) => {
-    seen.push([action, input]);
-    return answerText;
-  });
-  assert.equal(await answerGitCredential("get", run.io), 0);
-  assert.deepEqual(run.out, [answerText]);
-  assert.deepEqual(run.err, []);
+  const f = fakeProcess();
+  await runGitCredentialHelper(
+    "get",
+    async (action, input) => {
+      seen.push([action, input]);
+      return answerText;
+    },
+    f.proc
+  );
+  assert.deepEqual(f.out, [answerText]);
+  assert.deepEqual(f.err, []);
+  assert.deepEqual(f.exits, [0]);
   assert.deepEqual(seen, [["get", "protocol=https\nhost=h\n\n"]]);
 });
 
 test("git-credential exits 0 with nothing on stdout when answering throws, and never prints the error", async () => {
-  const run = io(async () => {
-    throw new Error(`boom ${TOKEN}`);
-  });
-  assert.equal(await answerGitCredential("get", run.io), 0);
-  assert.deepEqual(run.out, []);
-  assert.equal(run.err.length, 1);
-  assert.doesNotMatch(run.err.join(""), new RegExp(TOKEN));
-  assert.doesNotMatch(run.err.join(""), /boom/);
+  const f = fakeProcess();
+  await runGitCredentialHelper(
+    "get",
+    async () => {
+      throw new Error(`boom ${TOKEN}`);
+    },
+    f.proc
+  );
+  assert.deepEqual(f.out, []);
+  assert.deepEqual(f.err, [HELPER_DIAGNOSTIC]);
+  assert.deepEqual(f.exits, [0]);
 });
 
 test("git-credential with no action asks core with an empty action and writes nothing for an empty answer", async () => {
   let asked: string | undefined;
-  const run = io(async (action) => {
-    asked = action;
-    return "";
-  });
-  assert.equal(await answerGitCredential(undefined, run.io), 0);
+  const f = fakeProcess();
+  await runGitCredentialHelper(
+    undefined,
+    async (action) => {
+      asked = action;
+      return "";
+    },
+    f.proc
+  );
   assert.equal(asked, "");
-  assert.deepEqual(run.out, []);
+  assert.deepEqual(f.out, []);
+  assert.deepEqual(f.exits, [0]);
+});
+
+test("git-credential: a failing stdout write (any code, not only EPIPE) is contained and exits 0", async () => {
+  const f = fakeProcess(undefined, { stdoutFails: true });
+  await runGitCredentialHelper("get", async () => `username=b6p\npassword=${TOKEN}\n`, f.proc);
+  assert.ok(f.exits.length > 0 && f.exits.every((c) => c === 0), `exits: ${f.exits}`);
+  assert.doesNotMatch(f.err.join(""), new RegExp(TOKEN));
+});
+
+test("git-credential: an unhandled rejection while answering is one line and the answer still goes out", async () => {
+  const f = fakeProcess();
+  await runGitCredentialHelper(
+    "get",
+    async () => {
+      f.fire("unhandledRejection");
+      f.fire("unhandledRejection");
+      return "username=b6p\npassword=x\n";
+    },
+    f.proc
+  );
+  assert.deepEqual(f.out, ["username=b6p\npassword=x\n"]);
+  assert.deepEqual(f.err, [HELPER_DIAGNOSTIC], "one generic line, however many");
+  assert.deepEqual(f.exits, [0]);
+});
+
+test("git-credential: an uncaught exception exits 0", async () => {
+  const f = fakeProcess();
+  await runGitCredentialHelper(
+    "get",
+    async () => {
+      f.fire("uncaughtException");
+      return "";
+    },
+    f.proc
+  );
+  assert.ok(f.exits.every((c) => c === 0));
+  assert.deepEqual(f.err, [HELPER_DIAGNOSTIC]);
+});
+
+test("the helper is recognised by position only: `auth git-credential ...`, not the word anywhere", () => {
+  const argv = (...rest: string[]) => ["node", "cli.js", ...rest];
+  assert.equal(isGitCredentialHelperArgv(argv("auth", "git-credential", "get")), true);
+  assert.equal(isGitCredentialHelperArgv(argv("auth", "git-credential", "get", "--help")), true);
+  assert.equal(isGitCredentialHelperArgv(argv("script", "pull", "--workspace", "git-credential")), false);
+  assert.equal(isGitCredentialHelperArgv(argv("--verbose", "auth", "git-credential", "get")), false);
+  assert.equal(isGitCredentialHelperArgv(argv("auth", "status", "git-credential")), false);
+  // The too-old-Node guard exits 0 only for the helper.
+  assert.equal(nodeGuardExitCode(argv("auth", "git-credential", "get")), 0);
+  assert.equal(nodeGuardExitCode(argv("script", "pull", "--workspace", "git-credential", "https://x")), 1);
 });
 
 // ── Unit: wording ─────────────────────────────────────────────────────
@@ -261,7 +351,7 @@ test("auth set's question defaults to yes (Enter on its own)", async () => {
 
 test("auth set without a terminal (or under --yes) prints a hint and never asks", async () => {
   const { o, calls } = offer({ interactive: false, answer: "Yes" });
-  await offerGitSetup(o);
+  assert.deepEqual(await offerGitSetup(o), { configured: false, hint: OFFER_HINT });
   assert.deepEqual(calls.confirm, []);
   assert.deepEqual(calls.info, [OFFER_HINT]);
   assert.equal(calls.setup, 0);
@@ -460,4 +550,66 @@ test("e2e: auth set under --yes prints the hint, never the question", async () =
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stderr, /run `b6p auth setup-git`/);
   assert.doesNotMatch(r.stderr, /Set up git to use this token/);
+});
+
+// ── End to end: the helper's containment (Codex review r1) ────────────
+
+test("e2e: a cache that fails to hydrate does not change the helper's answer or exit code", async () => {
+  const broken = fs.mkdtempSync(path.join(os.tmpdir(), "b6p-cli-gitcred-hydrate-"));
+  try {
+    const env = isolatedEnv(broken);
+    const set = spawnSync(process.execPath, [CLI, "auth", "set"], { input: `${TOKEN}\n`, encoding: "utf8", env });
+    assert.equal(set.status, 0, set.stderr);
+    // A persisted ScriptKey with no seqnum: ScriptMetaDataStore's background hydration rejects.
+    fs.writeFileSync(
+      path.join(broken, ".b6p", "state.json"),
+      JSON.stringify({ "b6p:script_metadata": { all: [{ scriptKey: { __serializable: "ScriptKey", classid: "1" } }] } })
+    );
+    const r = spawnSync(process.execPath, [CLI, "auth", "git-credential", "get"], { input: GET, encoding: "utf8", env });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, `username=b6p\npassword=${TOKEN}\n`);
+    assert.doesNotMatch(r.stderr, /\s+at |ScriptKey/, "no stack trace or error text");
+  } finally {
+    fs.rmSync(broken, { recursive: true, force: true });
+  }
+});
+
+test("e2e: --help, --version and unknown flags after the helper's action never print or fail", async () => {
+  for (const extra of [["--help"], ["--version"], ["--bogus"], ["-h", "-V"]]) {
+    const r = await b6p(["auth", "git-credential", "get", ...extra], GET);
+    assert.equal(r.code, 0, `${extra.join(" ")}: ${r.stderr}`);
+    assert.equal(r.stdout, `username=b6p\npassword=${TOKEN}\n`, extra.join(" "));
+  }
+});
+
+test("e2e: a stdout that cannot be written (a full disk) still exits 0", { skip: !fs.existsSync("/dev/full") }, () => {
+  const full = fs.openSync("/dev/full", "w");
+  try {
+    const r = spawnSync(process.execPath, [CLI, "auth", "git-credential", "get"], {
+      input: GET,
+      stdio: ["pipe", full, "pipe"],
+      encoding: "utf8",
+      env: isolatedEnv(home),
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.doesNotMatch(r.stderr, new RegExp(TOKEN));
+    assert.doesNotMatch(r.stderr, /\s+at /);
+  } finally {
+    fs.closeSync(full);
+  }
+});
+
+test("e2e: auth set --json carries the git hint in its result", async () => {
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), "b6p-cli-gitcred-json-"));
+  try {
+    const r = spawnSync(process.execPath, [CLI, "--json", "auth", "set"], {
+      input: `${TOKEN}\n`,
+      encoding: "utf8",
+      env: isolatedEnv(fresh),
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout), { authenticated: true, git: { configured: false, hint: OFFER_HINT } });
+  } finally {
+    fs.rmSync(fresh, { recursive: true, force: true });
+  }
 });

@@ -1,5 +1,5 @@
 import { Err, gitConfigRunner, type GitCredentialSetupStatus } from "@bluestep-systems/b6p-core";
-import type { CliContext } from "./context";
+import { withCore, type CliContext } from "./context";
 import {
   SETUP_GIT_COMMAND,
   cloneHint,
@@ -98,30 +98,46 @@ export const OFFER_QUESTION = "Set up git to use this token for git pull and git
 export const OFFER_HINT = `To let plain git pull and git push use this token, run \`${SETUP_GIT_COMMAND}\`.`;
 
 /**
+ * What {@link offerGitSetup} found, for `b6p auth set --json`'s `git` field.
+ *
+ * - `configured`: whether git uses the token for every host b6p answers for; `false` when there is
+ *   no host yet, `null` when git could not be checked or setup was run (its own output says how
+ *   it went).
+ * - `hint`: the one-line hint, when one was given instead of asking.
+ * @lastreviewed null
+ */
+export interface GitSetupOfferOutcome {
+  configured: boolean | null;
+  hint: string | null;
+}
+
+/**
  * After `b6p auth set` stores a token: when git is not set up for every host b6p answers for, ask
- * whether to set it up now (default yes), or, when nobody can answer, print a one-line hint.
+ * whether to set it up now (default yes), or, when nobody can answer, give a one-line hint.
  * Nothing is said when git is set up already, when there is no host yet, or when git cannot be
  * checked (that is `b6p auth status`'s and `b6p auth setup-git`'s to report).
  * @lastreviewed null
  */
-export async function offerGitSetup(offer: GitSetupOffer): Promise<void> {
+export async function offerGitSetup(offer: GitSetupOffer): Promise<GitSetupOfferOutcome> {
   let status: GitCredentialSetupStatus;
   try {
     status = await offer.status();
   } catch {
     // The token is stored; a git that cannot be checked must not turn that into a failure.
-    return;
+    return { configured: null, hint: null };
   }
   if (status.hosts.length === 0 || status.configured) {
-    return;
+    return { configured: status.configured, hint: null };
   }
   if (!offer.interactive) {
     offer.info(OFFER_HINT);
-    return;
+    return { configured: false, hint: OFFER_HINT };
   }
   if ((await offer.confirm(OFFER_QUESTION, ["Yes", "No"])) === "Yes") {
     await offer.setup();
+    return { configured: null, hint: null };
   }
+  return { configured: false, hint: null };
 }
 
 /**
@@ -163,4 +179,13 @@ export function scriptPullHint(ctx: CliContext, workspace: string): Promise<void
   return hintAfterPull(pullReport(ctx), async () =>
     statusHint(await ctx.core.gitCredential.setupStatus({ cwd: workspace }))
   );
+}
+
+/**
+ * `core.gitCredential.answer` in a core session of its own, for the credential helper: `quiet`, so
+ * no spinner, and no root flags, so no prompt and no JSON body.
+ * @lastreviewed null
+ */
+export function answerWithCore(action: string, request: string): Promise<string> {
+  return withCore({ quiet: true }, (ctx) => ctx.core.gitCredential.answer(action, request));
 }

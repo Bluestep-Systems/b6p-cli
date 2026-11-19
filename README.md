@@ -441,7 +441,9 @@ echo "$B6P_TOKEN" | b6p auth set
 ```
 
 Piped (or under `--yes` or `--json`), `auth set` does not ask about git; it prints a one-line hint to run
-`b6p auth setup-git` when git is not set up. `b6p --json auth status` carries git's state as `git`: core's
+`b6p auth setup-git` when git is not set up. Under `--json` the hint is in the result instead:
+`{ "authenticated": true, "git": { "configured": false, "hint": "…" } }` (`configured` is `null` when git could
+not be checked, and `hint` is `null` when there is nothing to say). `b6p --json auth status` carries git's state as `git`: core's
 status (`configured`, `hosts`, `otherHelpers`, `scope`) with `error: null`, or `{ "error": "<why>" }` when
 git cannot be checked.
 

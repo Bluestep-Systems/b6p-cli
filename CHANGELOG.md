@@ -18,13 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   had to leave. A plain push to a draft does not build or publish; that still takes `b6p script push`. Needs git
   2.27 (2.42 for setup); an older git fails setup with exit `1`, saying so.
 - **`b6p auth set` offers to set git up** once a token is stored and git is not set up (Yes is the default). Piped,
-  or under `--yes` or `--json`, it never asks and prints a one-line hint instead.
+  or under `--yes`, it never asks and prints a one-line hint instead; under `--json` it prints
+  `{ authenticated, git: { configured, hint } }`.
 - **`b6p auth status` reports git**: set up, not set up (and which other helper git asks), or git too old. Under
   `--json` it is the new `git` field.
 - **`b6p kb pull` (a new clone) and `b6p script pull` print a one-line hint** to run `b6p auth setup-git` when git
-  there would not use the token. The hint never fails the pull.
-- `b6p auth git-credential get|store|erase`, hidden from help, is the command git runs: it writes only core's
-  answer to stdout and always exits `0`.
+  there would not use the token. The hint never fails the pull. Known gap: after a script pull the hint reads the
+  git config in effect where the workspace is, not the draft clone's own config, since core's pull result does
+  not name the draft folder yet.
+- `b6p auth git-credential get|store|erase`, hidden from help, is the command git runs. It is recognised by its
+  position (`b6p auth git-credential <action>`) and run before any option parsing, so `--help`, `--version` or an
+  unknown flag after it change nothing; it writes only core's answer to stdout and always exits `0`, even when a
+  cache fails to load in the background, stdout or stderr cannot be written, or Node is too old.
 
 ## [1.1.0] — 2026-11-19
 

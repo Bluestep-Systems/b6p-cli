@@ -4,9 +4,9 @@ import { withCore, type CliContext, type GlobalOpts } from "../context";
 import { describeGatewayError } from "../gatewayErrors";
 import { formatTable, printResult, runGateway, writeStdout } from "../gatewayRun";
 import { confirmNeverExpires, confirmRevokeCurrent, parseExpires } from "../tokenExpiry";
-import { answerGitCredential } from "../gitCredentialHelper";
+import { runGitCredentialHelper } from "../gitCredentialHelper";
 import { gitStatusLine } from "../gitSetup";
-import { offerGitSetup, runRemoveGit, runSetupGit } from "../gitSetupRun";
+import { answerWithCore, offerGitSetup, runRemoveGit, runSetupGit } from "../gitSetupRun";
 
 /**
  * Shown before delegating to the core credential prompt.
@@ -51,14 +51,16 @@ export function registerAuthCommands(program: Command): void {
         if (ctx.hasFailed() || !(await core.auth.hasCredentials())) {
           return;
         }
-        // Offer git's credential helper once a token is stored, as `gh auth login` does.
-        await offerGitSetup({
+        // Offer git's credential helper once a token is stored, as `gh auth login` does. Under
+        // --json the hint is the result's `git` field, since prompt.info says nothing there.
+        const git = await offerGitSetup({
           interactive: process.stdin.isTTY === true && !ctx.globalOpts.yes && !ctx.globalOpts.json,
           status: () => core.gitCredential.setupStatus({ cwd: process.cwd() }),
           confirm: (message, options) => prompt.confirm(message, options),
           info: (message) => prompt.info(message),
           setup: () => runSetupGit(ctx),
         });
+        ctx.emitJson({ authenticated: true, git });
       });
     });
 
@@ -106,21 +108,17 @@ export function registerAuthCommands(program: Command): void {
     });
 
   // Run by git, never by a person: `git` runs `b6p auth git-credential get|store|erase` with the
-  // request on stdin (written by `setup-git`). stdout carries core's answer and nothing else, and
-  // the exit code is always 0, so git never sees a failure or a partial answer. The root flags are
-  // ignored: no spinner, no prompt, no JSON body.
+  // request on stdin (written by `setup-git`). index.ts recognises that command line and runs the
+  // helper before Commander parses anything (runGitCredentialHelper: stdout carries core's answer
+  // and nothing else, exit always 0). This registration keeps the name reserved and out of help;
+  // its action is the same helper, for a program built some other way.
   auth
     .command("git-credential [action]", { hidden: true })
     .description("git's credential helper (set up by `b6p auth setup-git`)")
     .allowUnknownOption()
     .allowExcessArguments()
     .action(async (action: string | undefined) => {
-      process.exitCode = await answerGitCredential(action, {
-        input: process.stdin,
-        writeAnswer: (text) => process.stdout.write(text),
-        writeDiagnostic: (text) => process.stderr.write(text),
-        answer: (a, request) => withCore({ quiet: true }, (ctx) => ctx.core.gitCredential.answer(a, request)),
-      });
+      await runGitCredentialHelper(action, answerWithCore);
     });
 
   auth
