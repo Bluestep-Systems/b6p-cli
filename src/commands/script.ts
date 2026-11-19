@@ -20,6 +20,7 @@ import { describeGitError } from "../gitErrors";
 import { pushFailureOf } from "../pushFailure";
 import { deployFailsOnTypeErrors, deploySnapshots, describeDeploy, planDeploy, removeTempDir } from "../deployRun";
 import { AUTHOR_SETTING, chooseAuthor, type CommitAuthor } from "../author";
+import { scriptPullHint } from "../gitSetupRun";
 
 const ENABLE_GIT_HELP =
   "Switch a script that still publishes over WebDAV to git without asking. The switch is one-way. " +
@@ -237,7 +238,8 @@ const addPull: Registrar = (parent, globals, hidden) =>
     .option("--enable-git", ENABLE_GIT_HELP)
     .action(
       async (formulaUrl: string | undefined, opts: { file?: string; workspace?: string; enableGit?: boolean }) => {
-        await withCore(globals(), async ({ core, prompt, spinner, emitJson, fail }) => {
+        await withCore(globals(), async (ctx) => {
+          const { core, prompt, spinner, emitJson, fail } = ctx;
           // Default to "pull current" when no formula URL is given:
           // use --file if provided, otherwise treat cwd as the file path so the
           // script root can be derived by walking up.
@@ -278,6 +280,8 @@ const addPull: Registrar = (parent, globals, hidden) =>
             // file is the divergence guard working as intended, and failing here
             // would make every pull in a tree with local edits exit non-zero.
             emitJson(result);
+            spinner.stop();
+            await scriptPullHint(ctx, opts.workspace ? resolve(opts.workspace) : process.cwd());
           }
         });
       }

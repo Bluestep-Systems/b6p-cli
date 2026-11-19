@@ -83,6 +83,11 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
   match on it, so do not reword it. Core says what happened and why; the "how to go on" lines (the
   commands to run, `--overwrite` and delete commands) are the CLI's, quoted per `ShellDialect` (POSIX,
   or PowerShell on Windows without `MSYSTEM`/`SHELL`).
+- **`b6p auth git-credential` is run by git, not people** (hidden; written into git config by `auth setup-git`).
+  Its stdout is exactly `core.gitCredential.answer(action, stdin)` and nothing else, it always exits `0` (even on
+  an error, an unknown flag or a too-old Node), and the token never reaches stderr or a log. It ignores the root
+  flags and runs `withCore` with `quiet`, so no spinner, prompt or JSON body. Setup, status and the pull hints'
+  wording is in [src/gitSetup.ts](src/gitSetup.ts); what is set up and why is core's.
 - **A deploy config with an unknown key is refused by name** before anything is pushed
   (`deployConfigKeyProblem` in [src/deployRun.ts](src/deployRun.ts)), at the top level and in each
   target. Adding a config key means adding it to `DEPLOY_CONFIG_KEYS` / `DEPLOY_TARGET_KEYS`.

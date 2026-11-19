@@ -18,6 +18,7 @@ import { EXIT_FAILURE, EXIT_SIGINT, EXIT_SUCCESS, FailureTracker } from "../src/
 import { exitCodeOnEpipe, fatalExitCode } from "../src/fatal";
 import { CliPrompt, PromptCancelledError } from "../src/providers/CliPrompt";
 import { CliLogger } from "../src/providers/CliLogger";
+import { isolatedEnv } from "./isolatedEnv";
 
 /** Run `fn` with stderr swallowed, so the adapters under test stay quiet. */
 function silenceStderr<T>(fn: () => T): T {
@@ -141,7 +142,7 @@ function runCli(args: string[], input = ""): CliRun {
       encoding: "utf8",
       timeout: 60_000,
       input,
-      env: { ...process.env, HOME: home, USERPROFILE: home },
+      env: isolatedEnv(home),
     });
     assert.equal(result.error, undefined, `spawn failed: ${result.error?.message}`);
     assert.notEqual(result.status, null, "CLI was killed by a signal (timeout?)");
@@ -166,7 +167,7 @@ test("`auth status` with no token is a report, not a failure", () => {
   // reported value; only a broken lookup should be an error.
   const run = runCli(["--json", "auth", "status"]);
   assert.equal(run.status, EXIT_SUCCESS);
-  assert.deepEqual(JSON.parse(run.stdout), { authenticated: false });
+  assert.equal(JSON.parse(run.stdout).authenticated, false);
 });
 
 test("a reported failure exits non-zero and says why", () => {

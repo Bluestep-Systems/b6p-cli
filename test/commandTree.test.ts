@@ -124,8 +124,20 @@ test("auth exposes a non-prompting status verb", () => {
   const auth = child(program(), "auth");
   assert.deepEqual(
     auth.commands.map((c) => c.name()).filter((n) => n !== "help"),
-    ["set", "status", "clear", "token"]
+    ["set", "status", "setup-git", "git-credential", "clear", "token"]
   );
+});
+
+test("auth git-credential is registered but hidden from help; setup-git is shown", () => {
+  // git runs `b6p auth git-credential get|store|erase`; a person never types it.
+  const auth = child(program(), "auth");
+  const visible = auth
+    .createHelp()
+    .visibleCommands(auth)
+    .map((c) => c.name());
+  assert.ok(!visible.includes("git-credential"), "git-credential must not be listed in `b6p auth --help`");
+  assert.ok(visible.includes("setup-git"));
+  assert.ok(child(auth, "setup-git").options.some((o) => o.long === "--remove"));
 });
 
 test("kb, marketplace and auth token own their gateway verbs", () => {
