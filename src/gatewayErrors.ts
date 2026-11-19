@@ -60,7 +60,16 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
       scope === "tokens:self"
         ? " Token management needs tokens:self; mint a token that has it in the web token page (this command cannot widen your own token)."
         : "";
-    return `${what}\nThe stored token lacks the \`${scope}\` scope. Mint a token with \`${scope}\` (kb:read, kb:push, registry:read, tokens:self are the scopes b6p uses) and run \`b6p auth set\`.${extra}`;
+    return `${what}\nThe stored token lacks the \`${scope}\` scope. Mint a token with \`${scope}\` (kb:read, kb:push, kb:manage, registry:read, tokens:self are the scopes b6p uses) and run \`b6p auth set\`.${extra}`;
+  }
+  if (err instanceof Err.GatewayPreconditionFailedError) {
+    return `${what}\nSomeone changed the knowledge base after b6p read it, so nothing was changed. Run the command again.`;
+  }
+  if (err instanceof Err.GatewayPreconditionRequiredError) {
+    return `${what}\nThe gateway wants to know which version is being changed and b6p did not say. This is a b6p fault; try \`b6p check-updates\`.`;
+  }
+  if (err instanceof Err.GatewayAccessRefusedError) {
+    return `${what}\nThe gateway refused the access setting. It may predate public knowledge bases, or the value was not accepted. Nothing was changed. Try \`--access public\` or \`--access private\` again after the gateway is updated.`;
   }
   if (err instanceof Err.GatewayInvalidRequestError) {
     return `${what}\nThe gateway rejected what was sent (a malformed value, a bad alias, a past expiry, an unknown scope or a bad filter). Check the options you passed against \`b6p <command> --help\`; if they look right, try \`b6p check-updates\`.`;

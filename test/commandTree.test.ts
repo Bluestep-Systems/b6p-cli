@@ -131,7 +131,7 @@ test("auth exposes a non-prompting status verb", () => {
 test("kb, marketplace and auth token own their gateway verbs", () => {
   const names = (c: Command) => c.commands.map((x) => x.name()).filter((n) => n !== "help");
   const root = program();
-  assert.deepEqual(names(child(root, "kb")), ["list", "pull", "push"]);
+  assert.deepEqual(names(child(root, "kb")), ["list", "pull", "push", "create", "set"]);
   assert.deepEqual(names(child(root, "marketplace")), ["list", "pull"]);
   assert.deepEqual(names(child(child(root, "auth"), "token")), ["list", "create", "revoke", "rotate"]);
   assert.ok(!root.commands.some((c) => c.name() === "token"), "token commands live under `auth`, not at the top");

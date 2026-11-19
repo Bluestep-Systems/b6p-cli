@@ -72,6 +72,8 @@ point [src/index.ts](src/index.ts) (version injection and `parseAsync` only); th
   and queues lines: one line answers one prompt, however they arrive, and end of input with the
   queue empty throws `NonInteractiveInputError`. Don't go back to `question()` per prompt: it drops
   a line that arrives with no question pending and never settles at end of input.
+- **No custom gateway behaviour here.** `kb create` / `kb set` call core's `gateway.kb.create` / `read` / `update`; anything the
+  gateway needs that core lacks (headers, a route, an error class) is added to b6p-core and released first, then wired.
 - **`push`'s exit code, error line and `--json` body come from [src/pushOutcome.ts](src/pushOutcome.ts)**,
   as pure functions with their own tests: `pushProblem` is the one verdict (exit code, `--json`'s
   `error` `{ kind, message, howTo }` and the "To go on:" line), and a deploy target is judged by the same
