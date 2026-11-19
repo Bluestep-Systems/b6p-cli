@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-11-19
+
 ### Added
 
 - **Plain `git pull` and `git push` with the stored token: `b6p auth setup-git`** (b6p-core 1.3.0's
