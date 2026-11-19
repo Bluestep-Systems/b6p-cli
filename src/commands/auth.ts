@@ -1,9 +1,12 @@
 import type { Command } from "commander";
-import { Err } from "@bluestep-systems/b6p-core";
+import { Err, type GitCredentialSetupStatus } from "@bluestep-systems/b6p-core";
 import { withCore, type CliContext, type GlobalOpts } from "../context";
 import { describeGatewayError } from "../gatewayErrors";
 import { formatTable, printResult, runGateway, writeStdout } from "../gatewayRun";
 import { confirmNeverExpires, confirmRevokeCurrent, parseExpires } from "../tokenExpiry";
+import { runGitCredentialHelper } from "../gitCredentialHelper";
+import { gitStatusLine } from "../gitSetup";
+import { answerWithCore, offerGitSetup, runRemoveGit, runSetupGit } from "../gitSetupRun";
 
 /**
  * Shown before delegating to the core credential prompt.
@@ -29,7 +32,8 @@ export function registerAuthCommands(program: Command): void {
     .command("set")
     .description("Set or update the access token")
     .action(async () => {
-      await withCore(globals(), async ({ core, prompt }) => {
+      await withCore(globals(), async (ctx) => {
+        const { core, prompt } = ctx;
         // `info` is already a no-op under --json, so this is unconditional. It
         // goes to stderr, which keeps stdout clean for JSON consumers anyway.
         prompt.info(TOKEN_HINT);
@@ -44,12 +48,25 @@ export function registerAuthCommands(program: Command): void {
         } else {
           await core.auth.createNew();
         }
+        if (ctx.hasFailed() || !(await core.auth.hasCredentials())) {
+          return;
+        }
+        // Offer git's credential helper once a token is stored, as `gh auth login` does. Under
+        // --json the hint is the result's `git` field, since prompt.info says nothing there.
+        const git = await offerGitSetup({
+          interactive: process.stdin.isTTY === true && !ctx.globalOpts.yes && !ctx.globalOpts.json,
+          status: () => core.gitCredential.setupStatus({ cwd: process.cwd() }),
+          confirm: (message, options) => prompt.confirm(message, options),
+          info: (message) => prompt.info(message),
+          setup: () => runSetupGit(ctx),
+        });
+        ctx.emitJson({ authenticated: true, git });
       });
     });
 
   auth
     .command("status")
-    .description("Report whether an access token is stored")
+    .description("Report whether an access token is stored, and whether git is set up to use it")
     .action(async () => {
       await withCore(globals(), async ({ core, prompt, emitJson }) => {
         // hasCredentials() never prompts, so this stays safe to run unattended.
@@ -58,10 +75,50 @@ export function registerAuthCommands(program: Command): void {
         // It cannot tell you the token is still valid on the server, so a `true`
         // here is "something is configured", not "this will authenticate".
         const authenticated = await core.auth.hasCredentials();
-        emitJson({ authenticated });
+        // git's credential helper: set up, not set up (and why), or git cannot be checked. A
+        // negative answer here is a report too, never a failure.
+        let git: GitCredentialSetupStatus | { error: string };
+        try {
+          git = await core.gitCredential.setupStatus({ cwd: process.cwd() });
+        } catch (err) {
+          // Never fail `auth status` over git: scripts branch on its answer, not its exit code.
+          git = { error: err instanceof Error ? err.message : String(err) };
+        }
+        emitJson({ authenticated, git: "error" in git ? git : { ...git, error: null } });
         // Reporting "no" is this command working correctly, so it stays exit 0.
         prompt.info(authenticated ? "Access token stored." : "No access token stored — run `b6p auth set`.");
+        prompt.info(gitStatusLine(git));
       });
+    });
+
+  auth
+    .command("setup-git")
+    .description(
+      "Set git to use b6p's token for git pull and git push to the gateway and the tenants you pull scripts from"
+    )
+    .option("--remove", "Take b6p's entries out of your git config again")
+    .action(async (opts: { remove?: boolean }) => {
+      await withCore(
+        globals(),
+        async (ctx) => {
+          await (opts.remove ? runRemoveGit(ctx) : runSetupGit(ctx));
+        },
+        "Setting up git…"
+      );
+    });
+
+  // Run by git, never by a person: `git` runs `b6p auth git-credential get|store|erase` with the
+  // request on stdin (written by `setup-git`). index.ts recognises that command line and runs the
+  // helper before Commander parses anything (runGitCredentialHelper: stdout carries core's answer
+  // and nothing else, exit always 0). This registration keeps the name reserved and out of help;
+  // its action is the same helper, for a program built some other way.
+  auth
+    .command("git-credential [action]", { hidden: true })
+    .description("git's credential helper (set up by `b6p auth setup-git`)")
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .action(async (action: string | undefined) => {
+      await runGitCredentialHelper(action, answerWithCore);
     });
 
   auth

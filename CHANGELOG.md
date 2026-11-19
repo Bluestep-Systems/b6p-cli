@@ -5,6 +5,32 @@ All notable changes to `@bluestep-systems/b6p-cli` will be documented in this fi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Plain `git pull` and `git push` with the stored token: `b6p auth setup-git`** (b6p-core 1.3.0's
+  `core.gitCredential`, ClickUp 1k5g91bqme2). It makes `b6p` git's credential helper, as `gh auth setup-git` does,
+  for the gateway (when https) and the tenants you have pulled scripts from: an empty `helper =` and then
+  `!b6p auth git-credential` per host in the file `git config --global` writes, so no other helper sees or keeps
+  the token. It says what it wrote and where, what was set up already, and any entry of yours that still makes git
+  ask another helper; running it again changes nothing. `--remove` takes b6p's entries out and reports any reset it
+  had to leave. A plain push to a draft does not build or publish; that still takes `b6p script push`. Needs git
+  2.27 (2.42 for setup); an older git fails setup with exit `1`, saying so.
+- **`b6p auth set` offers to set git up** once a token is stored and git is not set up (Yes is the default). Piped,
+  or under `--yes`, it never asks and prints a one-line hint instead; under `--json` it prints
+  `{ authenticated, git: { configured, hint } }`.
+- **`b6p auth status` reports git**: set up, not set up (and which other helper git asks), or git too old. Under
+  `--json` it is the new `git` field.
+- **`b6p kb pull` (a new clone) and `b6p script pull` print a one-line hint** to run `b6p auth setup-git` when git
+  there would not use the token. The hint never fails the pull. Known gap: after a script pull the hint reads the
+  git config in effect where the workspace is, not the draft clone's own config, since core's pull result does
+  not name the draft folder yet.
+- `b6p auth git-credential get|store|erase`, hidden from help, is the command git runs. It is recognised by its
+  position (`b6p auth git-credential <action>`) and run before any option parsing, so `--help`, `--version` or an
+  unknown flag after it change nothing; it writes only core's answer to stdout and always exits `0`, even when a
+  cache fails to load in the background, stdout or stderr cannot be written, or Node is too old.
+
 ## [1.1.0] — 2026-11-19
 
 ### Added

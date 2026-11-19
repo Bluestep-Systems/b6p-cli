@@ -77,6 +77,29 @@ b6p auth set
 If no token is stored, the first command you run asks for it. A `401` with a `b6pt_` token usually
 means the token expired or its account lost access, not that it is the wrong kind of token.
 
+### Plain `git pull` and `git push`
+
+`b6p` can be git's credential helper, the way `gh auth setup-git` is for github.com, so plain `git pull`
+and `git push` in a knowledge-base clone or a script's `draft/` folder use the stored token without asking:
+
+```bash
+b6p auth setup-git            # set git up (b6p auth set offers to do this for you)
+b6p auth setup-git --remove   # take it out again
+```
+
+It answers git only for the gateway (when its URL is https) and for the tenants you have pulled a script
+from, over https, and for nothing else. Setup writes, for each of those hosts, a
+`[credential "https://<host>"]` section to the file `git config --global` writes: an empty `helper =`, so
+no other helper (`store`, `cache`, a keychain) answers for that host or keeps a copy of the token, then
+`helper = !b6p auth git-credential`. Your own entries are never moved or removed: if one still applies to a
+host after b6p's (in a repository's own config, say), setup says which and what to change. Running it again
+changes nothing; after a first script pull from another tenant, run it again to add that tenant. `b6p auth
+status` says whether git is set up, and a `kb pull` or `script pull` prints a one-line hint when it is not.
+
+A plain `git push` to a script's draft lands the commit but does not build or publish it: that still takes
+`b6p script push`. git asks `b6p` by name, so `b6p` must be on the `PATH` git sees. Needs git 2.27 or later
+(2.42 or later for setup). `b6p auth git-credential` is the command git runs; it is not for typing.
+
 ## Commands
 
 `b6p` is organised as `b6p <subsystem> <verb>`. Each top-level name is a part of the
@@ -107,7 +130,9 @@ platform; the verbs beneath it act on that part.
 | Command | Purpose |
 |---|---|
 | `b6p auth set` | Set or update the access token |
-| `b6p auth status` | Report whether a token is stored (never prompts) |
+| `b6p auth status` | Report whether a token is stored, and whether git is set up to use it (never prompts) |
+| `b6p auth setup-git` | Set git to use the token for plain `git pull` and `git push` ([details](#plain-git-pull-and-git-push)) |
+| `b6p auth setup-git --remove` | Take b6p's entries out of your git config |
 | `b6p auth clear` | Clear the stored token |
 | `b6p auth token list` | List your own tokens, expired ones included, marked `(expired)` (the secret is never shown) |
 | `b6p auth token create --alias <a> --scopes <s,…> [--expires <90d\|date\|date-time\|never>]` | Mint a token; the secret is printed once |
@@ -414,6 +439,13 @@ Set a token non-interactively by piping it in:
 ```bash
 echo "$B6P_TOKEN" | b6p auth set
 ```
+
+Piped (or under `--yes` or `--json`), `auth set` does not ask about git; it prints a one-line hint to run
+`b6p auth setup-git` when git is not set up. Under `--json` the hint is in the result instead:
+`{ "authenticated": true, "git": { "configured": false, "hint": "…" } }` (`configured` is `null` when git could
+not be checked, and `hint` is `null` when there is nothing to say). `b6p --json auth status` carries git's state as `git`: core's
+status (`configured`, `hosts`, `otherHelpers`, `scope`) with `error: null`, or `{ "error": "<why>" }` when
+git cannot be checked.
 
 ## WebDAV URL format
 

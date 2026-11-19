@@ -10,6 +10,7 @@ import type { Command } from "commander";
 import { findCloneRoot } from "../cloneRoot";
 import { withCore, type CliContext, type GlobalOpts } from "../context";
 import { formatTable, printResult, runGateway } from "../gatewayRun";
+import { kbPullHint } from "../gitSetupRun";
 
 /**
  * One sentence per non-ok status, printed once after the table when any listed row has it.
@@ -199,6 +200,9 @@ export function registerKbCommands(program: Command): void {
             };
             const branch = r.branch ?? "(detached)";
             printResult(ctx, `${verb[r.outcome]} ${r.kb.ref} in ${r.dir} (${branch} at ${r.to.slice(0, 7)})`, r);
+            if (r.outcome === "cloned") {
+              await kbPullHint(ctx, r.dir);
+            }
           });
         },
         "Pulling knowledge base…"

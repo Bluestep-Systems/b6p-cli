@@ -8,6 +8,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { FakeGateway } from "@bluestep-systems/b6p-core";
+import { isolatedEnv } from "./isolatedEnv";
 
 const CLI = path.resolve(__dirname, "../dist/cli.js");
 const TOKEN = "b6pt_e2e_admin_0001";
@@ -25,7 +26,7 @@ interface Run {
 function b6p(args: string[], stdin = ""): Promise<Run> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [CLI, ...args], {
-      env: { ...process.env, HOME: home, USERPROFILE: home },
+      env: isolatedEnv(home),
       stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
