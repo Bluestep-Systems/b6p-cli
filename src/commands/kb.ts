@@ -135,7 +135,7 @@ function unconfirmedAccess(
 /**
  * Mount knowledge bases at `b6p kb <verb>`: list what the stored gateway token may read, pull one
  * into a folder, push a folder back, register one and change its title, live branch or access.
- * Needs the `kb:read` scope (`kb:push` to push, `kb:manage` to create or set).
+ * Needs the `kb:read` scope (`kb:push` to push, `kb:manage` to create, and to change a knowledge base in `set`, which reads it with `kb:read`).
  * @lastreviewed null
  */
 export function registerKbCommands(program: Command): void {
@@ -233,7 +233,7 @@ export function registerKbCommands(program: Command): void {
   kb.command("create <name>")
     .description("Register a global knowledge base (needs kb:manage and a super user)")
     .option("--title <title>", "Its title (default: the name)")
-    .option("--live-branch <branch>", "Its live branch (default: master)")
+    .option("--live-branch <branch>", "Its live branch (default: main)")
     .option("--access <access>", "public (anyone, signed out, may read it) or private (the default)")
     .option("--confirm-public", "Go ahead with --access public without asking (--yes alone never does)")
     .action(
@@ -266,7 +266,9 @@ export function registerKbCommands(program: Command): void {
     );
 
   kb.command("set <name>")
-    .description("Change a global knowledge base's title, live branch or access (needs kb:manage and a super user)")
+    .description(
+      "Change a global knowledge base's title, live branch or access (needs kb:read to find it, kb:manage to change it, and a super user)"
+    )
     .option("--title <title>", "A new title")
     .option("--live-branch <branch>", "A new live branch")
     .option("--access <access>", "public (anyone, signed out, may read it) or private")

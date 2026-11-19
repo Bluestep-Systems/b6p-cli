@@ -338,6 +338,11 @@ test("kb set: a 412 says to run it again, a 403 for a missing scope names kb:man
   assert.equal(scope.code, 1);
   assert.match(scope.stderr, /lacks the `kb:manage` scope/);
 
+  gateway.failNext({ status: 403, body: { error: "scope-missing", scope: "kb:read" }, method: "GET" });
+  const readScope = await b6p(["kb", "set", "docs", "--title", "New"]);
+  assert.equal(readScope.code, 1);
+  assert.match(readScope.stderr, /lacks the `kb:read` scope/);
+
   const json = await b6p(["--json", "kb", "set", "docs", "--title", "New"]);
   assert.equal(json.code, 0, json.stderr);
   const body = JSON.parse(json.stdout);
