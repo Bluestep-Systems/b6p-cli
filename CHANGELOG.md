@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`b6p marketplace create <name> [--description <t>] [--website <url>] [--topic <t>...]`** (b6p-core 1.4.0, ClickUp
+  1k5g91bqxwk) creates an empty, private marketplace repository, or adopts an existing empty one an earlier attempt
+  left, and prints its clone URL. Needs `registry:push` and a fleet super user. The repository is not in
+  `marketplace list` until its first push; push `main` alone first, then its tags in a second push. Refusals (name in
+  use, another change under way, missing scope, not a super user, bad argument, forge unavailable) each say what to do.
+
+### Changed
+
+- Depends on `@bluestep-systems/b6p-core` 1.4.0 (was 1.3.0).
+
 ## [1.2.0] — 2026-11-19
 
 ### Added

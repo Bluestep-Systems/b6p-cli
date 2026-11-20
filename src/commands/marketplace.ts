@@ -3,8 +3,9 @@ import { withCore, type GlobalOpts } from "../context";
 import { formatTable, printResult, runGateway } from "../gatewayRun";
 
 /**
- * Mount the global marketplace at `b6p marketplace <verb>`: list repos and pull a plain working
- * clone. Needs the `registry:read` scope. There is no push.
+ * Mount the global marketplace at `b6p marketplace <verb>`: list repos, pull a plain working
+ * clone (both need `registry:read`) and create an empty repo (`registry:push`, a fleet super). There is no
+ * push of its own: a created repo is pushed with plain git.
  * @lastreviewed null
  */
 export function registerMarketplaceCommands(program: Command): void {
@@ -59,4 +60,49 @@ export function registerMarketplaceCommands(program: Command): void {
         "Pulling marketplace repository…"
       );
     });
+
+  market
+    .command("create <name>")
+    .description("Create an empty marketplace repository (needs registry:push and a fleet super user)")
+    .option("--description <text>", "What the repository is for")
+    .option("--website <url>", "Its website (an http or https URL)")
+    .option("--topic <topic>", "A topic (repeat the option for several)", collectTopic, [] as string[])
+    .action(async (name: string, opts: { description?: string; website?: string; topic: string[] }) => {
+      await withCore(
+        globals(),
+        async (ctx) => {
+          await runGateway(
+            ctx,
+            async () => {
+              const { repo, created } = await ctx.core.gateway.marketplace.create({
+                name,
+                ...(opts.description === undefined ? {} : { description: opts.description }),
+                ...(opts.website === undefined ? {} : { website: opts.website }),
+                ...(opts.topic.length === 0 ? {} : { topics: opts.topic }),
+              });
+              const head = created
+                ? `Created marketplace repository ${repo.name}`
+                : `Adopted the existing empty marketplace repository ${repo.name} (nothing was created; an earlier attempt had left it empty)`;
+              printResult(
+                ctx,
+                `${head}\nClone URL: ${repo.gitUrl}\n` +
+                  `Next: push main alone first: \`git push ${repo.gitUrl} main\`, then its tags in a second push.\n` +
+                  `It will not show in \`b6p marketplace list\` until that first push.`,
+                { repo, created }
+              );
+            },
+            { operation: "marketplace-create" }
+          );
+        },
+        "Creating marketplace repository…"
+      );
+    });
+}
+
+/**
+ * Commander accumulator for a repeatable option.
+ * @lastreviewed null
+ */
+function collectTopic(value: string, previous: string[]): string[] {
+  return [...previous, value];
 }
