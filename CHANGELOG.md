@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The marketplace repository lifecycle** (b6p-core 1.5.0, ClickUp 1k5g91bqyr2). Needs web-global 26.11.20.02 or later
+  on the gateway's side; the routes answer 404 before that.
+  - `b6p marketplace get <name>` shows one repository, an empty one just created included (`list` does not show it).
+  - `b6p marketplace edit <name> [--description <t>] [--website <url>] [--topic <t>...] [--clear-topics]` changes only
+    the options given; `--description ""` and `--website ""` clear those. With no option it is refused.
+  - `b6p marketplace archive <name>` and `unarchive <name>`; an archived repository cannot be pushed to, edited or
+    renamed, and the error says to unarchive it.
+  - `b6p marketplace rename <name> <new-name>` prints the new clone URL and says existing clones keep working through
+    a redirect, with the `git remote set-url origin <url>` to update one.
+  - `b6p marketplace delete <name>` renames the repository to an archived tombstone (nothing is destroyed) and prints
+    its name. It asks you to type the repository name, or takes `--yes`; with no terminal and no `--yes` it refuses.
+  - `b6p marketplace tombstones` lists the deleted repositories.
+  - `b6p marketplace purge <tombstone>` destroys a tombstone for good. It asks you to type the tombstone name, or
+    takes `--confirm-purge` (`--yes` alone never purges, as it never makes a knowledge base public). Needs the
+    history-manager grant besides `registry:push` and a fleet super user; the 403 says so.
+  - `marketplace list` gains an ARCHIVED column (and `archived` in `--json`).
+
+### Changed
+
+- Depends on `@bluestep-systems/b6p-core` 1.5.0 (was 1.4.0).
+
 ## [1.3.0] — 2026-11-20
 
 ### Added

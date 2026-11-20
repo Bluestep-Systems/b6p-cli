@@ -41,7 +41,10 @@ function b6p(args: string[], stdin = ""): Promise<Run> {
 before(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "b6p-cli-gw-"));
   gateway = await FakeGateway.start();
-  gateway.grantToken(TOKEN, ["kb:read", "kb:push", "registry:read", "tokens:self"], { alias: "laptop", expiresAt: null });
+  gateway.grantToken(TOKEN, ["kb:read", "kb:push", "registry:read", "tokens:self"], {
+    alias: "laptop",
+    expiresAt: null,
+  });
   gateway.knowledgeBases = [
     {
       id: "7f1c2b9e-0000-4000-8000-000000000001",
@@ -109,7 +112,11 @@ test("kb list: a STATUS column, one note per non-ok status present, --json carri
     assert.match(human.stdout, /tenant\/U1\/d\s+d\s+master\s+no\s+row-only/);
     assert.match(human.stdout, /tenant\/U1\/g\s+g\s+master\s+no\s+quarantined/);
     const out = human.stdout;
-    assert.equal(out.split("pass --tenant <U…> for titles and status from the tenant").length - 1, 1, "once, not per row");
+    assert.equal(
+      out.split("pass --tenant <U…> for titles and status from the tenant").length - 1,
+      1,
+      "once, not per row"
+    );
     assert.match(out, /the tenant's server did not answer; details may be stale, retry later/);
     assert.match(out, /no repository yet; it cannot be pulled until it is created/);
     assert.match(out, /no matching knowledge base record in the tenant/);
@@ -269,7 +276,16 @@ test("kb push and pull, and marketplace pull, hand core the user's cwd: a relati
   // No git server is mounted, so each fails later than argument checking. What this pins is that the
   // failure is not core's "needs an absolute path / cwd" refusal (GatewayInvalidArgumentError).
   gateway.repos = [
-    { name: "core", description: "", defaultBranch: "master", tags: [], gitUrl: gateway.gitUrl("marketplace", "core") },
+    {
+      name: "core",
+      description: "",
+      defaultBranch: "master",
+      tags: [],
+      gitUrl: gateway.gitUrl("marketplace", "core"),
+      website: "",
+      topics: [],
+      archived: false,
+    },
   ];
   const runs = [
     await b6p(["kb", "push", "some-relative-dir"]),
@@ -327,7 +343,14 @@ test("a kb:rewrite refusal on create and on rotate is explained, and --json carr
   assert.equal(body.scope, "kb:rewrite");
   assert.equal(body.code, "not-permitted");
   assert.match(body.error, /administrator/);
-  assert.equal(json.stdout.trim().split("\n").filter((l) => l === "{").length, 1, "one JSON document");
+  assert.equal(
+    json.stdout
+      .trim()
+      .split("\n")
+      .filter((l) => l === "{").length,
+    1,
+    "one JSON document"
+  );
 
   const made = await b6p(["auth", "token", "create", "--alias", "rw-r", "--scopes", "kb:read"]);
   assert.equal(made.code, 0, made.stderr);
@@ -429,7 +452,18 @@ test("auth token create with no --expires is capped at the stored token's expiry
   assert.deepEqual(body.expiryCapped, { cappedTo: expiry, requested: "90d" });
 
   // A token that expires sooner than the stored one is sent as asked and is not "capped".
-  const early = await b6p(["--json", "auth", "token", "create", "--alias", "early", "--scopes", "kb:read", "--expires", "3d"]);
+  const early = await b6p([
+    "--json",
+    "auth",
+    "token",
+    "create",
+    "--alias",
+    "early",
+    "--scopes",
+    "kb:read",
+    "--expires",
+    "3d",
+  ]);
   assert.equal(early.code, 0, early.stderr);
   assert.equal(JSON.parse(early.stdout).expiryCapped, null);
 });
@@ -445,7 +479,19 @@ test("auth token create: an --expires that outlives the stored token is refused 
   assert.match(later.stderr, /--expires before/);
 
   // Ruling 26 keeps its confirmation; the refusal comes after it.
-  const never = await b6p(["--yes", "--json", "auth", "token", "create", "--alias", "forever-capped", "--scopes", "kb:read", "--expires", "never"]);
+  const never = await b6p([
+    "--yes",
+    "--json",
+    "auth",
+    "token",
+    "create",
+    "--alias",
+    "forever-capped",
+    "--scopes",
+    "kb:read",
+    "--expires",
+    "never",
+  ]);
   assert.equal(never.code, 1);
   const body = JSON.parse(never.stdout);
   assert.match(body.error, /never expires/);
@@ -459,7 +505,11 @@ test("auth token create at the 50-token limit explains how to free one, and work
   gateway.grantToken("b6pt_e2e_full_0005", scopes, { alias: "full", expiresAt: null, owner: "limit-user" });
   assert.equal((await b6p(["auth", "set"], "b6pt_e2e_full_0005\n")).code, 0);
   for (let n = 0; n < 49; n++) {
-    gateway.grantToken(`b6pt_e2e_filler_${n}`, ["kb:read"], { alias: `filler-${n}`, expiresAt: null, owner: "limit-user" });
+    gateway.grantToken(`b6pt_e2e_filler_${n}`, ["kb:read"], {
+      alias: `filler-${n}`,
+      expiresAt: null,
+      owner: "limit-user",
+    });
   }
   const full = await b6p(["auth", "token", "create", "--alias", "one-too-many", "--scopes", "kb:read"]);
   assert.equal(full.code, 1);
@@ -514,7 +564,11 @@ test("a 400 invalid-request, a bare 403 on a mint and a 503 registry-unavailable
   assert.match(refused.stderr, /mcp/);
   assert.doesNotMatch(refused.stderr, /cannot outlive/);
 
-  gateway.failNext({ method: "POST", status: 403, body: { error: "not-permitted", reason: "something-new", message: "m" } });
+  gateway.failNext({
+    method: "POST",
+    status: 403,
+    body: { error: "not-permitted", reason: "something-new", message: "m" },
+  });
   const unknown = await b6p(["auth", "token", "create", "--alias", "r2", "--scopes", "kb:read", "--expires", "1d"]);
   assert.equal(unknown.code, 1);
   assert.match(unknown.stderr, /not allowed/);

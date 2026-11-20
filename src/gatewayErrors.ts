@@ -7,9 +7,41 @@ import { Err } from "@bluestep-systems/b6p-core";
  */
 export interface GatewayErrorContext {
   gatewayUrl?: string;
-  /** The command being run, where an error reads differently for it: `marketplace-create`. */
-  operation?: "marketplace-create";
+  /** The command being run, where an error reads differently for it. */
+  operation?: GatewayOperation;
+  /** The marketplace repository (or tombstone) the command was about, where an error names it. */
+  repo?: string;
 }
+
+/**
+ * The commands whose errors read differently: each marketplace lifecycle write, and the reads that look for one
+ * repository or tombstone.
+ * @lastreviewed null
+ */
+export type GatewayOperation =
+  | "marketplace-create"
+  | "marketplace-get"
+  | "marketplace-edit"
+  | "marketplace-archive"
+  | "marketplace-unarchive"
+  | "marketplace-rename"
+  | "marketplace-delete"
+  | "marketplace-tombstones"
+  | "marketplace-purge";
+
+/**
+ * The verb a marketplace write is, for "Only fleet super users may ...".
+ * @lastreviewed null
+ */
+const MARKETPLACE_WRITE_VERB: Partial<Record<GatewayOperation, string>> = {
+  "marketplace-create": "create marketplace repositories",
+  "marketplace-edit": "edit marketplace repositories",
+  "marketplace-archive": "archive marketplace repositories",
+  "marketplace-unarchive": "unarchive marketplace repositories",
+  "marketplace-rename": "rename marketplace repositories",
+  "marketplace-delete": "delete marketplace repositories",
+  "marketplace-tombstones": "list deleted marketplace repositories",
+};
 
 /**
  * Compile-time exhaustiveness guard: a reason core adds to a union makes the call a type error.
@@ -119,17 +151,40 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
   if (err instanceof Err.GatewayKnowledgeBasePushNotPermittedError) {
     return `${what}\nYou can read ${err.ref} but not push to it. Only that knowledge base's managers (or super users) may push to a global one; ask one of them, or use a tenant you are vouched for.`;
   }
-  if (err instanceof Err.GatewayNotPermittedError && context.operation === "marketplace-create") {
-    return `${what}\nOnly fleet super users may create marketplace repositories, whatever the token's scopes. Ask one to create it (or to make you one).`;
+  if (err instanceof Err.GatewayNotPermittedError && context.operation === "marketplace-purge") {
+    return `${what}\nA purge needs three things together: the \`registry:push\` scope, a fleet super user, and the history-manager grant. Whichever is missing, nothing was purged. Ask a user who holds the history-manager grant to purge it (or to grant it to you).`;
+  }
+  if (err instanceof Err.GatewayNotPermittedError && MARKETPLACE_WRITE_VERB[context.operation as GatewayOperation]) {
+    const verb = MARKETPLACE_WRITE_VERB[context.operation as GatewayOperation];
+    return `${what}\nOnly fleet super users may ${verb}, whatever the token's scopes. Ask one to do it (or to make you one).`;
   }
   if (err instanceof Err.GatewayNotPermittedError) {
     return `${what}\nYour account is not allowed to do this, whatever the token's scopes. Ask someone who manages the target.`;
+  }
+  if (err instanceof Err.GatewayNotFoundError && context.operation === "marketplace-purge") {
+    return `${what}\nNo tombstone has exactly that name (it is \`_deleted-<id>-<name>\`, as \`b6p marketplace delete\` printed it). It may already be purged. See \`b6p marketplace tombstones\`.`;
+  }
+  if (err instanceof Err.GatewayNotFoundError && context.operation?.startsWith("marketplace-")) {
+    return `${what}\nNo marketplace repository has exactly that name (names are lowercase and matched exactly, and a renamed repository's old name no longer answers). \`b6p marketplace list\` shows the repositories that have been pushed to; a repository just created and still empty is found by \`b6p marketplace get <name>\`.`;
   }
   if (err instanceof Err.GatewayNotFoundError) {
     return `${what}\nIt does not exist or you cannot see it. Check the name with \`b6p kb list\` / \`b6p marketplace list\` / \`b6p auth token list\`.`;
   }
   if (err instanceof Err.GatewayLiveBranchUnprotectedError) {
     return `${what}\nNothing was pushed. The knowledge base's live branch must be protected on the forge, and its protection rule is missing or has changed. Ask a Bluestep administrator to restore the branch protection, then run \`b6p kb push\` again.`;
+  }
+  if (err instanceof Err.GatewayRepoArchivedError) {
+    const name = context.repo ?? "<name>";
+    return `${what}\nThe repository is archived, so it cannot be pushed to, edited or renamed. Nothing was changed. Run \`b6p marketplace unarchive ${name}\` first (archive it again afterwards if you want it read-only).`;
+  }
+  if (err instanceof Err.GatewayNotArchivedError) {
+    return `${what}\nNothing was purged. A tombstone left by \`b6p marketplace delete\` is archived, so one that is not is unexpected; check the ARCHIVED column of \`b6p marketplace tombstones\` and tell the gateway's operators.`;
+  }
+  if (err instanceof Err.GatewayRepoExistsError && context.operation === "marketplace-rename") {
+    return `${what}\nA repository already holds the new name (a name that differs only in case counts). Nothing was changed. Choose another name (\`b6p marketplace list\` shows the repositories that exist).`;
+  }
+  if (err instanceof Err.GatewayRepoExistsError && context.operation === "marketplace-delete") {
+    return `${what}\nA repository already holds this one's tombstone name, so nothing was deleted. See \`b6p marketplace tombstones\`; tell the gateway's operators if it is not there.`;
   }
   if (err instanceof Err.GatewayRepoExistsError) {
     return `${what}\nThat name already holds a repository with history, an archived repository, or one that differs only in case. Nothing was changed. Choose another name (\`b6p marketplace list\` shows the repositories that exist).`;
