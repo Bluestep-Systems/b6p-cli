@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-11-20
+
 ### Added
 
 - **`b6p marketplace create <name> [--description <t>] [--website <url>] [--topic <t>...]`** (b6p-core 1.4.0, ClickUp
