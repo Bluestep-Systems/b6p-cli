@@ -7,6 +7,8 @@ import { Err } from "@bluestep-systems/b6p-core";
  */
 export interface GatewayErrorContext {
   gatewayUrl?: string;
+  /** The command being run, where an error reads differently for it: `marketplace-create`. */
+  operation?: "marketplace-create";
 }
 
 /**
@@ -60,7 +62,7 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
       scope === "tokens:self"
         ? " Token management needs tokens:self; mint a token that has it in the web token page (this command cannot widen your own token)."
         : "";
-    return `${what}\nThe stored token lacks the \`${scope}\` scope. Mint a token with \`${scope}\` (kb:read, kb:push, kb:manage, registry:read, tokens:self are the scopes b6p uses) and run \`b6p auth set\`.${extra}`;
+    return `${what}\nThe stored token lacks the \`${scope}\` scope. Mint a token with \`${scope}\` (kb:read, kb:push, kb:manage, registry:read, registry:push, tokens:self are the scopes b6p uses) and run \`b6p auth set\`.${extra}`;
   }
   if (err instanceof Err.GatewayPreconditionFailedError) {
     return `${what}\nSomeone changed the knowledge base after b6p read it, so nothing was changed. Run the command again.`;
@@ -117,6 +119,9 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
   if (err instanceof Err.GatewayKnowledgeBasePushNotPermittedError) {
     return `${what}\nYou can read ${err.ref} but not push to it. Only that knowledge base's managers (or super users) may push to a global one; ask one of them, or use a tenant you are vouched for.`;
   }
+  if (err instanceof Err.GatewayNotPermittedError && context.operation === "marketplace-create") {
+    return `${what}\nOnly fleet super users may create marketplace repositories, whatever the token's scopes. Ask one to create it (or to make you one).`;
+  }
   if (err instanceof Err.GatewayNotPermittedError) {
     return `${what}\nYour account is not allowed to do this, whatever the token's scopes. Ask someone who manages the target.`;
   }
@@ -125,6 +130,12 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
   }
   if (err instanceof Err.GatewayLiveBranchUnprotectedError) {
     return `${what}\nNothing was pushed. The knowledge base's live branch must be protected on the forge, and its protection rule is missing or has changed. Ask a Bluestep administrator to restore the branch protection, then run \`b6p kb push\` again.`;
+  }
+  if (err instanceof Err.GatewayRepoExistsError) {
+    return `${what}\nThat name already holds a repository with history, an archived repository, or one that differs only in case. Nothing was changed. Choose another name (\`b6p marketplace list\` shows the repositories that exist).`;
+  }
+  if (err instanceof Err.GatewayRewriteInProgressError) {
+    return `${what}\nAnother change or push to that repository is under way. Nothing was changed; try again shortly.`;
   }
   if (err instanceof Err.GatewayConflictError && err.code !== null && err.code !== "non-fast-forward") {
     return `${what}\nThe gateway reports a conflict with its current state. Look at \`b6p auth token list\` / \`b6p kb list\` for what is already there, then try again.`;
@@ -146,6 +157,9 @@ export function describeGatewayError(err: unknown, context: GatewayErrorContext 
         ? "Run `b6p auth token list` to check. If b6p is now refused (`b6p kb list` fails with a token error), mint a new token in the web token page and run `b6p auth set`; otherwise rotate again."
         : "Run `b6p auth token list` to check for the alias. If it is there, revoke it (`b6p auth token revoke --tokenid <alias>`) and create it again, since its secret cannot be recovered.";
     return `${what}\n${done}${retried} ${next}`;
+  }
+  if (err instanceof Err.GatewayForgeUnavailableError) {
+    return `${what}\nThe git forge behind the gateway is unavailable. Try again later; if a repository was half-made, running the same command again finishes it.`;
   }
   if (err instanceof Err.GatewayUnavailableError && err.code === "registry-unavailable") {
     return `${what}\nThe gateway could not get an answer from web-global, which holds the registry. Try again in a minute; if it keeps failing, tell the gateway's operators.`;

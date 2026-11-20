@@ -181,6 +181,7 @@ is already public is left alone. `--json` prints `{ knowledgeBase, changed }` (`
 | Command | Purpose |
 |---|---|
 | `b6p marketplace list` | List repositories with their default branch and tags |
+| `b6p marketplace create <name> [--description <t>] [--website <url>] [--topic <t>]...` | Create an empty private repository (or adopt an empty one left by an earlier attempt) and print its clone URL; `--topic` may repeat. Super users only. Push `main` alone first, then its tags |
 | `b6p marketplace pull <name> [dir] [--ref <tag\|branch>]` | Clone a repository into a folder (default `./<name>`), or fast-forward an existing clone |
 
 A plain working clone, unrelated to any script. There is no push.
@@ -197,6 +198,7 @@ the scopes you need:
 | `kb:push` | `kb push` |
 | `kb:manage` | `kb create`, and the change in `kb set` (super users) |
 | `registry:read` | `marketplace list`, `marketplace pull` |
+| `registry:push` | `marketplace create` (fleet super users) |
 | `tokens:self` | `auth token …` |
 | `kb:rewrite` | rewriting a knowledge base's history (not a `b6p` command); mintable and rotatable here only if the token b6p uses holds it |
 
