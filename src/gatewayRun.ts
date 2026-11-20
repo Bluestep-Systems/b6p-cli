@@ -11,7 +11,7 @@ import { describeGatewayError, type GatewayErrorContext } from "./gatewayErrors"
 export async function runGateway(
   ctx: CliContext,
   body: () => Promise<void>,
-  context: Pick<GatewayErrorContext, "operation"> = {}
+  context: Pick<GatewayErrorContext, "operation" | "repo"> = {}
 ): Promise<void> {
   try {
     await body();

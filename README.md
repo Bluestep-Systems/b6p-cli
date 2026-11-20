@@ -180,9 +180,16 @@ is already public is left alone. `--json` prints `{ knowledgeBase, changed }` (`
 
 | Command | Purpose |
 |---|---|
-| `b6p marketplace list` | List repositories with their default branch and tags |
+| `b6p marketplace list` | List repositories with their default branch, tags and whether they are archived |
+| `b6p marketplace get <name>` | Show one repository: description, website, topics, archived, default branch, tags and clone URL. Finds an empty repository just created, which `list` does not |
 | `b6p marketplace create <name> [--description <t>] [--website <url>] [--topic <t>]...` | Create an empty private repository (or adopt an empty one left by an earlier attempt) and print its clone URL; `--topic` may repeat. Super users only. Push `main` alone first, then its tags |
 | `b6p marketplace pull <name> [dir] [--ref <tag\|branch>]` | Clone a repository into a folder (default `./<name>`), or fast-forward an existing clone |
+| `b6p marketplace edit <name> [--description <t>] [--website <url>] [--topic <t>]... [--clear-topics]` | Change only the options given (`--topic` replaces the topics; repeat it for several). `--description ""` and `--website ""` clear those; `--clear-topics` clears the topics. With no option it is refused. Super users only; refused while the repository is archived |
+| `b6p marketplace archive <name>` / `unarchive <name>` | Make a repository read-only (clone and fetch work; push, edit and rename are refused) or writable again. Super users only |
+| `b6p marketplace rename <name> <new-name>` | Rename; prints the new clone URL. Clones of the old URL keep working through a redirect; point one at the new URL with `git remote set-url origin <url>`. Super users only; refused while archived |
+| `b6p marketplace delete <name>` | Rename the repository to an archived tombstone `_deleted-<id>-<name>`; nothing is destroyed and the name can be created again. Asks you to type the name, or pass `--yes`. Super users only |
+| `b6p marketplace tombstones` | List deleted repositories: tombstone, original name, id, archived. Super users only |
+| `b6p marketplace purge <tombstone>` | **Irreversible**: destroys a tombstone, its history and tags with it. Asks you to type the tombstone name, or pass `--confirm-purge` (`--yes` alone never purges). Needs `registry:push`, a fleet super user and the history-manager grant |
 
 A plain working clone, unrelated to any script. There is no push.
 
@@ -197,8 +204,8 @@ the scopes you need:
 | `kb:read` | `kb list`, `kb pull` |
 | `kb:push` | `kb push` |
 | `kb:manage` | `kb create`, and the change in `kb set` (super users) |
-| `registry:read` | `marketplace list`, `marketplace pull` |
-| `registry:push` | `marketplace create` (fleet super users) |
+| `registry:read` | `marketplace list`, `marketplace get`, `marketplace pull` |
+| `registry:push` | `marketplace create`, `edit`, `archive`, `unarchive`, `rename`, `delete`, `tombstones`, `purge` (fleet super users; `purge` also needs the history-manager grant) |
 | `tokens:self` | `auth token …` |
 | `kb:rewrite` | rewriting a knowledge base's history (not a `b6p` command); mintable and rotatable here only if the token b6p uses holds it |
 
